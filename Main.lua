@@ -690,7 +690,7 @@ task.spawn(function()
     ops:exec(ops:universalScript())
 
     local placeScript = ops:placeScript()
-    if placeScript then
+    if placeScript and placeScript ~= "" then
         ops:exec(placeScript)
     end
 
