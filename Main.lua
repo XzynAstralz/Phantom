@@ -688,7 +688,12 @@ end
 
 task.spawn(function()
     ops:exec(ops:universalScript())
-    ops:exec(ops:placeScript())
+
+    local placeScript = ops:placeScript()
+    if placeScript then
+        ops:exec(placeScript)
+    end
+
     gameReady = true
 end)
 
