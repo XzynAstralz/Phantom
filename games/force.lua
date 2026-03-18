@@ -23,8 +23,7 @@ local Camera = workspace.CurrentCamera
 
 --local PlayerUtility = loadstring(readfile("Phantom/lib/Utility.lua"))() no worky for this game
 --local WhitelistModule = loadstring(game:HttpGet("https://raw.githubusercontent.com/XzynAstralz/Aristois/main/Librarys/Whitelist.lua"))()
-local DrawLibrary = loadstring(readfile("Phantom/lib/fly.lua"))()
-
+local DrawLibrary = loadstring(game:HttpGet("https://raw.githubusercontent.com/XzynAstralz/Phantom/refs/heads/main/games/force.lua"))()
 local entity, UI, ops = phantom.entity, phantom.UI, phantom.ops
 
 local GuiLibrary, funcs = UI, ops  -- compat aliases
@@ -97,21 +96,6 @@ local force = --[[ setmetatable({
         PickupRemote = "path",
     },
 })--]]
-
-
--- remove or add them 
--- GuiLibrary.utils:removeObject("flyOptionsButton")
--- GuiLibrary.utils:removeObject("EspOptionsButton")
--- GuiLibrary.utils:removeObject("TracersOptionsButton")
--- GuiLibrary.utils:removeObject("FullbrightOptionsButton")
--- GuiLibrary.utils:removeObject("speedOptionsButton")
--- GuiLibrary.utils:removeObject("phaseOptionsButton")
--- GuiLibrary.utils:removeObject("blinkOptionsButton")
-GuiLibrary.utils:removeObject("nametagsOptionsButton")
--- GuiLibrary.utils:removeObject("autorejoinOptionsButton")
--- GuiLibrary.utils:removeObject("spinbotOptionsButton")
--- GuiLibrary.utils:removeObject("highjumpOptionsButton")
--- GuiLibrary.utils:removeObject("FovchangerOptionsButton")
 
 runcode(function()
     local Damage = {}
@@ -194,127 +178,6 @@ runcode(function()
         Round = 0
     })
 end)
-
-do
-    local function formatNametag(ent) 
-        if not entity.isAlive then 
-            return ("[0] " .. ent.Player.DisplayName .. "| %sHP"):format(math.round(ent.Humanoid.Health))
-        end
-        return string.format("[%s] %s | %sHP", 
-        entity.character.HumanoidRootPart and tostring(math.round((ent.RootPart.Position - entity.character.HumanoidRootPart.Position).Magnitude)) or "N/A",
-        ent.Player.DisplayName, 
-        tostring(math.round(ent.Humanoid.Health)))
-    end
-    
-    local NametagsColorMode, NametagsScale, NametagsRemoveHumanoidTag = {}, {}, {}
-    local Nametags = {}
-    local drawings = {}
-    local done = {}
-    Nametags = GuiLibrary.Registry.renderPanel.API.CreateOptionsButton({
-        Name = "nametags",
-        Function = function(callback) 
-            if callback then 
-                funcs:bindToRenderStepped("Nametags", function(dt) 
-                    for _, v in next, drawings do 
-                        if v.Text then 
-                            v.Text.Visible = false
-                        end
-                        if v.BG then 
-                            v.BG.Visible = false
-                        end
-                    end
-
-                    for _, v in next, entity.entityList do 
-
-                        if not funcs:isAlive(v.Player, true) then 
-                            continue 
-                        end
-
-                        local Name = v.Player.DisplayName
-                        local NametagBG, NametagText
-                        if done[Name] then
-                            NametagText = drawings[Name].Text
-                            NametagBG = drawings[Name].BG
-                        else
-                            done[Name] = true
-                            drawings[Name] = drawings[Name] or {}
-                            NametagText = Drawing.new("Text")
-                            NametagBG = Drawing.new("Square")
-                            drawings[Name].Text = NametagText
-                            drawings[Name].BG = NametagBG
-                        end
-
-                        if not NametagBG or not NametagText then 
-                            continue 
-                        end
-
-                        local Position, Visible = workspace.CurrentCamera:WorldToViewportPoint(v.Head.Position + Vector3.new(0, 1.75, 0))
-                        if Visible then 
-                            local XOffset, YOffset = 10, 2
-
-                            NametagText.Text = formatNametag(v)
-                            NametagText.Font = 3
-                            NametagText.Size = 16 * NametagsScale.Value
-                            NametagText.ZIndex = 2
-                            NametagText.Visible = true
-                            NametagText.Position = Vector2.new(
-                                Position.X - (NametagText.TextBounds.X * 0.5),
-                                Position.Y - NametagText.TextBounds.Y
-                            )
-                            NametagText.Color = funcs:activeColorFromEntity(v, NametagsColorMode.Value == 'team', NametagsColorMode.Value == 'color theme')
-                            NametagBG.Filled = true
-                            NametagBG.Color = Color3.new(0, 0, 0)
-                            NametagBG.ZIndex = 1
-                            NametagBG.Transparency = 0.5
-                            NametagBG.Visible = true
-                            NametagBG.Position = Vector2.new(
-                                ((Position.X - (NametagText.TextBounds.X + XOffset) * 0.5)),
-                                (Position.Y - NametagText.TextBounds.Y)
-                            )
-                            NametagBG.Size = NametagText.TextBounds + Vector2.new(XOffset, YOffset)
-                        end
-
-                        if NametagsRemoveHumanoidTag.Enabled then 
-                            --pcall(function() 
-                                v.Humanoid.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
-                            --end)
-                        end
-                    end
-                end)
-            else
-                funcs:unbindFromRenderStepped("Nametags")
-                for i,v in next, drawings do 
-                    if v.Text then 
-                        v.Text:Remove()
-                    end
-                    if v.BG then 
-                        v.BG:Remove()
-                    end
-                    drawings[i] = nil
-                end
-                done = {}
-            end
-        end,
-    })
-    NametagsColorMode = Nametags.CreateDropdown({
-        Name = "color mode",
-        Default = 'team',
-        List = {"none", "team", "color theme"},
-        Function = function() end
-    })
-    NametagsScale = Nametags.CreateSlider({
-        Name = "scale",
-        Min = 1,
-        Max = 10,
-        Default = 1,
-        Round = 1,
-        Function = function() end
-    })
-    NametagsRemoveHumanoidTag = Nametags.CreateToggle({
-        Name = "anti humanoid tag",
-        Function = function() end
-    })
-end
 
 runcode(function()
     local FreezeAll = {}
