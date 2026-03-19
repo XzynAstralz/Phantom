@@ -53,18 +53,35 @@ function Loader.exec(path)
 end
 
 function Loader.fetchIcon(name)
-    local path = "Phantom/assets/icons/" .. name .. ".png"
+    local iconPath = "Phantom/assets/icons/" .. name .. ".png"
+    local bgPath = "Phantom/assets/background.png"
 
-    if getgenv().developerMode then
-		 if isfile(path) then
-            return getcustomasset(path)
+    if not isfolder("Phantom/assets/icons") then
+        makefolder("Phantom/assets/icons")
+    end
+    if not isfolder("Phantom/assets") then
+        makefolder("Phantom/assets")
+    end
+
+    if isfile(iconPath) then
+        return getcustomasset(iconPath)
+    end
+
+    local data = Loader.fetch("assets/icons/" .. name .. ".png")
+    if data then
+        writefile(iconPath, data)
+        return getcustomasset(iconPath)
+    end
+
+    if not isfile(bgPath) then
+        local bgData = game:HttpGet("https://raw.githubusercontent.com/XzynAstralz/Phantom/refs/heads/main/assets/background.png")
+        if bgData then
+            writefile(bgPath, bgData)
         end
-	else
-        local data = Loader.fetch("assets/icons/" .. name .. ".png")
-        if data then
-            writefile(path, data)
-            return getcustomasset(path)
-        end
+    end
+
+    if isfile(bgPath) then
+        return getcustomasset(bgPath)
     end
 
     return nil
