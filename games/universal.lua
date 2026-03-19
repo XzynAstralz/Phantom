@@ -667,7 +667,7 @@ runcode(function()
                     if ColorDropdown.Value == "custom" then
                         breadcrumbTrail.Color = ColorSequence.new(colors.color1:Lerp(colors.color2, tick() % 5 / 5),colors.color1:Lerp(colors.color2, tick() % 5 / 5))
                     elseif ColorDropdown.Value == "lib" then
-                        breadcrumbTrail.Color = ColorSequence.new(lib.utils:activeColor(), lib.utils:activeColor())
+                        breadcrumbTrail.Color = ColorSequence.new(lib.kit:activeColor(), lib.kit:activeColor())
                     end
                     
                     breadcrumbTrail.Lifetime = Lifetime.Value
