@@ -816,8 +816,8 @@ function Spectrum.window(cfg)
             Knob.Name             = "Knob"; Knob.Parent = Track
             Knob.AnchorPoint      = Vector2.new(0, 0.5)
             Knob.BackgroundColor3 = P.HUE; Knob.BorderSizePixel = 0
-            Knob.Position         = UDim2.fromScale(-0.1, 0.5)
-            Knob.Size             = UDim2.new(0, 9, 0, 9)
+            Knob.Position         = UDim2.fromScale(0.1, 0.5)
+            Knob.Size             = UDim2.new(0, 8.7, 0, 8.7)
             Knob.Text             = ""; Knob.AutoButtonColor = false
             mkCorner(Knob, UDim.new(1, 0))
 
@@ -836,9 +836,9 @@ function Spectrum.window(cfg)
                     trackEdge.Color        = P.EDGE
                     SwitchLabel.TextColor3 = P.INK_MID
                     if not skipAnim then
-                        Knob:TweenPosition(UDim2.fromScale(-0.1, 0.5), "Out", "Quad", 0.15, true)
+                        Knob:TweenPosition(UDim2.fromScale(0.13, 0.5), "Out", "Quad", 0.15, true)
                     else
-                        Knob.Position = UDim2.fromScale(-0.1, 0.5)
+                        Knob.Position = UDim2.fromScale(0.1, 0.5)
                     end
                 else
                     sw.Enabled                 = true
@@ -847,9 +847,9 @@ function Spectrum.window(cfg)
                     Knob.BackgroundColor3      = P.HUE
                     SwitchLabel.TextColor3     = P.INK_HI
                     if not skipAnim then
-                        Knob:TweenPosition(UDim2.fromScale(0.58, 0.5), "Out", "Quad", 0.15, true)
+                        Knob:TweenPosition(UDim2.fromScale(0.5, 0.5), "Out", "Quad", 0.15, true)
                     else
-                        Knob.Position = UDim2.fromScale(0.58, 0.5)
+                        Knob.Position = UDim2.fromScale(0.5, 0.5)
                     end
                 end
                 if cfg3.Function then task.spawn(cfg3.Function, sw.Enabled) end
