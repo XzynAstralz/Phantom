@@ -51,18 +51,21 @@ function Loader.exec(path)
 end
 
 function Loader.fetchIcon(name)
-	local path = "Phantom/assets/icons/" .. name .. ".png"
-	if isfile(path) then
-		return getcustomasset(path)
-	end
-	if not getgenv().developerMode then
-		local data = Loader.fetch("assets/icons/" .. name .. ".png")
-		if data then
-			writefile(path, data)
-			return getcustomasset(path)
-		end
-	end
-	return nil
+    local path = "Phantom/assets/icons/" .. name .. ".png"
+
+    if not getgenv().developerMode then
+        local data = Loader.fetch("assets/icons/" .. name .. ".png")
+        if data then
+            writefile(path, data)
+            return getcustomasset(path)
+        end
+    else
+        if isfile(path) then
+            return getcustomasset(path)
+        end
+    end
+
+    return nil
 end
 
 local patcherSrc = Loader.loadScript("Phantom/lib/patcher.lua")
