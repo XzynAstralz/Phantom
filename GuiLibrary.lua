@@ -13,6 +13,7 @@ local P = {
     INK_MID    = Color3.fromRGB(150, 153, 168),
     INK_LOW    = Color3.fromRGB( 84,  87, 108),
     INK_BETA   = Color3.fromRGB( 42, 182, 192),
+    INK_NEW    = Color3.fromRGB( 189, 111, 255),
     STATE_ON   = Color3.fromRGB( 68, 192,  82),
     STATE_OFF  = Color3.fromRGB(212,  60,  65),
     CAUTION    = Color3.fromRGB(212, 168,  27),
@@ -625,6 +626,18 @@ function Spectrum.window(cfg)
             Badge.Size               = UDim2.new(0, 28, 0, 14)
             Badge.Font               = Enum.Font.GothamBold; Badge.Text = "Beta"
             Badge.TextColor3         = P.INK_BETA; Badge.TextSize = 9
+            Badge.TextXAlignment     = Enum.TextXAlignment.Right; Badge.ZIndex = 3
+        end
+
+        if cfg2.New then
+            local Badge = Instance.new("TextLabel")
+            Badge.Name               = "New"; Badge.Parent = Row
+            Badge.BackgroundTransparency = 1; Badge.BorderSizePixel = 0
+            Badge.AnchorPoint        = Vector2.new(1, 0.5)
+            Badge.Position           = UDim2.new(1, -6, 0.5, 0)
+            Badge.Size               = UDim2.new(0, 28, 0, 14)
+            Badge.Font               = Enum.Font.GothamBold; Badge.Text = "New"
+            Badge.TextColor3         = P.INK_NEW; Badge.TextSize = 9
             Badge.TextXAlignment     = Enum.TextXAlignment.Right; Badge.ZIndex = 3
         end
 

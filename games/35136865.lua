@@ -118,8 +118,7 @@ runcode(function()
 
     local function attack(entity)
         if entity and swordtype then
-            local args = {swordtype, entity}
-            ReplicatedStorage.Remotes.ItemsRemotes.SwordHit:FireServer(unpack(args))
+            ReplicatedStorage.Remotes.ItemsRemotes.SwordHit:FireServer(unpack({swordtype, entity}))
         end
     end
 
@@ -149,6 +148,7 @@ runcode(function()
                 print(swordtype)
                 data.Attacking = true
                 data.attackingEntity = entity
+                print("attacking")
                 attack(entity)
 
                 for i, v in ipairs(adornments) do
@@ -158,7 +158,7 @@ runcode(function()
                     local eh = ec and ec:FindFirstChildOfClass("Humanoid")
                     v.Adornee = (ShowTarget.Enabled and eh and eh.Health > 0 and er) or nil
                 end
-            end)
+            end, 0.1)
         end
     })
     Distance = Killaura.CreateSlider({
