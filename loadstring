@@ -1,2 +1,6 @@
-getgenv().developer = true
+--[[
+    getgenv().developerMode = true
+    customs, etc, devs
+]]
+
 loadstring(game:HttpGet("https://raw.githubusercontent.com/XzynAstralz/Phantom/refs/heads/main/Main.lua", true))()

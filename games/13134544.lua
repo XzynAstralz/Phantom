@@ -19,7 +19,8 @@ local CoreGui = game:GetService("CoreGui")
 local lplr = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
 
-local entity, UI, ops = phantom.entity, phantom.UI, phantom.ops
+local phantom = getgenv().phantom
+local entity, UI, ops = phantom.UI, phantom.ops
 local GuiLibrary, funcs = UI, ops
 local createNotification = GuiLibrary.toast
 
