@@ -1,3 +1,4 @@
+getgenv().developer = false
 repeat task.wait() until game:IsLoaded()
 
 local GITHUB_RAW = "https://raw.githubusercontent.com/XzynAstralz/Phantom/main"
@@ -32,16 +33,16 @@ end
 local patcherSrc = fetchGitHub("lib/patcher.lua")
 if patcherSrc then loadstring(patcherSrc)() end
 
-local bootTick          = tick()
-local queueteleport     = queue_for_teleport or queue_on_teleport or queueonteleport
-local UIS               = game:GetService("UserInputService")
-local ts                = game:GetService("TweenService")
-local RunService        = game:GetService("RunService")
-local HttpService       = game:GetService("HttpService")
+local bootTick = tick()
+local queueteleport = queue_for_teleport or queue_on_teleport or queueonteleport
+local UIS = game:GetService("UserInputService")
+local ts = game:GetService("TweenService")
+local RunService = game:GetService("RunService")
+local HttpService = game:GetService("HttpService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local TextChatService   = game:GetService("TextChatService")
-local Players           = game:GetService("Players")
-local lplr              = Players.LocalPlayer
+local TextChatService = game:GetService("TextChatService")
+local Players = game:GetService("Players")
+local lplr = Players.LocalPlayer
 
 local placeOverrides = {}
 do
@@ -72,11 +73,19 @@ local ops = {}; do
     end
 
     function ops:placeScript()
-        return ops:load("games/" .. ops:placeKey() .. ".lua") or ""
+        local path = "Phantom/games/" .. ops:placeKey() .. ".lua"
+        if getgenv().developer and isfile(path) then
+            return readfile(path)
+        end
+        return getgenv().developer and "" or (fetchGitHub("games/" .. ops:placeKey() .. ".lua") or "")
     end
 
     function ops:universalScript()
-        return ops:load("games/universal.lua") or ""
+        local path = "Phantom/games/universal.lua"
+        if getgenv().developer then
+            return readfile(path)
+        end
+        return getgenv().developer and "" or (fetchGitHub("games/universal.lua") or "")
     end
 
     function ops:exec(code)
