@@ -24,7 +24,7 @@ local GuiLibrary, funcs = UI, ops
 local createNotification = GuiLibrary.toast
 
 local RunLoops = {RenderStepTable = {}, StepTable = {}, HeartTable = {}}
-local PlayerUtility = loadstring(readfile("Phantom/lib/UniversalUtility.lua"))()
+local PlayerUtility = loadstring(game:HttpGet("https://raw.githubusercontent.com/XzynAstralz/Phantom/refs/heads/main/lib/Utility.lua"))()
 
 local function BindToLoop(loopTable, loopEvent, name, func)
     if loopTable[name] then
