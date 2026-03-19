@@ -12,3 +12,4 @@ cache
 *.zip
 .vscode
 configs
+config
