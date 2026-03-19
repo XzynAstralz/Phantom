@@ -15,7 +15,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Zip files
+        run: zip -r Phantom.zip . -x "*.git*"
+
       - name: Create Release
+        id: create_release
         uses: actions/create-release@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -25,3 +29,13 @@ jobs:
           body: ${{ github.event.head_commit.message }}
           draft: false
           prerelease: false
+
+      - name: Upload Asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./Phantom.zip
+          asset_name: Phantom.zip
+          asset_content_type: application/zip
