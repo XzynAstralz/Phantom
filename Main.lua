@@ -2,6 +2,16 @@ repeat task.wait() until game:IsLoaded()
 
 local GITHUB_RAW = "https://raw.githubusercontent.com/XzynAstralz/Phantom/main"
 
+do
+    local required = {"cache", "configs", "config", "assets/icons"}
+    for _, v in listfiles("Phantom") do
+        local name = string.reverse(string.split(string.reverse(v), "\\")[1])
+        local idx  = table.find(required, name)
+        if idx then table.remove(required, idx) end
+    end
+    for _, v in required do makefolder("Phantom/" .. v) end
+end
+
 local Loader = {}
 function Loader.fetch(path)
 	local ok, result = pcall(function()
