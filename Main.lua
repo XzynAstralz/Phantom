@@ -3,7 +3,7 @@ repeat task.wait() until game:IsLoaded()
 local GITHUB_RAW = "https://raw.githubusercontent.com/XzynAstralz/Phantom/main"
 
 do
-    local required = {"cache", "configs", "config", "assets", "assets/icons"}
+    local required = {"cache", "configs", "config", "assets/icons"}
     for _, v in listfiles("Phantom") do
         local name = string.reverse(string.split(string.reverse(v), "\\")[1])
         local idx  = table.find(required, name)
@@ -66,9 +66,12 @@ function Loader.fetchIcon(name)
         return getcustomasset(iconPath)
     end
 
-	Loader.fetch("assets/background.png")
-
     return nil
+end
+
+local data = Loader.fetch("assets/background.png")
+if data then
+	writefile("Phantom/assets", data)
 end
 
 local patcherSrc = Loader.loadScript("Phantom/lib/patcher.lua")
