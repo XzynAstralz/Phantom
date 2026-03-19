@@ -1,7 +1,5 @@
 repeat task.wait() until game:IsLoaded()
 
-local GITHUB_RAW = "https://raw.githubusercontent.com/XzynAstralz/Phantom/main"
-
 do
     local required = {"cache", "configs", "config", "assets/icons"}
     for _, v in listfiles("Phantom") do
@@ -13,29 +11,13 @@ do
 end
 
 local Loader = {}
-function Loader.fetch(path)
-	local ok, result = pcall(function()
-		return game:HttpGet(GITHUB_RAW .. "/" .. path)
-	end)
-	if ok and result and result ~= "" then
-		return result
-	end
-	warn("[phantom] fetch failed: " .. path)
-	return nil
-end
 
 function Loader.loadScript(path)
-	if getgenv().developerMode then
-		if isfile(path) then
-			return readfile(path)
-		end
-		warn("[phantom] local file missing: " .. path)
-		return nil
-	else
-		Loader.fetch(path)
+	if isfile(path) then
+		return readfile(path)
 	end
-
-	return src
+	warn("[phantom] local file missing: " .. path)
+	return nil
 end
 
 function Loader.exec(path)
@@ -53,25 +35,12 @@ function Loader.exec(path)
 end
 
 function Loader.fetchIcon(name)
-    local iconPath = "Phantom/assets/icons/" .. name .. ".png"
-    local bgPath = "Phantom/assets/background.png"
-
-    if isfile(iconPath) then
-        return getcustomasset(iconPath)
-    end
-
-    local data = Loader.fetch("assets/icons/" .. name .. ".png")
-    if data then
-        writefile(iconPath, data)
-        return getcustomasset(iconPath)
-    end
-
-    return nil
-end
-
-local data = Loader.fetch("assets/background.png")
-if data then
-	writefile("Phantom/assets", data)
+	local iconPath = "Phantom/assets/icons/" .. name .. ".png"
+	if isfile(iconPath) then
+		return getcustomasset(iconPath)
+	end
+	warn("[phantom] icon missing: " .. iconPath)
+	return nil
 end
 
 local patcherSrc = Loader.loadScript("Phantom/lib/patcher.lua")
@@ -290,12 +259,7 @@ if phantom      then return warn("[phantom] already loaded.") end
 
 local guiLibSrc = Loader.loadScript("Phantom/GuiLibrary.lua")
 if not guiLibSrc or guiLibSrc == "" then
-	if not getgenv().developerMode then
-		guiLibSrc = Loader.fetch("GuiLibrary.lua")
-	end
-	if not guiLibSrc or guiLibSrc == "" then
-		return warn("[phantom] failed to load GuiLibrary")
-	end
+	return warn("[phantom] failed to load GuiLibrary")
 end
 
 UI = loadstring(guiLibSrc)()
@@ -339,7 +303,7 @@ ReinjectButton = tabs.other.CreateOptionsButton({
 			if src and src ~= "" then
 				loadstring(src)()
 			else
-				warn("[phantom] failed to reinject")
+				warn("[phantom] failed to reinject: Phantom/Main.lua not found")
 			end
 		end
 	end,
@@ -691,17 +655,10 @@ UI.kit:track(lplr.OnTeleport:Connect(function(State)
 	if State and queueteleport and not tpQueued then
 		tpQueued = true
 		writefile("Phantom/cache/lastPlace", tostring(game.PlaceId))
-		if getgenv().developerMode then
-			queueteleport([[
-				ranTeleport = true
-				loadstring(readfile("Phantom/Main.lua"))()
-			]])
-		else
-			queueteleport(([[
-				ranTeleport = true
-				loadstring(game:HttpGet("%s/Main.lua"))()
-			]]):format(GITHUB_RAW))
-		end
+		queueteleport([[
+			ranTeleport = true
+			loadstring(readfile("Phantom/Main.lua"))()
+		]])
 		ops:pushState()
 	end
 end))
