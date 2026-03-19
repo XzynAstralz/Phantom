@@ -1,3 +1,14 @@
+
+
+--[[
+    --------------------------------------------------------------
+    -------------------------------------------------------------
+    https://www.roblox.com/games/71480482338212/BedFight
+    -------------------------------------------------------------
+    -------------------------------------------------------------
+--]]
+
+
 repeat task.wait() until game:IsLoaded()
 
 local getcustomasset = getsynasset or getcustomasset
@@ -71,12 +82,9 @@ local runcode = function(func)
     return func()
 end
 
-print(UI.kit)
 for _, v in ipairs({"Antideath", "Gravity", "ESP", "AntiFall", "TriggerBot", "AimAssist", "BreadCrumbs"}) do
     UI.kit:deregister(v .. "Module")
 end
-
-
 
 local foundSwords = {}
 
@@ -95,16 +103,6 @@ local function GetSword()
         if m then foundSwords.Sword = m.Name end
     end
     return foundSwords.Sword
-end
-
-local function IsSwordEquipped()
-    local chr = lplr.Character
-    local name = GetSword()
-    if not chr or not name then return false end
-    for _, item in ipairs(chr:GetChildren()) do
-        if item.Name == name and item:IsA("Tool") then return true end
-    end
-    return false
 end
 
 local Distance = {Value = 21}
@@ -195,138 +193,4 @@ runcode(function()
             end
         end,
     })
-    LegitAura = Killaura.CreateToggle({
-        Name = "Semi",
-        Default = true,
-    })
 end)
-
---[[runcode(function()
-    local lastBowFireTime = 0
-    local firing = false
-    local BowCooldown = 3
-
-    local arrowSpeed = {Value = 120}
-    local distance = {Value = 100}
-    local gravityEffect = {Value = 30}
-
-    local function canshoot()
-        return tick() - lastBowFireTime >= BowCooldown
-    end
-
-    local function isVisible(entity)
-        local origin = lplr.Character.HumanoidRootPart.Position
-        local target = entity.character.HumanoidRootPart.Position
-
-        local ray = Ray.new(origin, (target - origin))
-        local hit = workspace:FindPartOnRay(ray, lplr.Character)
-
-        return hit == nil or hit:IsDescendantOf(entity.character)
-    end
-
-    local function avoidParts(entity, position)
-        local origin = lplr.Character.HumanoidRootPart.Position
-        local ray = Ray.new(origin, (position - origin))
-
-        local hit, hitPos = workspace:FindPartOnRay(ray, lplr.Character)
-        if hit and not hit:IsDescendantOf(entity.character) then
-            return hitPos + (hit.Position - hitPos).Unit * 5
-        end
-
-        return position
-    end
-
-    local function setup()
-        if lplr.Character then
-            lplr.Character:WaitForChild("Humanoid").Died:Connect(function()
-                firing = false
-            end)
-        end
-    end
-
-    setup()
-    lplr.CharacterAdded:Connect(function(character)
-        character:WaitForChild("Humanoid").Died:Connect(function()
-            firing = false
-        end)
-        setup()
-    end)
-
-    local function predictPosition(entity)
-        local root = entity.character.HumanoidRootPart
-        local myRoot = lplr.Character.HumanoidRootPart
-
-        local targetPosition = root.Position
-        local flightTime = (targetPosition - myRoot.Position).Magnitude / arrowSpeed.Value
-
-        local predicted = targetPosition
-            + (root.Velocity * flightTime)
-            + (0.5 * Vector3.new(0, gravityEffect.Value, 0) * flightTime^2)
-
-        return avoidParts(entity, predicted)
-    end
-
-    local ProjectileAura = GuiLibrary.Registry.combatPanel.API.CreateOptionsButton({
-        Name = "ProjectileAura",
-        Function = function(callback)
-            if callback then
-                RunLoops:BindToHeartbeat("ProjectileAura", function()
-                    local entities = PlayerUtility.GetNearestEntities(distance.Value, false, false)
-                    local nearest = entities[1]
-
-                    if not nearest then return end
-
-                    if nearest.character:FindFirstChild("ForceField") then return end
-
-                    if not isVisible(nearest) then return end
-
-                    if canshoot() and not firing then
-                        firing = true
-                        
-                        print("work")
-                        lplr.Character:WaitForChild("DefaultBow"):WaitForChild("__comm__"):WaitForChild("RF"):WaitForChild("Fire"):InvokeServer(
-                            predictPosition(nearest),
-                            math.huge
-                        )
-
-                        lastBowFireTime = tick()
-                        task.wait(0.25)
-                        firing = false
-                    end
-                end)
-            else
-
-            end
-        end
-    })
-    ProjectileAura.CreateSlider({
-        Name = "distance",
-        Min = 1,
-        Max = 100,
-        Default = 100,
-        Round = 1,
-        Function = function(Value)
-            distance.Value = Value
-        end
-    })
-    ProjectileAura.CreateSlider({
-        Name = "arrowSpeed",
-        Min = 1,
-        Max = 300,
-        Default = 120,
-        Round = 1,
-        Function = function(Value)
-            arrowSpeed.Value = Value
-        end
-    })
-    ProjectileAura.CreateSlider({
-        Name = "gravityEffect",
-        Min = 1,
-        Max = 196,
-        Default = 30,
-        Round = 1,
-        Function = function(Value)
-            gravityEffect.Value = Value
-        end
-    })
-end)--]]
