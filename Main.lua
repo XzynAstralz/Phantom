@@ -66,9 +66,12 @@ function Loader.fetchIcon(name)
         return getcustomasset(iconPath)
     end
 
-	Loader.fetch("assets/background.png")
-
     return nil
+end
+
+local data = Loader.fetch("assets/background.png")
+if data then
+	writefile("Phantom/assets", data)
 end
 
 local patcherSrc = Loader.loadScript("Phantom/lib/patcher.lua")
