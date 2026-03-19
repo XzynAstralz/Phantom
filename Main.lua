@@ -31,18 +31,10 @@ function Loader.loadScript(path)
 		end
 		warn("[phantom] local file missing: " .. path)
 		return nil
+	else
+		Loader.fetch(path)
 	end
 
-	if isfile(path) then
-		return readfile(path)
-	end
-
-	local remotePath = path:gsub("Phantom/", ""):gsub("Phantom\\", "")
-	local src = Loader.fetch(remotePath)
-	if src then
-		makefolder(path:match("^(.*[/\\])") or "")
-		writefile(path, src)
-	end
 	return src
 end
 
@@ -63,14 +55,14 @@ end
 function Loader.fetchIcon(name)
     local path = "Phantom/assets/icons/" .. name .. ".png"
 
-    if not getgenv().developerMode then
+    if getgenv().developerMode then
+		 if isfile(path) then
+            return getcustomasset(path)
+        end
+	else
         local data = Loader.fetch("assets/icons/" .. name .. ".png")
         if data then
             writefile(path, data)
-            return getcustomasset(path)
-        end
-    else
-        if isfile(path) then
             return getcustomasset(path)
         end
     end
