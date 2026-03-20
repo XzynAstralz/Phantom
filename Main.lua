@@ -410,6 +410,50 @@ end)
 local featureList = {Line = {}}
 local sortMode, LineToggle = {}, {}
 
+local buildLine = function(lbl, v)
+	local oldLine = lbl:FindFirstChild("Line")
+	if oldLine then
+		for i = #featureList.Line, 1, -1 do
+			if featureList.Line[i] == oldLine then
+				table.remove(featureList.Line, i); break
+			end
+		end
+		oldLine:Destroy()
+	end
+
+	local line = Instance.new("Frame")
+	line.Name             = "Line"; line.Parent = lbl
+	line.BackgroundColor3 = UI.kit:activeColor()
+	line.BorderSizePixel  = 0
+	line.AnchorPoint      = Vector2.new(0, 0.5)
+
+	if v == "Line" then
+		line.Size     = UDim2.new(0, 3.7, 1, 0)
+		line.Position = UDim2.new(1.01, 0, 0.56, 0)
+	elseif v == "Striped" then
+		line.Size     = UDim2.new(0, 3.7, 0.7, 0)
+		line.Position = UDim2.new(1.01, 0, 0.56, 0)
+		local corner = Instance.new("UICorner")
+		corner.CornerRadius = UDim.new(1, 0)
+		corner.Parent = line
+	elseif v == "Dot" then
+		line.Size     = UDim2.new(0, 6, 0, 6)
+		line.Position = UDim2.new(1.01, 0, 0.56, 0)
+		local dotCorner = Instance.new("UICorner")
+		dotCorner.CornerRadius = UDim.new(1, 0)
+		dotCorner.Parent = line
+	else
+		line.Size     = UDim2.new(0, 3.7, 1, 0)
+		line.Position = UDim2.new(1.01, 0, 0.56, 0)
+	end
+
+	line.Visible = (LineToggle and LineToggle.Enabled or false) and (v ~= "None")
+	table.insert(featureList.Line, line)
+	UI.kit:track(UI.PaletteSync:Bind(function()
+		line.BackgroundColor3 = UI.kit:activeColor()
+	end))
+end
+
 do
 	local ArrayList = featureListWindow.new("Frame")
 	ArrayList.Name                   = "ArrayList"
@@ -452,41 +496,48 @@ do
 	function featureList.handleEntry(name, ExtraText, enabled, wasKeyDown, windowname)
 		if windowname == "renderPanel" or windowname == "otherPanel" then return end
 		featureList.Objects = featureList.Objects or {}
+
+		if not enabled then
+			local existing = featureList.Objects[name]
+			if existing then
+				local existingLine = existing:FindFirstChild("Line")
+				if existingLine then
+					for i = #featureList.Line, 1, -1 do
+						if featureList.Line[i] == existingLine then
+							table.remove(featureList.Line, i); break
+						end
+					end
+				end
+				existing:Destroy()
+				featureList.Objects[name] = nil
+			end
+			return
+		end
+
 		local lbl = featureList.Objects[name] or Instance.new("TextLabel")
-		lbl.Name   = "ArrayListModule"; lbl.Parent = ArrayList
+		lbl.Name               = "ArrayListModule"; lbl.Parent = ArrayList
 		lbl.BackgroundTransparency = 1
-		lbl.Position  = UDim2.new(0, 0, 0.151490679, 0); lbl.Size = UDim2.new(0, 601, 0.0556832382, 0)
-		lbl.Font      = Enum.Font.GothamSemibold; lbl.RichText = true
-		lbl.Text      = name .. (ExtraText and ExtraText ~= "" and
+		lbl.Position           = UDim2.new(0, 0, 0.151490679, 0); lbl.Size = UDim2.new(0, 601, 0.0556832382, 0)
+		lbl.Font               = Enum.Font.GothamSemibold; lbl.RichText = true
+		lbl.Text               = name .. (ExtraText and ExtraText ~= "" and
 			' <font color="rgb(200,200,200)">[' .. ExtraText .. ']</font>' or "")
-		lbl.TextColor3 = UI.kit:objectColor(lbl)
+		lbl.TextColor3         = UI.kit:objectColor(lbl)
 		UI.kit:track(UI.PaletteSync:Bind(function()
 			lbl.TextColor3 = UI.kit:objectColor(lbl)
 		end))
-		lbl.TextScaled            = true; lbl.TextStrokeTransparency = 0.5
-		lbl.TextWrapped           = true; lbl.TextXAlignment = Enum.TextXAlignment.Right
+		lbl.TextScaled         = true; lbl.TextStrokeTransparency = 0.5
+		lbl.TextWrapped        = true; lbl.TextXAlignment = Enum.TextXAlignment.Right
 		featureList.Objects[name] = lbl
 
-		local line = Instance.new("Frame")
-		line.Name             = "Line"; line.Parent = lbl
-		line.BackgroundColor3 = UI.kit:activeColor()
-		line.Size             = UDim2.new(0, 5, 1, 0); line.Position = UDim2.new(1.01, 0, 0, 0)
-		line.BorderSizePixel  = 0; line.Visible = LineToggle.Enabled
-		table.insert(featureList.Line, line)
-		UI.kit:track(UI.PaletteSync:Bind(function()
-			line.BackgroundColor3 = UI.kit:activeColor()
-		end))
-
-		if not enabled then
-			lbl:Destroy(); featureList.Objects[name] = nil; return
-		end
+		buildLine(lbl, (lineMode and lineMode.Value) or "Line")
 
 		local children = ArrayList:GetChildren()
 		table.sort(children, function(a, b)
 			if not a:IsA("TextLabel") then return false end
 			if not b:IsA("TextLabel") then return true  end
-			if sortMode.Value == "Alphabetical" then return a.Text < b.Text end
-			if sortMode.Value == "Size"         then return a.TextBounds.X > b.TextBounds.X end
+			if sortMode and sortMode.Value == "Alphabetical" then return a.Text < b.Text end
+			if sortMode and sortMode.Value == "Size"         then return a.TextBounds.X > b.TextBounds.X end
+			return false
 		end)
 		for i, v in next, children do
 			if v.Name:find("Watermark") then
@@ -513,10 +564,21 @@ featureListWindow.CreateSlider({
 sortMode = featureListWindow.CreateDropdown({
 	Name = "mode", List = {"Alphabetical", "Size"}, Default = "Size",
 })
+lineMode = featureListWindow.CreateDropdown({
+	Name = "mode", List = {"None", "Line", "Striped", "Dot"}, Default = "Line",
+	Function = function(v)
+		for _, lbl in pairs(featureList.Objects or {}) do
+			buildLine(lbl, v)
+		end
+	end,
+})
 LineToggle = featureListWindow.CreateToggle({
 	Name = "Line", Default = true,
 	Function = function(on)
-		for _, ln in pairs(featureList.Line) do ln.Visible = on end
+		local currentLineMode = (lineMode and lineMode.Value) or "Line"
+		for _, ln in pairs(featureList.Line) do
+			ln.Visible = on and (currentLineMode ~= "None")
+		end
 	end,
 })
 featureListWindow.CreateToggle({
