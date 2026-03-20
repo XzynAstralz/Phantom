@@ -235,6 +235,8 @@ runcode(function()
     local lastHealth = {}
     local currentTarget
 
+    local swordsModule = require(ReplicatedStorage.Modules.DataModules.SwordsData)
+
     Killaura = GuiLibrary.Registry.combatPanel.API.CreateOptionsButton({
         Name = "Killaura",
         Beta = true,
@@ -250,11 +252,18 @@ runcode(function()
                     local char = nearest[1].character
                     local humanoid = char and char:FindFirstChildOfClass("Humanoid")
                     local root = char and char:FindFirstChild("HumanoidRootPart")
+
                     swordtype = getsword()
                     if not (humanoid and root and swordtype and itmEqu(swordtype)) then return end
-                    data.Attacking, data.attackingEntity = true, char
+
+                    local swordData = swordsModule[swordtype]
 
                     local serverTime = workspace:GetServerTimeNow()
+                    local ping = lplr:GetNetworkPing() * 2
+
+                    local animCooldown = swordData.AnimationCooldown or 0.1
+                    local damageCooldown = swordData.DamageCooldown or 0.3
+                    local delay = math.max(animCooldown, ping * 0.5)
 
                     if currentTarget ~= humanoid then
                         currentTarget = humanoid
@@ -268,31 +277,18 @@ runcode(function()
                         lastDamage[humanoid] = serverTime
                     end
                     lastHealth[humanoid] = hp
+
                     if FacePlayer.Enabled and not LongFly.Enabled then
                         lplr.Character.PrimaryPart.CFrame = CFrame.lookAt(lplr.Character.HumanoidRootPart.Position, Vector3.new(root.Position.X, lplr.Character.HumanoidRootPart.Position.Y, root.Position.Z))
                     end
-                    lplr.Character.PrimaryPart.CFrame = CFrame.lookAt(lplr.Character.HumanoidRootPart.Position, Vector3.new(root.Position.X, lplr.Character.HumanoidRootPart.Position.Y, root.Position.Z))
-
-                    if (lastDamage[humanoid] == 0 and lastAttack[humanoid] == 0) or (lastDamage[humanoid] and serverTime - lastDamage[humanoid] >= 0.1) then
-
-                        if serverTime - lastAttack[humanoid] >= 0.1 then
-                            lastAttack[humanoid] = serverTime
-
-                            if Swing.Enabled then
-                                lplr.Character.Humanoid:FindFirstChild("Animator"):LoadAnimation(
-                                    (function(a)
-                                        a.AnimationId = "rbxassetid://123800159244236"
-                                        return a
-                                    end)(Instance.new("Animation"))
-                                ):Play()
+                    if ((lastDamage[humanoid] == 0 or (serverTime - lastDamage[humanoid]) >= damageCooldown) and ((serverTime - lastAttack[humanoid]) >= delay)) then 
+                        lastAttack[humanoid] = serverTime
+                        if Swing.Enabled then
+                                local anim = Instance.new("Animation")
+                                anim.AnimationId = "rbxassetid://123800159244236"
+                                lplr.Character.Humanoid.Animator:LoadAnimation(anim):Play()
                             end
-
-                            attack(char)
-                            print(char)
-                            print(swordtype)
-                            --if FacePlayer.Enabled and not LongFly.Enabled then
-                           -- end
-                        end
+                        attack(char)
                     end
                 end)
             else
@@ -413,7 +409,7 @@ runcode(function()
 	local FlyVerticalValue = {}
 	local ProgressBar = {}
 	local extendedFly = {}
-    local lastExtendTime = 0  
+	local lastExtendTime = 0  
 	local damageBoost = {}
 	local bypass = {}
 
@@ -423,12 +419,12 @@ runcode(function()
 	local function UpdateSecondLeft(seconds)
 		SecondLeft.Text = seconds .. "s"
 	end
+    
 
 	Fly = GuiLibrary.Registry.blatantPanel.API.CreateOptionsButton({
 		Name = "Fly",
 		Function = function(callback)
 
-			local humanoidRootPart = lplr.Character:FindFirstChild("HumanoidRootPart")
 			local lastTick = os.clock()
 			local airTimer = 0
 			local i = 0
@@ -448,21 +444,15 @@ runcode(function()
 			groundParams.FilterDescendantsInstances = { char }
 			groundParams.IgnoreWater = true
 
-			local function refreshParams()
-				char = lplr.Character
-				root = char and char:FindFirstChild("HumanoidRootPart")
-				humanoid = char and char:FindFirstChildOfClass("Humanoid")
-				if char then
-					groundParams.FilterDescendantsInstances = { char }
-				end
-			end
-
 			local isOverVoid = false
 			local voidCheckTimer = 0
+			local voidGrace = 0
+			local VOID_GRACE_TIME = 0.4
+			local MAX_AIR_TIME = 0.9
 
 			if callback then
-                TweenFrame.Size = UDim2.new(0, 0, 1, 0)
-                TweenFrame.Position = UDim2.new(0, 0, 0, 0)
+				TweenFrame.Size = UDim2.new(0, 0, 1, 0)
+				TweenFrame.Position = UDim2.new(0, 0, 0, 0)
 				ScreenGui.ScreenGui.Enabled = true
 
 				RunLoops:BindToHeartbeat("Fly", function(dt)
@@ -472,41 +462,57 @@ runcode(function()
 					lastTick = currentTick
 
 					if not root or not root.Parent then
-						refreshParams()
+                        char = lplr.Character
+                        root = char and char:FindFirstChild("HumanoidRootPart")
+                        humanoid = char and char:FindFirstChildOfClass("Humanoid")
+                        if char then
+                            groundParams.FilterDescendantsInstances = { char }
+                        end
 						return
 					end
 
-                    if bypass.Enabled then
-                        airTimer = math.huge
-                    else
-                        airTimer += deltaTime
-                    end
+					if bypass.Enabled then
+						airTimer = math.huge
+					else
+						airTimer += deltaTime
+					end
 
-					local remainingTime = math.round(math.max(0.9 - airTimer, 0) * 10) / 10
+					local remainingTime = math.max(MAX_AIR_TIME - airTimer, 0)
+					remainingTime = math.round(remainingTime * 10) / 10
 					if bypass.Enabled then remainingTime = math.huge end
 
 					voidCheckTimer += deltaTime
 					if voidCheckTimer >= 0.1 then
 						voidCheckTimer = 0
-						isOverVoid = workspace:Raycast(root.Position, Vector3.new(0, -500, 0), groundParams) == nil
+						local voidRay = workspace:Raycast(root.Position, Vector3.new(0, -1000, 0), groundParams)
+						if voidRay then
+							isOverVoid = false
+							voidGrace = VOID_GRACE_TIME
+						else
+							voidGrace -= deltaTime
+							if voidGrace <= 0 then
+								isOverVoid = true
+							end
+						end
 					end
 
 					local moveDirection = (humanoid and humanoid.MoveDirection) or Vector3.zero
+					local dir = moveDirection.Magnitude > 0.1 and moveDirection.Unit or root.CFrame.LookVector
 
-                    if ProgressBar.Enabled then
-                        ScreenGui.ScreenGui.Enabled = true
-                        TweenFrame.Visible = true
-                    else
-                        ScreenGui.ScreenGui.Enabled = false
-                        TweenFrame.Visible = false
-                    end
-    
+					if ProgressBar.Enabled then
+						ScreenGui.ScreenGui.Enabled = true
+						TweenFrame.Visible = true
+					else
+						ScreenGui.ScreenGui.Enabled = false
+						TweenFrame.Visible = false
+					end
+
 					UpdateSecondLeft(remainingTime)
-                    
-                    if ScreenGui.ScreenGui.Enabled then
-                        TweenFrame:TweenSize(UDim2.new(1 - (airTimer / 2.5), 0, 1, 0), Enum.EasingDirection.InOut, Enum.EasingStyle.Linear, 0.1, true) 
-                    end
-                    
+
+					if ScreenGui.ScreenGui.Enabled then
+						TweenFrame:TweenSize(UDim2.new(1 - (airTimer / MAX_AIR_TIME), 0, 1, 0), Enum.EasingDirection.InOut, Enum.EasingStyle.Linear, 0.1, true)
+					end
+
 					root.CFrame += moveDirection * (FlyValue.Value + SpeedMultiplier()) / (1 / dt)
 
 					i += deltaTime
@@ -521,44 +527,39 @@ runcode(function()
 					end
 
 					createBodyVel()
-
 					bodyVel.MaxForce = Vector3.new(bodyVel.P, bodyVel.P, bodyVel.P)
 
-					local ray = workspace:Raycast(
-						root.Position,
-						Vector3.new(0, -math.clamp(1000 + math.abs(root.AssemblyLinearVelocity.Y) * 8, 1000, 2500), 0),
-						groundParams
-					)
+					local ray = workspace:Raycast(root.Position, Vector3.new(0, -math.clamp(1000 + math.abs(root.AssemblyLinearVelocity.Y) * 8, 1000, 2500), 0), groundParams)
 
 					if ray and ray.Distance <= height + 0.3 then
 						airTimer = 0
 						isOverVoid = false
 					end
 
-                    if descendState then
+					if descendState then
+						local check = workspace:Raycast(root.Position, Vector3.new(0, -100, 0), groundParams)
+						if not check then
+							descendState = false
+							return
+						end
+						bodyVel.Velocity = Vector3.new(0, -math.clamp((root.Position.Y - targetY) * 3, 75, 200), 0)
+						if humanoid.FloorMaterial ~= Enum.Material.Air then
+							airTimer = 0
+							descendState = false
+							ascendState = true
+						end
 
-                        bodyVel.Velocity = Vector3.new(0, -math.clamp((root.Position.Y - targetY) * 3, 75, 200), 0)
+					elseif ascendState then
+						bodyVel.Velocity = Vector3.new(0, math.clamp((originalY - root.Position.Y) * 2, 15, 60), 0)
+						if originalY - root.Position.Y <= 0.3 then
+							ascendState = false
+							airTimer = 0
+						end
+					else
+						bodyVel.Velocity = Vector3.new(0, verticalVelocity, 0)
+					end
 
-                        if humanoid.FloorMaterial ~= Enum.Material.Air then
-                            airTimer = 0
-                            descendState = false
-                            ascendState = true
-                        end
-
-                    elseif ascendState then
-
-                        bodyVel.Velocity = Vector3.new(0, math.clamp((originalY - root.Position.Y) * 2, 15, 60), 0)
-
-                        if originalY - root.Position.Y <= 0.3 then
-                            ascendState = false
-                            airTimer = 0
-                        end
-
-                    else
-                        bodyVel.Velocity = Vector3.new(0, verticalVelocity, 0)
-                    end
-
-					if moveDirection.Magnitude > 0.1 and extendedFly.Enabled and not bypass.Enabled and not descendState and not ascendState and not isOverVoid then
+					if extendedFly.Enabled and not bypass.Enabled and not descendState and not ascendState and not isOverVoid then
 
 						local vel = root.AssemblyLinearVelocity
 						local horizontalSpeed = math.max(Vector3.new(vel.X, 0, vel.Z).Magnitude, FlyValue.Value + SpeedMultiplier())
@@ -568,67 +569,59 @@ runcode(function()
 						local closestBlock = nil
 						local closestDist = math.huge
 
-						for dist = scanStep, maxScan, scanStep do
-
-							local forwardRay = workspace:Raycast(
-								root.Position + moveDirection.Unit * dist + Vector3.new(0, 10, 0),
-								Vector3.new(0, -40, 0),
-								groundParams
-							)
-
+						for dist = 2, maxScan, scanStep do
+							local origin = root.Position + dir * dist + Vector3.new(0, 6, 0)
+							local forwardRay = workspace:Raycast(origin, Vector3.new(0, -60, 0), groundParams)
 							if forwardRay then
 								local hDist = (Vector3.new(forwardRay.Position.X, 0, forwardRay.Position.Z) - Vector3.new(root.Position.X, 0, root.Position.Z)).Magnitude
-								if hDist < closestDist then
-									closestDist = hDist
-									closestBlock = forwardRay.Position
+								if math.abs(forwardRay.Position.Y - root.Position.Y) < 50 then
+									if hDist < closestDist then
+										closestDist = hDist
+										closestBlock = forwardRay.Position
+									end
 								end
 							end
 						end
 
-                        if closestBlock and not isOverVoid then
-                            local landingY = closestBlock.Y + height
-                            local dropHeight = root.Position.Y - landingY
-                            local descentSpeed = math.clamp(dropHeight * 3, 75, 200)
-                            local timeToDescend = dropHeight / descentSpeed
-                            local timeToReach = closestDist / horizontalSpeed
+						if closestBlock and not isOverVoid then
+							local horizontalDist = (Vector3.new(closestBlock.X, 0, closestBlock.Z) - Vector3.new(root.Position.X, 0, root.Position.Z)).Magnitude
+							if horizontalDist <= 35 then
+								local safetyRay = workspace:Raycast(Vector3.new(closestBlock.X, closestBlock.Y + 5, closestBlock.Z), Vector3.new(0, -100, 0), groundParams)
+								if safetyRay then
+									local landingY = closestBlock.Y + height
+									local dropHeight = root.Position.Y - landingY
+									local descentSpeed = math.clamp(dropHeight * 3, 75, 200)
+									local timeToDescend = dropHeight / descentSpeed
+									local timeToReach = closestDist / math.max(horizontalSpeed, FlyValue.Value)
 
-                            if remainingTime <= timeToReach + timeToDescend then
-                                if landingY < root.Position.Y then
-                                    local landingCheck = workspace:Raycast(
-                                        Vector3.new(closestBlock.X, closestBlock.Y + 5, closestBlock.Z),
-                                        Vector3.new(0, -500, 0),
-                                        groundParams
-                                    )
-                                    if landingCheck and (os.clock() - lastExtendTime) > 0.7 then
-                                        lastExtendTime = os.clock()
-                                        airTimer = 0
-                                        originalY = root.Position.Y
-                                        targetY = landingY
-                                        descendState = true
-                                        createNotification("Fly", "Extended time by " .. remainingTime .. "s", 4)
-                                    end
-                                end
-                            end
-                        end
+									if remainingTime <= timeToReach + timeToDescend and airTimer > 0.25 then
+										if landingY < root.Position.Y then
+											local landingCheck = workspace:Raycast(Vector3.new(closestBlock.X, closestBlock.Y + 5, closestBlock.Z), Vector3.new(0, -500, 0), groundParams)
+											if landingCheck and (os.clock() - lastExtendTime) > 0.7 then
+												lastExtendTime = os.clock()
+												airTimer = 0
+												originalY = root.Position.Y
+												targetY = landingY
+												descendState = true
+												createNotification("Fly", "Extended time by " .. remainingTime .. "s", 4)
+											end
+										end
+									end
+								end
+							end
+						end
 					end
 				end)
 			else
 				if bodyVel then
 					bodyVel.MaxForce = Vector3.new(0, 0, 0)
 				end
-				TweenFrame:TweenSize(
-					UDim2.new(0, 0, 1, 0),
-					Enum.EasingDirection.InOut,
-					Enum.EasingStyle.Linear,
-					0.1,
-					true
-				)
+				TweenFrame:TweenSize(UDim2.new(0, 0, 1, 0), Enum.EasingDirection.InOut, Enum.EasingStyle.Linear, 0.1, true)
 				ScreenGui.ScreenGui.Enabled = false
 				RunLoops:UnbindFromHeartbeat("Fly")
 			end
 		end
 	})
-
 	FlyValue = Fly.CreateSlider({
 		Name = "value",
 		Min = 0,
@@ -649,10 +642,6 @@ runcode(function()
 	})
 	extendedFly = Fly.CreateToggle({
 		Name = "ExtendedFly",
-		Default = true
-	})
-	damageBoost = Fly.CreateToggle({
-		Name = "damageBoost",
 		Default = true
 	})
 	bypass = Fly.CreateToggle({
@@ -977,6 +966,7 @@ end)
 
 runcode(function()
     local cycle, index, teams = 1, 1, {}
+    local StealAllChests = {}
     StealAllChests = GuiLibrary.Registry.utillityPanel.API.CreateOptionsButton({
         Name = "StealAllChests",
         New = true,
