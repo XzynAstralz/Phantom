@@ -667,13 +667,14 @@ runcode(function()
     local phase, noBlockTimer = "0", 0
     local GRACE_PERIOD = 0.03
     local lastActivated = 0
+    local cooldown = 0
 
     LongFly = GuiLibrary.Registry.blatantPanel.API.CreateOptionsButton({
         Name = "LongFly",
         Beta = true,
         Function = function(callback)
             if callback then
-                if os.clock() - lastActivated < 1.3 then
+                if os.clock() - lastActivated < cooldown then
                     createNotification("LongFly", "On cooldown", 2)
                     if LongFly.Enabled then LongFly.Toggle() end
                     return
@@ -699,6 +700,7 @@ runcode(function()
                 local slopeRad = math.rad(LongFlySlopeAngle.Value)
                 local flyDir = Vector3.new(lockedDir.X * math.cos(slopeRad), math.sin(slopeRad), lockedDir.Z * math.cos(slopeRad))
                 local startTime, lastTick = os.clock(), os.clock()
+                local startPos = root.Position
 
                 phase, noBlockTimer = overheadCheckEnabled and "1" or "0", 0
                 createBodyVel()
@@ -715,6 +717,8 @@ runcode(function()
                     if not root then return end
 
                     if now - startTime >= LongFlyDuration.Value then
+                        local dist = (Vector3.new(root.Position.X, 0, root.Position.Z) - Vector3.new(startPos.X, 0, startPos.Z)).Magnitude
+                        cooldown = math.clamp((dist / 50) ^ 2.8, 1, 3)
                         if bodyVel then
                             bodyVel.Velocity = Vector3.new(0, bodyVel.Velocity.Y, 0)
                             bodyVel:Destroy(); bodyVel = nil
@@ -747,6 +751,8 @@ runcode(function()
                             end
                         elseif phase == "2" then
                             if under then
+                                local dist = (Vector3.new(root.Position.X, 0, root.Position.Z) - Vector3.new(startPos.X, 0, startPos.Z)).Magnitude
+                                cooldown = math.clamp(dist / 50, 0.4, 2)
                                 if bodyVel then
                                     bodyVel.Velocity = Vector3.new(0, bodyVel.Velocity.Y, 0)
                                     bodyVel:Destroy(); bodyVel = nil
