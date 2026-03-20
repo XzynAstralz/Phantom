@@ -640,7 +640,7 @@ runcode(function()
 		Name = "vertical value",
 		Min = 0,
 		Max = 100,
-		Default = 60,
+		Default = 50,
 		Round = 1
 	})
 	ProgressBar = Fly.CreateToggle({
