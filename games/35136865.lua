@@ -178,6 +178,16 @@ local getitem = function(name, plr)
     end
 end
 
+local getTeams = function()
+    local teams = {}
+    for _, team in ipairs(Teams:GetChildren()) do
+        if team:IsA("Team") then
+            table.insert(teams, team.Name)
+        end
+    end
+    return teams
+end
+
 local getsword
 local itmEqu
 
@@ -931,5 +941,32 @@ runcode(function()
         Min = 0,
         Max = 100,
         Default = 0
+    })
+end)
+
+runcode(function()
+    local cycle, index, teams = 1, 1, {}
+    StealAllChest = GuiLibrary.Registry.utillityPanel.API.CreateOptionsButton({
+        Name = "StealAllChest",
+        Function = function(cb)
+            if cb then
+                teams, cycle, index = getTeams(), 1, 1
+                RunLoops:BindToHeartbeat("StealAllChestLoop", function()
+                    if #teams == 0 then return end
+                    if lplr.Team == "Spectators" then return end
+                    local t = teams[index]
+                    if t ~= "Spectators" then
+                        game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("TakeItemFromChest"):FireServer(t, cycle, tostring(cycle))
+                    end
+                    index += 1
+                    if index > #teams then
+                        index, cycle = 1, cycle + 1
+                        if cycle > 20 then cycle = 1 end
+                    end
+                end, 0.1)
+            else
+                RunLoops:UnbindFromHeartbeat("StealAllChestLoop")
+            end
+        end
     })
 end)
