@@ -162,7 +162,7 @@ runcode(function()
                     local eh = ec and ec:FindFirstChildOfClass("Humanoid")
                     v.Adornee = (ShowTarget.Enabled and eh and eh.Health > 0 and er) or nil
                 end
-            end)
+            end, 0.2)
         end
     })
     Distance = Killaura.CreateSlider({

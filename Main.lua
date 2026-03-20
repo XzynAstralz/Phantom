@@ -539,21 +539,85 @@ featureListWindow.CreateTextbox({
 
 do
 	local F = wmWindow.new("Frame")
-	F.BackgroundColor3 = Color3.fromRGB(27, 27, 28); F.BorderSizePixel = 0
-	F.Position = UDim2.new(0, 0, 0, 0); F.Size = UDim2.new(0, 206, 0, 32); F.ZIndex = 10
-	local divider = Instance.new("Frame"); divider.Parent = F
-	divider.BackgroundColor3 = Color3.fromRGB(81, 81, 82); divider.BorderSizePixel = 0
-	divider.Position = UDim2.new(0.16, 0, 0.031, 0); divider.Size = UDim2.new(0, 2, 0, 31)
-	local uc = Instance.new("UICorner"); uc.CornerRadius = UDim.new(0, 11); uc.Parent = F
-	local lbl = Instance.new("TextLabel"); lbl.Parent = F
-	lbl.BackgroundTransparency = 1; lbl.BorderSizePixel = 0
-	lbl.Position = UDim2.new(0.1898, 0, 0.03125, 0); lbl.Size = UDim2.new(0, 164, 0, 31)
-	lbl.Font = Enum.Font.Roboto; lbl.Text = "Phantom 2.20 (rel-188)"
-	lbl.TextColor3 = Color3.fromRGB(160, 160, 161); lbl.TextSize = 17; lbl.RichText = true
-	local img = Instance.new("ImageLabel"); img.Parent = F
-	img.BackgroundTransparency = 1; img.BorderSizePixel = 0
-	img.Position = UDim2.new(0.04, 0, 0.141, 0); img.Size = UDim2.new(0, 20, 0, 22)
+	F.BackgroundColor3 = Color3.fromRGB(17, 17, 19)
+	F.BorderSizePixel = 0
+	F.Position = UDim2.new(0, 0, 0, 0)
+	F.Size = UDim2.new(0, 148, 0, 24)
+	F.ZIndex = 10
+	local uc = Instance.new("UICorner")
+	uc.CornerRadius = UDim.new(0, 12)
+	uc.Parent = F
+	local stroke = Instance.new("UIStroke")
+	stroke.Transparency = 0.55
+	stroke.Thickness = 1
+	stroke.Parent = F
+	local img = Instance.new("ImageLabel")
+	img.Parent = F
+	img.BackgroundTransparency = 1
+	img.BorderSizePixel = 0
+	img.Position = UDim2.new(0, 6, 0.5, -7)
+	img.Size = UDim2.new(0, 13, 0, 14)
 	img.Image = "rbxassetid://80499963022356"
+	img.ImageColor3 = Color3.fromRGB(124, 100, 255)
+	local lblName = Instance.new("TextLabel")
+	lblName.Parent = F
+	lblName.BackgroundTransparency = 1
+	lblName.Position = UDim2.new(0, 23, 0.5, -7)
+	lblName.Size = UDim2.new(0, 58, 0, 14)
+	lblName.Font = Enum.Font.GothamBold
+	lblName.Text = "Phantom"
+	lblName.TextColor3 = Color3.fromRGB(190, 190, 205)
+	lblName.TextSize = 11
+	lblName.TextXAlignment = Enum.TextXAlignment.Left
+	local lblVer = Instance.new("TextLabel")
+	lblVer.Parent = F
+	lblVer.BackgroundTransparency = 1
+	lblVer.Position = UDim2.new(0, 74, 0.5, -7)
+	lblVer.Size = UDim2.new(0, 22, 0, 14)
+	lblVer.Font = Enum.Font.Gotham
+	lblVer.Text = "2.20"
+	lblVer.TextColor3 = Color3.fromRGB(95, 95, 140)
+	lblVer.TextSize = 11
+	lblVer.TextXAlignment = Enum.TextXAlignment.Left
+	local badge = Instance.new("Frame")
+	badge.Parent = F
+	badge.BackgroundColor3 = Color3.fromRGB(100, 80, 255)
+	badge.BackgroundTransparency = 0.85
+	badge.BorderSizePixel = 0
+	badge.Position = UDim2.new(0, 100, 0.5, -7)
+	badge.Size = UDim2.new(0, 40, 0, 14)
+	badge.ZIndex = 11
+	local badgeCorner = Instance.new("UICorner")
+	badgeCorner.CornerRadius = UDim.new(0, 3)
+	badgeCorner.Parent = badge
+	local badgeStroke = Instance.new("UIStroke")
+	badgeStroke.Transparency = 0.7
+	badgeStroke.Thickness = 1
+	badgeStroke.Parent = badge
+	local lblRel = Instance.new("TextLabel")
+	lblRel.Parent = badge
+	lblRel.BackgroundTransparency = 1
+	lblRel.Position = UDim2.new(0, 0, 0, 0)
+	lblRel.Size = UDim2.new(1, 0, 1, 0)
+	lblRel.Font = Enum.Font.Gotham
+	lblRel.Text = "rel-188"
+	lblRel.TextColor3 = Color3.fromRGB(170, 150, 255)
+	lblRel.TextSize = 9
+	lblRel.ZIndex = 12
+	local t = 0
+	local speed = 0.5
+	local rainbowConn = RunService.Heartbeat:Connect(function(dt)
+		t = t + dt * speed
+		local hue = 0.69 + math.sin(t) * 0.09
+		local sat = 0.70 + math.sin(t * 1.3) * 0.12
+		local col = Color3.fromHSV(hue, sat, 1)
+		stroke.Color = col
+		badgeStroke.Color = col
+		img.ImageColor3 = col
+	end)
+	ops:onExit("wmRainbow", function()
+		rainbowConn:Disconnect()
+	end)
 end
 
 do
