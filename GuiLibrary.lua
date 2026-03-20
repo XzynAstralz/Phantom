@@ -836,7 +836,7 @@ function Spectrum.window(cfg)
                     trackEdge.Color        = P.EDGE
                     SwitchLabel.TextColor3 = P.INK_MID
                     if not skipAnim then
-                        Knob:TweenPosition(UDim2.fromScale(0.13, 0.5), "Out", "Quad", 0.15, true)
+                        Knob:TweenPosition(UDim2.fromScale(0.14, 0.5), "Out", "Quad", 0.15, true)
                     else
                         Knob.Position = UDim2.fromScale(0.1, 0.5)
                     end
@@ -847,9 +847,9 @@ function Spectrum.window(cfg)
                     Knob.BackgroundColor3      = P.HUE
                     SwitchLabel.TextColor3     = P.INK_HI
                     if not skipAnim then
-                        Knob:TweenPosition(UDim2.fromScale(0.5, 0.5), "Out", "Quad", 0.15, true)
+                        Knob:TweenPosition(UDim2.fromScale(0.55, 0.5), "Out", "Quad", 0.15, true)
                     else
-                        Knob.Position = UDim2.fromScale(0.5, 0.5)
+                        Knob.Position = UDim2.fromScale(0.55, 0.5)
                     end
                 end
                 if cfg3.Function then task.spawn(cfg3.Function, sw.Enabled) end
@@ -1615,7 +1615,7 @@ function Spectrum.CreateHudConfig(cfg)
     local AutoKnob = Instance.new("Frame"); AutoKnob.Parent = AutoTrack
     AutoKnob.AnchorPoint = Vector2.new(0, 0.5); AutoKnob.BackgroundColor3 = P.HUE
     AutoKnob.BorderSizePixel = 0; AutoKnob.Size = UDim2.new(0, 10, 0, 10)
-    AutoKnob.Position = autoEnabled and UDim2.fromScale(0.55, 0.5) or UDim2.fromScale(-0.08, 0.5)
+    AutoKnob.Position = autoEnabled and UDim2.fromScale(0.55, 0.5) or UDim2.fromScale(0.1, 0.5)
     mkCorner(AutoKnob, UDim.new(1, 0))
     kit:track(PaletteSync:Bind(function() AutoKnob.BackgroundColor3 = P.HUE end))
 
@@ -1623,7 +1623,7 @@ function Spectrum.CreateHudConfig(cfg)
         autoEnabled              = on
         AutoTrack.BackgroundColor3 = on and P.HUE:Lerp(P.BASE1, 0.55) or P.BASE1
         autoEdge.Color           = on and P.HUE or P.EDGE
-        local tgt = on and UDim2.fromScale(0.55, 0.5) or UDim2.fromScale(-0.08, 0.5)
+        local tgt = on and UDim2.fromScale(0.58, 0.5) or UDim2.fromScale(0.10, 0.5)
         if skipAnim then AutoKnob.Position = tgt
         else AutoKnob:TweenPosition(tgt, "Out", "Quad", 0.15, true) end
         persist("__preload", on)
@@ -1757,7 +1757,7 @@ function Spectrum.CreateHudConfig(cfg)
         local Knob = Instance.new("Frame"); Knob.Parent = Trk
         Knob.AnchorPoint = Vector2.new(0, 0.5); Knob.BackgroundColor3 = P.HUE
         Knob.BorderSizePixel = 0; Knob.Position = UDim2.fromScale(-0.1, 0.5)
-        Knob.Size = UDim2.new(0, 9, 0, 9); mkCorner(Knob, UDim.new(1, 0))
+        Knob.Size = UDim2.new(0, 8.7, 0, 8.7); mkCorner(Knob, UDim.new(1, 0))
         kit:track(PaletteSync:Bind(function() Knob.BackgroundColor3 = P.HUE end))
 
         local rowApi = { Enabled = false }
@@ -1766,7 +1766,7 @@ function Spectrum.CreateHudConfig(cfg)
             Trk.BackgroundColor3 = on and P.HUE:Lerp(P.BASE1, 0.55) or P.BASE1
             trkEdge.Color        = on and P.HUE or P.EDGE
             lbl.TextColor3       = on and P.INK_HI or P.INK_MID
-            local tgt = on and UDim2.fromScale(0.58, 0.5) or UDim2.fromScale(-0.1, 0.5)
+            local tgt = on and UDim2.fromScale(0.58, 0.5) or UDim2.fromScale(0.14, 0.5)
             if skipAnim then Knob.Position = tgt
             else Knob:TweenPosition(tgt, "Out", "Quad", 0.15, true) end
             persist(label, on)
@@ -2043,7 +2043,7 @@ function Spectrum.CreateCustomWindow(cfg)
             if sw.Enabled then
                 sw.Enabled = false; STrk.BackgroundColor3 = P.BASE1; sEdge.Color = P.EDGE
                 SLbl.TextColor3 = P.INK_MID
-                SKnob:TweenPosition(UDim2.fromScale(-0.1, 0.5), "Out", "Quad", 0.15, true)
+                SKnob:TweenPosition(UDim2.fromScale(0.1, 0.5), "Out", "Quad", 0.15, true)
             else
                 sw.Enabled = true; STrk.BackgroundColor3 = P.HUE:Lerp(P.BASE1, 0.55)
                 sEdge.Color = P.HUE; SKnob.BackgroundColor3 = P.HUE
