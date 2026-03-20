@@ -799,7 +799,7 @@ runcode(function()
         Name = "duration",
         Min = 0.1,
         Max = 2,
-        Default = 0.3,
+        Default = 0.24,
         Round = 1
     })
     LongFlySlopeAngle = LongFly.CreateSlider({
