@@ -662,124 +662,155 @@ runcode(function()
 end)
 
 runcode(function()
-    local lastHealth = 0
-    local lastDamageTick
-    local blockRaycast = RaycastParams.new()
-    blockRaycast.FilterType = Enum.RaycastFilterType.Exclude
-    blockRaycast.FilterDescendantsInstances = {lplr.Character}
-    blockRaycast.IgnoreWater = true
-
-    local function blockBelowPlayer()
-        local raycastResult = workspace:Raycast(lplr.Character.HumanoidRootPart.Position, Vector3.new(0, -30), blockRaycast)
-        return raycastResult and raycastResult.Instance ~= nil
-    end
-
-    local function hookHealth()
-        local hum = lplr.Character and lplr.Character:FindFirstChildOfClass("Humanoid")
-        if not hum then return end
-
-        lastHealth = hum.Health
-
-        hum:GetPropertyChangedSignal("Health"):Connect(function()
-            if hum.Health < lastHealth then
-                lastDamageTick = true
-            end
-            lastHealth = hum.Health
-        end)
-    end
-
-    local methods = {
-        ["fireball"] = {
-            check = function()
-                return blockBelowPlayer()
-            end,
-            timer = 0.7,
-            speedVal = 30,
-            func = function(v)
-                local hrp = lplr.Character.HumanoidRootPart
-
-                lastDamageTick = nil
-
-                local origin = hrp.Position
-                local dir = Vector3.new(0, -1, 0)
-                local speed = 120
-                local velocity = dir * speed
-
-                game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("ItemsRemotes"):WaitForChild("ShootProjectile"):FireServer(
-                    tick(),
-                    "Fireball",
-                    dir,
-                    velocity,
-                    CFrame.lookAt(origin, origin + dir)
-                )
-
-                repeat task.wait() until lastDamageTick or not LongFly.Enabled
-                if not LongFly.Enabled then return end
-
-                speedBoost = v.speedVal
-                speedTimer = tick() + v.timer
-            end
-        }
-    }
+    local LongFlyValue, LongFlyDuration, LongFlySlopeAngle = {}, {}, {}
+    local overheadCheckEnabled = false
+    local phase, noBlockTimer = "0", 0
+    local GRACE_PERIOD = 0.03
+    local lastActivated = 0
 
     LongFly = GuiLibrary.Registry.blatantPanel.API.CreateOptionsButton({
         Name = "LongFly",
         Beta = true,
         Function = function(callback)
             if callback then
-                if GuiLibrary.Registry.flyOptionsButton and GuiLibrary.Registry.flyOptionsButton.API.Enabled then
-                    if LongFly.Enabled then
-                        LongFly.Toggle()
-                    end
+                if os.clock() - lastActivated < 1.3 then
+                    createNotification("LongFly", "On cooldown", 2)
+                    if LongFly.Enabled then LongFly.Toggle() end
+                    return
+                end
+                lastActivated = os.clock()
+
+                if Fly and Fly.Enabled then
+                    createNotification("LongFly", "Disable Fly first", 3)
+                    if LongFly.Enabled then LongFly.Toggle() end
                     return
                 end
 
-                hookHealth()
+                local char = lplr.Character
+                local root = char and char:FindFirstChild("HumanoidRootPart")
+                local humanoid = char and char:FindFirstChildOfClass("Humanoid")
+                if not root or not humanoid then
+                    if LongFly.Enabled then LongFly.Toggle() end
+                    return
+                end
 
-                for i, v in pairs(methods) do
-                    if v.check() then
-                        task.spawn(function()
-                            v.func(v)
-                        end)
-                        task.spawn(function()
-                            local rayResult = workspace:Raycast(lplr.Character.HumanoidRootPart.Position, Vector3.new(0, -1000), blockRaycast)
-                            local args = {lplr.Character.HumanoidRootPart.CFrame:GetComponents()}
-                            args[2] = (rayResult and (rayResult.Position.Y + height)) or args[2]
-                            lplr.Character.HumanoidRootPart.CFrame = CFrame.new(unpack(args))
+                local camLook = workspace.CurrentCamera.CFrame.LookVector
+                local lockedDir = Vector3.new(camLook.X, 0, camLook.Z).Unit
+                local slopeRad = math.rad(LongFlySlopeAngle.Value)
+                local flyDir = Vector3.new(lockedDir.X * math.cos(slopeRad), math.sin(slopeRad), lockedDir.Z * math.cos(slopeRad))
+                local startTime, lastTick = os.clock(), os.clock()
 
-                            if not Fly.Enabled then
-                                Fly.Toggle()
-                            end
-                        end)
+                phase, noBlockTimer = overheadCheckEnabled and "1" or "0", 0
+                createBodyVel()
+                bodyVel.MaxForce = Vector3.new(1e5, 1e5, 1e5)
+                humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+
+                RunLoops:BindToHeartbeat("LongFly", function()
+                    local now = os.clock()
+                    local dt = math.min(now - lastTick, 0.01)
+                    lastTick = now
+
+                    root = lplr.Character and lplr.Character:FindFirstChild("HumanoidRootPart")
+                    humanoid = lplr.Character and lplr.Character:FindFirstChildOfClass("Humanoid")
+                    if not root then return end
+
+                    if now - startTime >= LongFlyDuration.Value then
+                        if bodyVel then
+                            bodyVel.Velocity = Vector3.new(0, bodyVel.Velocity.Y, 0)
+                            bodyVel:Destroy(); bodyVel = nil
+                        end
+                        phase, noBlockTimer = "0", 0
+                        RunLoops:UnbindFromHeartbeat("LongFly")
+                        if LongFly.Enabled then LongFly.Toggle() end
+                        createNotification("LongFly", "Ended", 2)
                         return
                     end
-                end
 
-                if LongFly.Enabled then
-                    LongFly.Toggle()
-                    return
-                end
+                    if overheadCheckEnabled then
+                        local p = RaycastParams.new()
+                        p.FilterDescendantsInstances = { lplr.Character }
+                        p.FilterType = Enum.RaycastFilterType.Exclude
+                        local under = workspace:Raycast(root.Position, Vector3.new(0, -100, 0), p) ~= nil
+
+                        if phase == "1" then
+                            if under then
+                                phase, noBlockTimer = "3", 0
+                            end
+                        elseif phase == "3" then
+                            if under then
+                                noBlockTimer = 0
+                            else
+                                noBlockTimer += dt
+                                if noBlockTimer >= GRACE_PERIOD then
+                                    phase, noBlockTimer = "2", 0
+                                end
+                            end
+                        elseif phase == "2" then
+                            if under then
+                                if bodyVel then
+                                    bodyVel.Velocity = Vector3.new(0, bodyVel.Velocity.Y, 0)
+                                    bodyVel:Destroy(); bodyVel = nil
+                                end
+                                phase, noBlockTimer = "0", 0
+                                RunLoops:UnbindFromHeartbeat("LongFly")
+                                if LongFly.Enabled then LongFly.Toggle() end
+                                createNotification("LongFly", "Entered block coverage", 2)
+                                return
+                            end
+                        end
+                    end
+
+                    if humanoid then
+                        local s = humanoid:GetState()
+                        if s == Enum.HumanoidStateType.Running or s == Enum.HumanoidStateType.RunningNoPhysics or s == Enum.HumanoidStateType.Landed then
+                            humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+                        end
+                    end
+
+                    local speed = LongFlyValue.Value + SpeedMultiplier()
+                    root.CFrame += flyDir * speed * dt
+                    if bodyVel then bodyVel.Velocity = flyDir * speed end
+                end)
             else
-                if Fly.Enabled then
-                    Fly.Toggle()
+                if bodyVel then
+                    bodyVel.Velocity = Vector3.new(0, bodyVel.Velocity.Y, 0)
+                    bodyVel:Destroy(); bodyVel = nil
                 end
-                speedTimer = 0
+                phase, noBlockTimer = "0", 0
+                RunLoops:UnbindFromHeartbeat("LongFly")
             end
         end
     })
 
-    for i, v in methods do
-        LongFly.CreateSlider({
-            Name = i .. " speed",
-            Min = 0,
-            Max = v.speedVal,
-            Default = v.speedVal,
-            Round = 1,
-            Function = function(val)
-                v.speedVal = val
-            end
-        })
-    end
+    LongFlyValue = LongFly.CreateSlider({
+        Name = "speed",
+        Min = 0,
+        Max = 300,
+        Default = 300,
+        Round = 1
+    })
+    LongFlyDuration = LongFly.CreateSlider({
+        Name = "duration",
+        Min = 0.1,
+        Max = 2,
+        Default = 0.3,
+        Round = 1
+    })
+    LongFlySlopeAngle = LongFly.CreateSlider({
+        Name = "slope angle",
+        Min = 0,
+        Max = 60,
+        Default = 15,
+        Round = 1
+    })
+    LongFly.CreateToggle({
+        Name = "Stop Under Block",
+        Default = false,
+        Function = function(state)
+            overheadCheckEnabled = state
+            phase, noBlockTimer = "0", 0
+        end
+    })
 end)
 
 runcode(function()
