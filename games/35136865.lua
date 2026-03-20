@@ -718,7 +718,7 @@ runcode(function()
 
                     if now - startTime >= LongFlyDuration.Value then
                         local dist = (Vector3.new(root.Position.X, 0, root.Position.Z) - Vector3.new(startPos.X, 0, startPos.Z)).Magnitude
-                        cooldown = math.clamp((dist / 50) ^ 2.4, 1, 3)
+                        cooldown = math.clamp((dist / 50) ^ 2.5, 1, 3)
                         if bodyVel then
                             bodyVel.Velocity = Vector3.new(0, bodyVel.Velocity.Y, 0)
                             bodyVel:Destroy(); bodyVel = nil
@@ -752,7 +752,7 @@ runcode(function()
                         elseif phase == "2" then
                             if under then
                                 local dist = (Vector3.new(root.Position.X, 0, root.Position.Z) - Vector3.new(startPos.X, 0, startPos.Z)).Magnitude
-                                cooldown = math.clamp((dist / 50) ^ 2.4, 1, 3)
+                                cooldown = math.clamp((dist / 50) ^ 2.5, 1, 3)
                                 if bodyVel then
                                     bodyVel.Velocity = Vector3.new(0, bodyVel.Velocity.Y, 0)
                                     bodyVel:Destroy(); bodyVel = nil
