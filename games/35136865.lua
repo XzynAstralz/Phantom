@@ -288,6 +288,8 @@ runcode(function()
                             end
 
                             attack(char)
+                            print(char)
+                            print(swordtype)
                             --if FacePlayer.Enabled and not LongFly.Enabled then
                            -- end
                         end
@@ -299,10 +301,10 @@ runcode(function()
         end
     })
     Distance = Killaura.CreateSlider({
-        Name = "value",
+        Name = "Distance",
         Min = 0,
-        Max = 23,
-        Default = 23,
+        Max = 17,
+        Default = 17,
         Round = 1,
         Function = function() end
     })
@@ -312,14 +314,6 @@ runcode(function()
     })
     FacePlayer = Killaura.CreateToggle({
         Name = "FacePlayer",
-        Function = function() end
-    })
-    Distance = Killaura.CreateSlider({
-        Name = "value",
-        Min = 0,
-        Max = 23,
-        Default = 23,
-        Round = 1,
         Function = function() end
     })
 end)
