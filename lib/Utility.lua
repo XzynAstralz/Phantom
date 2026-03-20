@@ -22,15 +22,33 @@ function Utility.IsAlive(plr)
     return hum and hum.Health > 0 and root
 end
 
+
 function Utility.IsEnemy(plr, teamCheck)
-    if teamCheck == false then return true end
-    if not plr or not lplr then return false end
+    if not plr or not lplr then
+        return false
+    end
+
+    if teamCheck == false then
+        return true
+    end
+
+    if Utility.FreeForAllMode then
+        return true
+    end
 
     if not plr.Team or not lplr.Team then
         return true
     end
 
-    return plr.Team ~= lplr.Team
+    if plr.Team ~= lplr.Team then
+        return true
+    end
+
+    if Utility.teams[plr.Team.Name] then
+        return true
+    end
+
+    return false
 end
 
 function Utility.IsVisible(startPos, endPos)
