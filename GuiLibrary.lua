@@ -723,7 +723,7 @@ function Spectrum.window(cfg)
 
         function entry.Update()
             local s2 = SubFlow.AbsoluteContentSize
-            SubHolder.Size    = UDim2.new(0, ROW_W, 0, (s2.Y + 14 * Scaler.Scale) / Scaler.Scale)
+            SubHolder.Size    = UDim2.new(0, ROW_W-2, 0, (s2.Y + 14 * Scaler.Scale) / Scaler.Scale)
             local s3 = OptionFlow.AbsoluteContentSize
             OptionHolder.Size = UDim2.new(0, ROW_W, 0, s3.Y / Scaler.Scale)
         end

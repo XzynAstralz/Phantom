@@ -945,28 +945,34 @@ runcode(function()
 end)
 
 runcode(function()
-    local check
     local cycle, index, teams = 1, 1, {}
-    StealAllChest = GuiLibrary.Registry.utillityPanel.API.CreateOptionsButton({
-        Name = "StealAllChest",
+    StealAllChests = GuiLibrary.Registry.utillityPanel.API.CreateOptionsButton({
+        Name = "StealAllChests",
+        New = true,
         Function = function(cb)
             if cb then
-                teams, cycle, index = getTeams(), 1, 1
-                RunLoops:BindToHeartbeat("StealAllChestLoop", function()
-                    if #teams == 0 then return end
-                    if lplr.Team == "Spectators" then check = false return else check = true end
+                teams = getTeams()
+                RunLoops:BindToHeartbeat("StealAllChestsLoop", function()
+                    if lplr.Team == "Spectators" or #teams == 0 then
+                        teams, index, cycle = getTeams(), 1, 1
+                        return
+                    end
                     local t = teams[index]
-                    if t ~= "Spectators" and check then
-                        game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("TakeItemFromChest"):FireServer(t, cycle, tostring(cycle))
+                    local chest = game:GetService("ReplicatedStorage").TeamChestsStorage:FindFirstChild(t)
+                    if chest and t ~= "Spectators" then
+                        local slot = chest:FindFirstChild(tostring(cycle))
+                        local name = slot and slot:GetAttribute("Name")
+                        if name and name ~= "" then
+                            game:GetService("ReplicatedStorage").Remotes.TakeItemFromChest:FireServer(t, cycle, tostring(cycle))
+                        end
                     end
                     index += 1
                     if index > #teams then
-                        index, cycle = 1, cycle + 1
-                        if cycle > 20 then cycle = 1 end
+                        index, cycle, teams = 1, cycle % 3 + 1, getTeams()
                     end
-                end, 0.08)
+                end)
             else
-                RunLoops:UnbindFromHeartbeat("StealAllChestLoop")
+                RunLoops:UnbindFromHeartbeat("StealAllChestsLoop")
             end
         end
     })
