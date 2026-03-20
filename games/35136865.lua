@@ -945,6 +945,7 @@ runcode(function()
 end)
 
 runcode(function()
+    local check
     local cycle, index, teams = 1, 1, {}
     StealAllChest = GuiLibrary.Registry.utillityPanel.API.CreateOptionsButton({
         Name = "StealAllChest",
@@ -953,9 +954,9 @@ runcode(function()
                 teams, cycle, index = getTeams(), 1, 1
                 RunLoops:BindToHeartbeat("StealAllChestLoop", function()
                     if #teams == 0 then return end
-                    if lplr.Team == "Spectators" then return end
+                    if lplr.Team == "Spectators" then check = false return else check = true end
                     local t = teams[index]
-                    if t ~= "Spectators" then
+                    if t ~= "Spectators" and check then
                         game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("TakeItemFromChest"):FireServer(t, cycle, tostring(cycle))
                     end
                     index += 1
@@ -963,7 +964,7 @@ runcode(function()
                         index, cycle = 1, cycle + 1
                         if cycle > 20 then cycle = 1 end
                     end
-                end, 0.1)
+                end, 0.08)
             else
                 RunLoops:UnbindFromHeartbeat("StealAllChestLoop")
             end
