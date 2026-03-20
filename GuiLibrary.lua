@@ -565,7 +565,7 @@ function Spectrum.window(cfg)
     function panel.Update()
         local sz = Flow.AbsoluteContentSize
         EntryHolder.Size = UDim2.new(0, COL_W, 0, sz.Y / Scaler.Scale)
-        Body.Size        = UDim2.new(0, COL_W, 0, (sz.Y + 6) / Scaler.Scale)
+        Body.Size        = UDim2.new(0, COL_W, 0, (sz.Y + 10.45) / Scaler.Scale)
     end
     kit:track(Flow:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(panel.Update))
     panel.Update()
