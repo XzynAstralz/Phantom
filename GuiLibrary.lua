@@ -836,7 +836,7 @@ function Spectrum.window(cfg)
                     trackEdge.Color        = P.EDGE
                     SwitchLabel.TextColor3 = P.INK_MID
                     if not skipAnim then
-                        Knob:TweenPosition(UDim2.fromScale(0.14, 0.5), "Out", "Quad", 0.15, true)
+                        Knob:TweenPosition(UDim2.fromScale(0.1, 0.5), "Out", "Quad", 0.15, true)
                     else
                         Knob.Position = UDim2.fromScale(0.1, 0.5)
                     end
