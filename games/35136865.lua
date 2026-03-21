@@ -663,7 +663,7 @@ runcode(function()
             bodyVel.MaxForce = Vector3.zero
             bodyVel:Destroy(); bodyVel = nil
         end
-        if root then root.AssemblyLinearVelocity = Vector3.new(0, root.AssemblyLinearVelocity.Y, 0) end
+        if root then root.AssemblyLinearVelocity = Vector3.zero end
         phase, noBlockTimer = "0", 0
         RunLoops:UnbindFromHeartbeat("LongFly")
         if LongFly.Enabled then LongFly.Toggle() end
@@ -710,9 +710,11 @@ runcode(function()
                 if speedWasEnabled and Speed and Speed.Enabled then Speed.Function(true) end
 
                 local camLook = workspace.CurrentCamera.CFrame.LookVector
-                local lockedDir = Vector3.new(camLook.X, 0, camLook.Z).Unit
-                local slopeRad = math.rad(LongFlySlopeAngle.Value)
-                local flyDir = Vector3.new(lockedDir.X * math.cos(slopeRad), math.sin(slopeRad), lockedDir.Z * math.cos(slopeRad))
+                local lockedDir = Vector3.new(camLook.X, 0, camLook.Z)
+                local horizontalMag = lockedDir.Magnitude
+                local lockedDirUnit = horizontalMag > 0.01 and lockedDir.Unit or Vector3.new(0, 0, 0)
+                local slopeRad = horizontalMag > 0.01 and math.rad(LongFlySlopeAngle.Value) or 0
+                local flyDir = Vector3.new(lockedDirUnit.X * math.cos(slopeRad), math.sin(slopeRad) * (horizontalMag > 0.01 and 1 or 0), lockedDirUnit.Z * math.cos(slopeRad))
                 local startTime, lastTick = os.clock(), os.clock()
                 local startPos = root.Position
                 local timeUnderBlock, totalTime = 0, 0
@@ -744,7 +746,7 @@ runcode(function()
                     if smartFlyEnabled and wasUnderBlock and currentlyUnderBlock then
                         local blockCoverage = timeUnderBlock / math.max(totalTime, 0.001)
                         local flightProgress = (now - startTime) / LongFlyDuration.Value
-                        if blockCoverage >= 0.45 and flightProgress >= 0.4 and not smartStopArmed then
+                        if blockCoverage >= 0.25 and flightProgress >= 0.4 and not smartStopArmed then
                             smartStopArmed = true
                         end
                         if smartStopArmed then
@@ -758,7 +760,7 @@ runcode(function()
                             end
                             if missingCount >= 4 then
                                 local dist = (Vector3.new(root.Position.X, 0, root.Position.Z) - Vector3.new(startPos.X, 0, startPos.Z)).Magnitude
-                                cooldown = math.clamp((dist / 50) ^ 2.5, 1, 3)
+                                cooldown = math.clamp((dist / 50) ^ 2.6, 1, 4)
                                 stopLongFly(root, "SmartFly: void ahead")
                                 return
                             end
