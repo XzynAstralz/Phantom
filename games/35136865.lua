@@ -1192,11 +1192,6 @@ runcode(function()
     local ThemeDropdown = {}
     local GameThemes = {}
 
-    local cleanupSnow = function()
-        local existing = workspace:FindFirstChild('Snowfall_Client')
-        if existing then existing:Destroy() end
-    end
-
     local themes = {
         Default = function()
             cleanupSnow()
@@ -1216,81 +1211,22 @@ runcode(function()
             loadstring([[
                 local L=game:GetService('Lighting');L:ClearAllChildren();task.wait(0.3)
                 L.Ambient=Color3.new(0,0,0);L.Brightness=1;L.ColorShift_Bottom=Color3.new(0,0,0);L.ColorShift_Top=Color3.new(0,0,0);L.OutdoorAmbient=Color3.new(0.576471,0.6,0.760784);L.FogColor=Color3.new(0.576471,0.6,0.760784);L.FogEnd=300;L.FogStart=15;L.GlobalShadows=true;L.GeographicLatitude=23.5;L.ExposureCompensation=0;L.EnvironmentDiffuseScale=0.4;L.EnvironmentSpecularScale=0.6;L.ClockTime=12;L.TimeOfDay='12:00:00';L.ShadowSoftness=0.07;L.Technology=Enum.Technology.Future
-                local sky=Instance.new('Sky',L);sky.CelestialBodiesShown=false;sky.SkyboxBk='http://www.roblox.com/asset/?id=4514139911';sky.SkyboxDn='http://www.roblox.com/asset/?id=4514139911';sky.SkyboxFt='http://www.roblox.com/asset/?id=4514139911';sky.SkyboxLf='http://www.roblox.com/asset/?id=4514139911';sky.SkyboxRt='http://www.roblox.com/asset/?id=4514139911';sky.SkyboxUp='http://www.roblox.com/asset/?id=4514139911';sky.StarCount=3000
+                local sky=Instance.new('Sky',L);sky.Name='Sky';sky.CelestialBodiesShown=false;sky.SkyboxBk='http://www.roblox.com/asset/?id=4514139911';sky.SkyboxDn='http://www.roblox.com/asset/?id=4514139911';sky.SkyboxFt='http://www.roblox.com/asset/?id=4514139911';sky.SkyboxLf='http://www.roblox.com/asset/?id=4514139911';sky.SkyboxRt='http://www.roblox.com/asset/?id=4514139911';sky.SkyboxUp='http://www.roblox.com/asset/?id=4514139911';sky.StarCount=3000
                 local atm=Instance.new('Atmosphere',L);atm.Name='Blizzard_Atmosphere';atm.Density=0.531;atm.Offset=0.281;atm.Color=Color3.new(0.686275,0.733333,0.780392);atm.Decay=Color3.new(0.619608,0.666667,0.784314);atm.Glare=2.69;atm.Haze=10
             ]])()
-
             local lp = game:GetService('Players').LocalPlayer
-            local rs = game:GetService('RunService')
             local folder = Instance.new('Folder', workspace); folder.Name = 'Snowfall_Client'
-
-            local GRID_COLS, GRID_ROWS = 10, 8
-            local PLANE_W, PLANE_H = 100, 80
-            local ABOVE_OFFSET, Z_OFFSET, RAY_LEN, UPDATE_RATE = 40, 50, 90, 0.5
-            local cellW, cellH = PLANE_W / GRID_COLS, PLANE_H / GRID_ROWS
-
-            local rayParams = RaycastParams.new()
-            rayParams.FilterType = Enum.RaycastFilterType.Exclude
-
-            local function makeEmitter(parent)
-                local e = Instance.new('ParticleEmitter', parent); e.Name='Particle';e.Texture='rbxassetid://127302768524882'
-                e.Rate=0;e.Lifetime=NumberRange.new(6,8);e.Speed=NumberRange.new(20,50);e.Drag=0
-                e.Rotation=NumberRange.new(-15,15);e.RotSpeed=NumberRange.new(-90,90);e.VelocitySpread=5
-                e.SpreadAngle=Vector2.new(5,5);e.LightInfluence=1;e.LightEmission=0;e.ZOffset=0
-                e.Acceleration=Vector3.new(0,-0.4,0);e.EmissionDirection=Enum.NormalId.Front
-                e.Orientation=Enum.ParticleOrientation.FacingCamera;e.Shape=Enum.ParticleEmitterShape.Box
-                e.ShapeStyle=Enum.ParticleEmitterShapeStyle.Volume;e.ShapeInOut=Enum.ParticleEmitterShapeInOut.Outward
-                e.Color=ColorSequence.new({ColorSequenceKeypoint.new(0,Color3.new(1,1,1)),ColorSequenceKeypoint.new(1,Color3.new(1,1,1))})
-                e.Size=NumberSequence.new({NumberSequenceKeypoint.new(0,1.875),NumberSequenceKeypoint.new(0.374999,1.25),NumberSequenceKeypoint.new(1,0)})
-                e.Transparency=NumberSequence.new({NumberSequenceKeypoint.new(0,1),NumberSequenceKeypoint.new(0.501247,0.4375),NumberSequenceKeypoint.new(1,0)})
-                e.Enabled=false; return e
-            end
-
-            local cells = {}
-            for row = 1, GRID_ROWS do
-                cells[row] = {}
-                for col = 1, GRID_COLS do
-                    local p = Instance.new('Part', folder); p.Anchored=true;p.CanCollide=false;p.Transparency=1
-                    p.Size=Vector3.new(cellW,cellH,1);p.CFrame=CFrame.new(0,-9999,0)
-                    cells[row][col] = { part=p, emitter=makeEmitter(p) }
-                end
-            end
-
-            local lastUpdate = 0
-            local conn = rs.Heartbeat:Connect(function()
+            local part = Instance.new('Part', folder); part.Name='Blizzard';part.Anchored=true;part.CanCollide=false;part.Transparency=1;part.Size=Vector3.new(100,80,1);part.CFrame=CFrame.new(0,0,0)
+            local e = Instance.new('ParticleEmitter', part); e.Name='Particle';e.Texture='rbxassetid://127302768524882';e.Rate=5000;e.Lifetime=NumberRange.new(6,8);e.Speed=NumberRange.new(20,50);e.Drag=0;e.Rotation=NumberRange.new(-15,15);e.RotSpeed=NumberRange.new(-90,90);e.VelocitySpread=5;e.SpreadAngle=Vector2.new(5,5);e.LightInfluence=1;e.LightEmission=0;e.ZOffset=0;e.Acceleration=Vector3.new(0,-0.4,0);e.EmissionDirection=Enum.NormalId.Front;e.Orientation=Enum.ParticleOrientation.FacingCamera;e.Shape=Enum.ParticleEmitterShape.Box;e.ShapeStyle=Enum.ParticleEmitterShapeStyle.Volume;e.ShapeInOut=Enum.ParticleEmitterShapeInOut.Outward;e.Enabled=true
+            e.Color=ColorSequence.new({ColorSequenceKeypoint.new(0,Color3.new(1,1,1)),ColorSequenceKeypoint.new(1,Color3.new(1,1,1))})
+            e.Size=NumberSequence.new({NumberSequenceKeypoint.new(0,1.875),NumberSequenceKeypoint.new(0.374999,1.25),NumberSequenceKeypoint.new(1,0)})
+            e.Transparency=NumberSequence.new({NumberSequenceKeypoint.new(0,1),NumberSequenceKeypoint.new(0.501247,0.4375),NumberSequenceKeypoint.new(1,0)})
+            local conn = game:GetService('RunService').Heartbeat:Connect(function()
                 local char = lp.Character
                 local hrp = char and char:FindFirstChild('HumanoidRootPart')
-                if not hrp then return end
-
-                local charParts = {}
-                for _, v in ipairs(char:GetDescendants()) do if v:IsA('BasePart') then table.insert(charParts, v) end end
-                rayParams.FilterDescendantsInstances = charParts
-
-                local now = tick()
-                if (now - lastUpdate) < UPDATE_RATE then return end
-                lastUpdate = now
-
-                local origin = hrp.Position + Vector3.new(0, ABOVE_OFFSET, 0)
-                local look, right, up = hrp.CFrame.LookVector, hrp.CFrame.RightVector, hrp.CFrame.UpVector
-                local planeCenter = origin + look * Z_OFFSET
-                local yaw = CFrame.Angles(0, math.atan2(look.X, look.Z), 0)
-
-                for row = 1, GRID_ROWS do for col = 1, GRID_COLS do
-                    local cell = cells[row][col]
-                    local cellCenter = planeCenter + right * ((col-0.5)*cellW - PLANE_W*0.5) + up * ((row-0.5)*cellH - PLANE_H*0.5)
-                    local result = workspace:Raycast(cellCenter, Vector3.new(0,-RAY_LEN,0), rayParams)
-                    if result then
-                        cell.part.CFrame = CFrame.new(cellCenter.X, result.Position.Y + 1, cellCenter.Z) * yaw
-                        cell.part.Size = Vector3.new(cellW, 1, 1); cell.emitter.Rate=10
-                    else
-                        cell.part.CFrame = CFrame.new(cellCenter) * yaw
-                        cell.part.Size = Vector3.new(cellW, cellH, 1); cell.emitter.Rate=60
-                    end
-                    cell.emitter.Enabled = true
-                end end
+                if hrp then part.CFrame = CFrame.new(hrp.Position + Vector3.new(0,0,50)) end
             end)
-
-            folder.AncestryChanged:Connect(function() if not folder.Parent then conn:Disconnect() end end)
+            part.AncestryChanged:Connect(function() if not part.Parent then conn:Disconnect() end end)
         end,
 
         BloodMoon = function()
