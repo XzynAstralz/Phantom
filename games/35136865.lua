@@ -1,7 +1,3 @@
-
-
-
-
 --[[
     --------------------------------------------------------------
     -------------------------------------------------------------
@@ -1181,8 +1177,9 @@ runcode(function()
         end
     })
 
-    KeepInv = CM.CreateToggle({ Name = "KeepInv", 
-        Function = function() end 
+    KeepInv = CM.CreateToggle({
+        Name = "KeepInv",
+        Function = function() end
     })
 end)
 
