@@ -42,7 +42,7 @@ local data = {
     hooked = {},
     Attacking = false,
     attackingEntity = nil,
-    game = {
+    gamemode = {
         value = nil,
         current = nil,
         connection = nil
@@ -175,22 +175,21 @@ end
 local hookmode = function()
     local gameMode = game:GetService("ReplicatedStorage"):WaitForChild("GameInfo"):WaitForChild("GameMode")
 
-    data.game.value = gameMode
-    data.game.current = gameMode.Value
+    data.gamemode.current = gameMode.Value
 
-    if data.game.connection then
-        data.game.connection:Disconnect()
+    if data.gamemode.connection then
+        data.gamemode.connection:Disconnect()
     end
 
-    data.game.connection = gameMode:GetPropertyChangedSignal("Value"):Connect(function()
+    data.gamemode.connection = gameMode:GetPropertyChangedSignal("Value"):Connect(function()
         local newValue = gameMode.Value
 
-        if newValue ~= data.game.current then
-            data.game.current = newValue
+        if newValue ~= data.gamemode.current then
+            data.gamemode.current = newValue
         end
     end)
 
-    GuiLibrary.kit.track(data.game.connection)
+    GuiLibrary.kit.track(data.gamemode.connection)
 end
 
 local getitem = function(name, plr)
@@ -1046,10 +1045,12 @@ runcode(function()
 
     chestfuncs.Loop = function(loop, cycle, index, teams)
         if not PlayerUtility.IsAlive(lplr) then return end
-        if lplr.Team == "Spectators" or #teams == 0 then
+
+        if lplr.Team == "Spectators" or teams == nil or #teams == 0 then
             teams, index, cycle = getTeams(), 1, 1
             return
         end
+
         local t = teams[index]
         local chest = ReplicatedStorage.TeamChestsStorage:FindFirstChild(t)
         if chest and t ~= "Spectators" then
@@ -1059,8 +1060,12 @@ runcode(function()
                 ReplicatedStorage.Remotes.TakeItemFromChest:FireServer(t, cycle, tostring(cycle))
             end
         end
+
         index += 1
-        if index > #teams then index, cycle, teams = 1, cycle % 3 + 1, getTeams() end
+        if index > #teams then
+            index, cycle, teams = 1, cycle % 3 + 1, getTeams()
+        end
+
         return cycle, index, teams
     end
 
@@ -1150,7 +1155,8 @@ runcode(function()
         Name = "ChestManager",
         New = true,
         Function = function(cb)
-            if data.game.current ~= "Ranked 1v1"  or "Ranked 4v4" then
+            if data.gamemode.current ~= "Ranked 1v1" and data.gamemode.current ~= "Ranked 4v4" then
+                print("worked")
                 local cycle, index, teams = 1, 1, {}
 
                 local function loop()
@@ -1185,6 +1191,7 @@ end)
 
 runcode(function()
     local ThemeDropdown = {}
+    local GameThemes = {}
 
     local cleanupSnow = function()
         local existing = workspace:FindFirstChild('Snowfall_Client')
@@ -1316,19 +1323,9 @@ runcode(function()
                 local L=game:GetService('Lighting');L:ClearAllChildren();task.wait(0.3)
                 L.Ambient=Color3.new(0.137255,0.137255,0.137255);L.Brightness=0.66;L.ColorShift_Bottom=Color3.new(0,0,0);L.ColorShift_Top=Color3.new(0,0,0);L.OutdoorAmbient=Color3.new(0.231373,0.231373,0.231373);L.FogColor=Color3.new(0.0235294,0.0235294,0.0235294);L.FogEnd=300;L.FogStart=15;L.GlobalShadows=true;L.GeographicLatitude=23.5;L.ExposureCompensation=0;L.EnvironmentDiffuseScale=0.4;L.EnvironmentSpecularScale=0.6;L.ClockTime=0;L.TimeOfDay='00:00:00';L.ShadowSoftness=0.07;L.Technology=Enum.Technology.Future
                 local blu=Instance.new('BlurEffect',L);blu.Name='Blur';blu.Enabled=true;blu.Size=1
-                local blu2=Instance.new('BlurEffect',L);blu2.Name='Death_Blur';blu2.Enabled=false;blu2.Size=24
                 local blo=Instance.new('BloomEffect',L);blo.Name='DefaultBloom';blo.Enabled=true;blo.Intensity=0.2;blo.Size=100;blo.Threshold=0.8
-                local dep=Instance.new('DepthOfFieldEffect',L);dep.Name='FogDof';dep.Enabled=false;dep.FarIntensity=0.2;dep.FocusDistance=0;dep.InFocusRadius=30;dep.NearIntensity=0
-                local col=Instance.new('ColorCorrectionEffect',L);col.Name='LowHealth_CC';col.Enabled=false;col.Brightness=0;col.Contrast=0;col.Saturation=-1;col.TintColor=Color3.new(1,1,1)
-                local dep2=Instance.new('DepthOfFieldEffect',L);dep2.Name='LowHealth_Dof';dep2.Enabled=false;dep2.FarIntensity=0.5;dep2.FocusDistance=0;dep2.InFocusRadius=5;dep2.NearIntensity=0
                 local col2=Instance.new('ColorCorrectionEffect',L);col2.Name='Saturation';col2.Enabled=true;col2.Brightness=0;col2.Contrast=0;col2.Saturation=0.4;col2.TintColor=Color3.new(1,1,1)
-                local dep3=Instance.new('DepthOfFieldEffect',L);dep3.Name='ZoomDOF';dep3.Enabled=false;dep3.FarIntensity=0;dep3.FocusDistance=200;dep3.InFocusRadius=200;dep3.NearIntensity=0
-                local col3=Instance.new('ColorCorrectionEffect',L);col3.Name='HitSaturation';col3.Enabled=true;col3.Brightness=0;col3.Contrast=0;col3.Saturation=0;col3.TintColor=Color3.new(1,1,1)
-                local col4=Instance.new('ColorCorrectionEffect',L);col4.Name='PoisonEffect';col4.Enabled=true;col4.Brightness=0;col4.Contrast=0;col4.Saturation=0;col4.TintColor=Color3.new(1,1,1)
-                local col5=Instance.new('ColorCorrectionEffect',L);col5.Name='Bear5ColorCorrection';col5.Enabled=true;col5.Brightness=0;col5.Contrast=0;col5.Saturation=0;col5.TintColor=Color3.new(1,1,1)
-                local col6=Instance.new('ColorCorrectionEffect',L);col6.Name='HubCC';col6.Enabled=false;col6.Brightness=0;col6.Contrast=0;col6.Saturation=0;col6.TintColor=Color3.new(0.184314,0.603922,1)
-                local blu3=Instance.new('BlurEffect',L);blu3.Name='HubBlur';blu3.Enabled=false;blu3.Size=24
-                local sky=Instance.new('Sky',L);sky.Name='Sky';sky.CelestialBodiesShown=false;sky.SunAngularSize=0;sky.MoonAngularSize=0;sky.SkyboxBk='http://www.roblox.com/asset/?id=4514139911';sky.SkyboxDn='http://www.roblox.com/asset/?id=4514139911';sky.SkyboxFt='http://www.roblox.com/asset/?id=4514139911';sky.SkyboxLf='http://www.roblox.com/asset/?id=4514139911';sky.SkyboxRt='http://www.roblox.com/asset/?id=4514139911';sky.SkyboxUp='http://www.roblox.com/asset/?id=4514139911';sky.StarCount=3000;sky.SunTextureId='';sky.MoonTextureId=''
+                local sky=Instance.new('Sky',L);sky.Name='Sky';sky.CelestialBodiesShown=false;sky.SkyboxBk='http://www.roblox.com/asset/?id=4514139911';sky.SkyboxDn='http://www.roblox.com/asset/?id=4514139911';sky.SkyboxFt='http://www.roblox.com/asset/?id=4514139911';sky.SkyboxLf='http://www.roblox.com/asset/?id=4514139911';sky.SkyboxRt='http://www.roblox.com/asset/?id=4514139911';sky.SkyboxUp='http://www.roblox.com/asset/?id=4514139911';sky.StarCount=3000;sky.SunTextureId='';sky.MoonTextureId=''
             ]])()
         end,
 
@@ -1338,19 +1335,9 @@ runcode(function()
                 local L=game:GetService('Lighting');L:ClearAllChildren();task.wait(0.3)
                 L.Ambient=Color3.new(0,0,0);L.Brightness=1;L.ColorShift_Bottom=Color3.new(0,0,0);L.ColorShift_Top=Color3.new(0,0,0);L.OutdoorAmbient=Color3.new(0.431373,0.431373,0.431373);L.FogColor=Color3.new(0.521569,0.521569,0.521569);L.FogEnd=300;L.FogStart=15;L.GlobalShadows=true;L.GeographicLatitude=23.5;L.ExposureCompensation=0;L.EnvironmentDiffuseScale=0.4;L.EnvironmentSpecularScale=0.6;L.ClockTime=12;L.TimeOfDay='12:00:00';L.ShadowSoftness=0.07;L.Technology=Enum.Technology.Future
                 local blu=Instance.new('BlurEffect',L);blu.Name='Blur';blu.Enabled=true;blu.Size=1
-                local blu2=Instance.new('BlurEffect',L);blu2.Name='Death_Blur';blu2.Enabled=false;blu2.Size=24
                 local blo=Instance.new('BloomEffect',L);blo.Name='DefaultBloom';blo.Enabled=true;blo.Intensity=0.2;blo.Size=100;blo.Threshold=0.8
-                local dep=Instance.new('DepthOfFieldEffect',L);dep.Name='FogDof';dep.Enabled=false;dep.FarIntensity=0.2;dep.FocusDistance=0;dep.InFocusRadius=30;dep.NearIntensity=0
-                local col=Instance.new('ColorCorrectionEffect',L);col.Name='LowHealth_CC';col.Enabled=false;col.Brightness=0;col.Contrast=0;col.Saturation=-1;col.TintColor=Color3.new(1,1,1)
-                local dep2=Instance.new('DepthOfFieldEffect',L);dep2.Name='LowHealth_Dof';dep2.Enabled=false;dep2.FarIntensity=0.5;dep2.FocusDistance=0;dep2.InFocusRadius=5;dep2.NearIntensity=0
                 local col2=Instance.new('ColorCorrectionEffect',L);col2.Name='Saturation';col2.Enabled=true;col2.Brightness=0;col2.Contrast=0;col2.Saturation=0.4;col2.TintColor=Color3.new(1,1,1)
-                local dep3=Instance.new('DepthOfFieldEffect',L);dep3.Name='ZoomDOF';dep3.Enabled=false;dep3.FarIntensity=0;dep3.FocusDistance=200;dep3.InFocusRadius=200;dep3.NearIntensity=0
-                local col3=Instance.new('ColorCorrectionEffect',L);col3.Name='HitSaturation';col3.Enabled=true;col3.Brightness=0;col3.Contrast=0;col3.Saturation=0;col3.TintColor=Color3.new(1,1,1)
-                local col4=Instance.new('ColorCorrectionEffect',L);col4.Name='PoisonEffect';col4.Enabled=true;col4.Brightness=0;col4.Contrast=0;col4.Saturation=0;col4.TintColor=Color3.new(1,1,1)
-                local col5=Instance.new('ColorCorrectionEffect',L);col5.Name='Bear5ColorCorrection';col5.Enabled=true;col5.Brightness=0;col5.Contrast=0;col5.Saturation=0;col5.TintColor=Color3.new(1,1,1)
-                local col6=Instance.new('ColorCorrectionEffect',L);col6.Name='HubCC';col6.Enabled=false;col6.Brightness=0;col6.Contrast=0;col6.Saturation=0;col6.TintColor=Color3.new(0.184314,0.603922,1)
-                local blu3=Instance.new('BlurEffect',L);blu3.Name='HubBlur';blu3.Enabled=false;blu3.Size=24
-                local sky=Instance.new('Sky',L);sky.Name='Sky';sky.CelestialBodiesShown=false;sky.SunAngularSize=0;sky.MoonAngularSize=0;sky.SkyboxBk='http://www.roblox.com/asset/?id=4514139911';sky.SkyboxDn='http://www.roblox.com/asset/?id=4514139911';sky.SkyboxFt='http://www.roblox.com/asset/?id=4514139911';sky.SkyboxLf='http://www.roblox.com/asset/?id=4514139911';sky.SkyboxRt='http://www.roblox.com/asset/?id=4514139911';sky.SkyboxUp='http://www.roblox.com/asset/?id=4514139911';sky.StarCount=3000;sky.SunTextureId='';sky.MoonTextureId=''
+                local sky=Instance.new('Sky',L);sky.Name='Sky';sky.CelestialBodiesShown=false;sky.SkyboxBk='http://www.roblox.com/asset/?id=4514139911';sky.SkyboxDn='http://www.roblox.com/asset/?id=4514139911';sky.SkyboxFt='http://www.roblox.com/asset/?id=4514139911';sky.SkyboxLf='http://www.roblox.com/asset/?id=4514139911';sky.SkyboxRt='http://www.roblox.com/asset/?id=4514139911';sky.SkyboxUp='http://www.roblox.com/asset/?id=4514139911';sky.StarCount=3000;sky.SunTextureId='';sky.MoonTextureId=''
                 local atm=Instance.new('Atmosphere',L);atm.Name='FoggyDay_Atmosphere';atm.Density=0.675;atm.Offset=0;atm.Color=Color3.new(0.780392,0.780392,0.780392);atm.Decay=Color3.new(0.454902,0.454902,0.454902);atm.Glare=4.95;atm.Haze=2.62
             ]])()
         end,
