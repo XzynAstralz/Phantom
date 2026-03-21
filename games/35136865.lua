@@ -1001,45 +1001,14 @@ runcode(function()
     })
 end)
 
-local StealAllChests = {}
+local ChestManager = {}
 runcode(function()
     local cycle, index, teams = 1, 1, {}
-    StealAllChests = GuiLibrary.Registry.utillityPanel.API.CreateOptionsButton({
-        Name = "StealAllChests",
-        New = true,
-        Function = function(cb)
-            if cb then
-                teams = getTeams()
-                RunLoops:BindToHeartbeat("StealAllChestsLoop", function()
-                    if lplr.Team == "Spectators" or #teams == 0 then
-                        teams, index, cycle = getTeams(), 1, 1
-                        return
-                    end
-                    local t = teams[index]
-                    local chest = game:GetService("ReplicatedStorage").TeamChestsStorage:FindFirstChild(t)
-                    if chest and t ~= "Spectators" then
-                        local slot = chest:FindFirstChild(tostring(cycle))
-                        local name = slot and slot:GetAttribute("Name")
-                        if name and name ~= "" then
-                            game:GetService("ReplicatedStorage").Remotes.TakeItemFromChest:FireServer(t, cycle, tostring(cycle))
-                        end
-                    end
-                    index += 1
-                    if index > #teams then
-                        index, cycle, teams = 1, cycle % 3 + 1, getTeams()
-                    end
-                end)
-            else
-                RunLoops:UnbindFromHeartbeat("StealAllChestsLoop")
-            end
-        end
-    })
-end)
-
-runcode(function()
+    local KeepInv = {}
     local savedItems, saving = {}, false
     local respawnConn, healthConn, lastHealth = nil, nil, 0
     local lowestY = math.huge
+
     local inv = require(ReplicatedStorage.Modules.InventoryHandler)
     local itemsData = require(ReplicatedStorage.Modules.DataModules.ItemsData)
 
@@ -1050,178 +1019,137 @@ runcode(function()
         end
     end
 
-    local KeepInventory = GuiLibrary.Registry.utillityPanel.API.CreateOptionsButton({
-        Name = "KeepInventory",
+    ChestManager = GuiLibrary.Registry.utillityPanel.API.CreateOptionsButton({
+        Name = "ChestManager",
         New = true,
         Function = function(cb)
             if cb then
-                local hook = function()
-                    local char = lplr.Character or lplr.CharacterAdded:Wait()
-                    local hum = char:WaitForChild("Humanoid")
-                    local hrp = char:WaitForChild("HumanoidRootPart")
-                    lastHealth = hum.Health
-                    if healthConn then healthConn:Disconnect() end
+                teams = getTeams()
+                ChestManager.Loop = function()
+                    if not PlayerUtility.IsAlive(lplr) then return end
 
-                    local storing = false
-                    local storedForRecovery = false
+                    if lplr.Team == "Spectators" or #teams == 0 then
+                        teams, index, cycle = getTeams(), 1, 1
+                        return
+                    end
 
-                    local restoreItems = function(teamName)
-                        if StealAllChests.Enabled then
-                            local cycle, index, teams = 1, 1, getTeams()
-                            RunLoops:BindToHeartbeat("StealAllChestsLoop", function()
-                                if lplr.Team == "Spectators" or #teams == 0 then
-                                    teams, index, cycle = getTeams(), 1, 1
-                                    return
-                                end
-                                local t = teams[index]
-                                local chest = game:GetService("ReplicatedStorage").TeamChestsStorage:FindFirstChild(t)
-                                if chest and t ~= "Spectators" then
-                                    local chestSlot = chest:FindFirstChild(tostring(cycle))
-                                    local slotName = chestSlot and chestSlot:GetAttribute("Name")
-                                    if slotName and slotName ~= "" then
-                                        game:GetService("ReplicatedStorage").Remotes.TakeItemFromChest:FireServer(t, cycle, tostring(cycle))
-                                    end
-                                end
-                                index += 1
-                                if index > #teams then
-                                    index, cycle, teams = 1, cycle % 3 + 1, getTeams()
-                                end
-                            end)
-                        end
+                    local t = teams[index]
+                    local chest = ReplicatedStorage.TeamChestsStorage:FindFirstChild(t)
 
-                        for key, _ in pairs(savedItems) do
-                            local slot = key:match("_(%d+)")
-                            if slot then
-                                task.wait(0.5)
-                                ReplicatedStorage.Remotes.TakeItemFromChest:FireServer(teamName, tonumber(slot) + 3, tostring(tonumber(slot) + 3))
-                            end
-                        end
+                    if chest and t ~= "Spectators" then
+                        local slot = chest:FindFirstChild(tostring(cycle))
+                        local name = slot and slot:GetAttribute("Name")
 
-                        if StealAllChests and StealAllChests.Enabled then
-                            RunLoops:UnbindFromHeartbeat("StealAllChestsLoop")
-                        end
-
-                        savedItems = {}
-                        storedForRecovery = false
-                        saving = false
-
-                        if StealAllChests and StealAllChests.Enabled then
-                            local cycle, index, teams = 1, 1, getTeams()
-                            RunLoops:BindToHeartbeat("StealAllChestsLoop", function()
-                                if lplr.Team == "Spectators" or #teams == 0 then
-                                    teams, index, cycle = getTeams(), 1, 1
-                                    return
-                                end
-                                local t = teams[index]
-                                local chest = game:GetService("ReplicatedStorage").TeamChestsStorage:FindFirstChild(t)
-                                if chest and t ~= "Spectators" then
-                                    local chestSlot = chest:FindFirstChild(tostring(cycle))
-                                    local slotName = chestSlot and chestSlot:GetAttribute("Name")
-                                    if slotName and slotName ~= "" then
-                                        game:GetService("ReplicatedStorage").Remotes.TakeItemFromChest:FireServer(t, cycle, tostring(cycle))
-                                    end
-                                end
-                                index += 1
-                                if index > #teams then
-                                    index, cycle, teams = 1, cycle % 3 + 1, getTeams()
-                                end
-                            end)
+                        if name and name ~= "" then
+                            ReplicatedStorage.Remotes.TakeItemFromChest:FireServer(t, cycle, tostring(cycle))
+                            print("worked")
                         end
                     end
 
-                    local save = function()
-                        if saving then return end
-                        saving = true
-                        savedItems = {}
-                        storedForRecovery = false
+                    index += 1
+                    if index > #teams then
+                        index, cycle, teams = 1, cycle % 3 + 1, getTeams()
+                    end
+                end
+
+                RunLoops:BindToHeartbeat("ChestManagerLoop", ChestManager.Loop)
+
+                local function hook()
+                    local char = lplr.Character or lplr.CharacterAdded:Wait()
+                    local hum = char:WaitForChild("Humanoid")
+                    local hrp = char:WaitForChild("HumanoidRootPart")
+
+                    lastHealth = hum.Health
+                    if healthConn then healthConn:Disconnect() end
+
+                    healthConn = hum.HealthChanged:Connect(function(h)
+                        if not KeepInv.Enabled then return end
+
+                        local dmg = lastHealth - h
+                        lastHealth = h
+
+                        if saving or dmg <= 0 or h > dmg * 2 then return end
+                        saving, savedItems = true, {}
 
                         local team = lplr.Team and lplr.Team.Name
                         if not team or team == "Spectators" then saving = false return end
 
-                        if StealAllChests and StealAllChests.Enabled then
-                            RunLoops:UnbindFromHeartbeat("StealAllChestsLoop")
-                        end
+                        print("jere")
+                        RunLoops:UnbindFromHeartbeat("ChestManagerLoop")
 
-                        storing = true
-                        task.spawn(function()
-                            while storing and PlayerUtility.IsAlive(lplr) do
-                                for _, invy in pairs(inv.Inventories) do
-                                    for i, slot in pairs(invy.Items) do
-                                        local name = slot.Name
-                                        if name ~= "" then
-                                            local data = itemsData[name]
-                                            if data and data.CanStoreInChest then
-                                                local key = name .. "_" .. i
-                                                if not savedItems[key] then
-                                                    savedItems[key] = true
-                                                    ReplicatedStorage.Remotes.PutItemInChest:FireServer(name, team, i + 3)
-                                                end
+                        RunLoops:BindToHeartbeat("ChestManagerSave", function()
+                            if not PlayerUtility.IsAlive(lplr) then return end
+
+                            for _, invy in pairs(inv.Inventories) do
+                                for i, slot in pairs(invy.Items) do
+                                    if slot.Name ~= "" then
+                                        local data = itemsData[slot.Name]
+                                        if data and data.CanStoreInChest then
+                                            local key = slot.Name.."_"..i
+                                            if not savedItems[key] then
+                                                savedItems[key] = true
+                                                ReplicatedStorage.Remotes.PutItemInChest:FireServer(slot.Name, team, i + 3)
                                             end
                                         end
                                     end
                                 end
-                                task.wait(0.1)
                             end
                         end)
-
-                        storedForRecovery = true
 
                         task.spawn(function()
-                            repeat task.wait() until not PlayerUtility.IsAlive(lplr) or not storedForRecovery
-                            storing = false
+                            repeat task.wait() until not PlayerUtility.IsAlive(lplr)
+                            repeat task.wait() until PlayerUtility.IsAlive(lplr)
 
-                            if not PlayerUtility.IsAlive(lplr) then
-                                repeat task.wait() until PlayerUtility.IsAlive(lplr)
-                                local newTeam = lplr.Team and lplr.Team.Name
-                                if newTeam and newTeam ~= "Spectators" then
-                                    restoreItems(newTeam)
-                                else
-                                    savedItems = {}
-                                    storedForRecovery = false
-                                    saving = false
+                            local newTeam = lplr.Team and lplr.Team.Name
+                            if newTeam and newTeam ~= "Spectators" then
+                                for key in pairs(savedItems) do
+                                    local slot = key:match("_(%d+)")
+                                    if slot then
+                                        task.wait(0.35)
+                                        ReplicatedStorage.Remotes.TakeItemFromChest:FireServer(newTeam, tonumber(slot) + 3, tostring(tonumber(slot) + 3))
+                                    end
                                 end
                             end
+
+                            savedItems, saving = {}, false
+                            RunLoops:BindToHeartbeat("ChestManagerLoop", ChestManager.Loop)
                         end)
-                    end
-
-                    healthConn = hum.HealthChanged:Connect(function(h)
-                        local dmg = lastHealth - h
-                        lastHealth = h
-
-                        if not saving and dmg > 0 and h <= dmg * 2 then
-                            save()
-                        end
-
-                        if storedForRecovery and h >= 55 then
-                            local team = lplr.Team and lplr.Team.Name
-                            if team and team ~= "Spectators" then
-                                storedForRecovery = false
-                                storing = false
-                                restoreItems(team)
-                            end
-                        end
                     end)
 
-                    task.spawn(function()
-                        while char.Parent do
-                            if not saving and hrp.Position.Y <= lowestY - 20 then
-                                save()
-                            end
-                            task.wait(0.1)
+                    RunLoops:BindToHeartbeat("ChestManagerVoid", function()
+                        if not KeepInv.Enabled then return end
+                        if not char or not char.Parent then return end
+
+                        if not saving and hrp.Position.Y <= lowestY - 20 then
+                            saving = true
+                            hum.Health = 0
                         end
                     end)
                 end
 
                 hook()
+
                 respawnConn = lplr.CharacterAdded:Connect(function()
                     task.wait()
                     hook()
                 end)
+
             else
-                if healthConn then healthConn:Disconnect() healthConn = nil end
-                if respawnConn then respawnConn:Disconnect() respawnConn = nil end
-                savedItems, saving = {}, false
+                RunLoops:UnbindFromHeartbeat("ChestManagerLoop")
+                RunLoops:UnbindFromHeartbeat("ChestManagerSave")
+                RunLoops:UnbindFromHeartbeat("ChestManagerVoid")
+
+                if healthConn then healthConn:Disconnect() end
+                if respawnConn then respawnConn:Disconnect() end
+
+                savedItems = {}
+                saving = false
             end
         end
+    })
+    
+    KeepInv = ChestManager.CreateToggle({
+        Name = "KeepInv",
+        Function = function() end
     })
 end)
