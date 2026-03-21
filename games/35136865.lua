@@ -1156,7 +1156,6 @@ runcode(function()
         New = true,
         Function = function(cb)
             if data.gamemode.current ~= "Ranked 1v1" and data.gamemode.current ~= "Ranked 4v4" then
-                print("worked")
                 local cycle, index, teams = 1, 1, {}
 
                 local function loop()
