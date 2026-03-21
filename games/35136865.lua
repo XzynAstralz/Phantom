@@ -652,7 +652,8 @@ end)
 
 runcode(function()
     local LongFlyValue, LongFlyDuration, LongFlySlopeAngle = {}, {}, {}
-    local overheadCheckEnabled, smartFlyEnabled = false, false
+    local smartFly = {}
+    local overheadCheck = false
     local phase, noBlockTimer = "0", 0
     local lastActivated, cooldown = 0, 0
     local GRACE_PERIOD = 0.03
@@ -696,8 +697,7 @@ runcode(function()
                     return
                 end
 
-                local speedWasEnabled = Speed and Speed.Enabled
-                if speedWasEnabled then
+                if Speed.Enabled then
                     RunLoops:UnbindFromHeartbeat("Speed")
                     if bodyVel then bodyVel.MaxForce = Vector3.zero end
                 end
@@ -707,7 +707,7 @@ runcode(function()
                 task.wait(0.5)
                 root.Anchored = false
 
-                if speedWasEnabled and Speed and Speed.Enabled then Speed.Function(true) end
+                if Speed.Enabled then Speed.Function(true) end
 
                 local camLook = workspace.CurrentCamera.CFrame.LookVector
                 local lockedDir = Vector3.new(camLook.X, 0, camLook.Z)
@@ -720,7 +720,7 @@ runcode(function()
                 local timeUnderBlock, totalTime = 0, 0
                 local wasUnderBlock, smartStopArmed = false, false
 
-                phase, noBlockTimer = overheadCheckEnabled and "1" or "0", 0
+                phase, noBlockTimer = overheadCheck.Enabled and "1" or "0", 0
                 createBodyVel()
                 bodyVel.MaxForce = Vector3.new(1e5, 1e5, 1e5)
                 humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
@@ -743,7 +743,7 @@ runcode(function()
                     local currentlyUnderBlock = workspace:Raycast(root.Position, Vector3.new(0, -100, 0), rayParams) ~= nil
                     if currentlyUnderBlock then timeUnderBlock += dt; wasUnderBlock = true end
 
-                    if smartFlyEnabled and wasUnderBlock and currentlyUnderBlock then
+                    if smartFly.Enabled and wasUnderBlock and currentlyUnderBlock then
                         local blockCoverage = timeUnderBlock / math.max(totalTime, 0.001)
                         local flightProgress = (now - startTime) / LongFlyDuration.Value
                         if blockCoverage >= 0.25 and flightProgress >= 0.4 and not smartStopArmed then
@@ -774,7 +774,7 @@ runcode(function()
                         return
                     end
 
-                    if overheadCheckEnabled then
+                    if overheadCheck.Enabled then
                         if phase == "1" then
                             if currentlyUnderBlock then phase, noBlockTimer = "3", 0 end
                         elseif phase == "3" then
@@ -810,8 +810,7 @@ runcode(function()
             end
         end
     })
-
-LongFlyValue = LongFly.CreateSlider({
+    LongFlyValue = LongFly.CreateSlider({
         Name = "speed",
         Min = 0,
         Max = 300,
@@ -832,20 +831,17 @@ LongFlyValue = LongFly.CreateSlider({
         Default = 15,
         Round = 1
     })
-    LongFly.CreateToggle({
+    overheadCheck = LongFly.CreateToggle({
         Name = "Stop Under Block",
         Default = false,
-        Function = function(state)
-            overheadCheckEnabled = state
+        Function = function()
             phase, noBlockTimer = "0", 0
         end
     })
-    LongFly.CreateToggle({
+    smartFly = LongFly.CreateToggle({
         Name = "SmartFly",
         Default = false,
-        Function = function(state)
-            smartFlyEnabled = state
-        end
+        Function = function() end
     })
 end)
 
@@ -1005,9 +1001,9 @@ runcode(function()
     })
 end)
 
+local StealAllChests = {}
 runcode(function()
     local cycle, index, teams = 1, 1, {}
-    local StealAllChests = {}
     StealAllChests = GuiLibrary.Registry.utillityPanel.API.CreateOptionsButton({
         Name = "StealAllChests",
         New = true,
@@ -1070,7 +1066,7 @@ runcode(function()
                     local storedForRecovery = false
 
                     local restoreItems = function(teamName)
-                        if StealAllChests and StealAllChests.Enabled then
+                        if StealAllChests.Enabled then
                             local cycle, index, teams = 1, 1, getTeams()
                             RunLoops:BindToHeartbeat("StealAllChestsLoop", function()
                                 if lplr.Team == "Spectators" or #teams == 0 then
