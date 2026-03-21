@@ -1,5 +1,7 @@
 
 
+
+
 --[[
     --------------------------------------------------------------
     -------------------------------------------------------------
@@ -38,6 +40,18 @@ local RunLoops = {RenderStepTable = {}, StepTable = {}, HeartTable = {}}
 local LongFly = {}
 local PlayerUtility = loadstring(readfile("Phantom/lib/Utility.lua"))()
 local DrawLibrary = loadstring(game:HttpGet("https://raw.githubusercontent.com/XzynAstralz/Phantom/refs/heads/main/lib/fly.lua"))()
+
+local loopTable = {}
+local data = {
+    hooked = {},
+    Attacking = false,
+    attackingEntity = nil,
+    game = {
+        value = nil,
+        current = nil,
+        connection = nil
+    }
+}
 PlayerUtility.teams = {
     Spectroctor = true
 }
@@ -56,9 +70,6 @@ local function UnbindFromLoop(loopTable, name)
         loopTable[name] = nil
     end
 end
-
-local loopTable = {}
-local data = {Attacking = false, attackingEntity = nil}
 
 function RunLoops:BindToRenderStep(name, func)
     BindToLoop(loopTable, RunService.PreSimulation, name, func)
@@ -123,16 +134,14 @@ local SpeedMultiplier = function()
     return baseMultiplier
 end
 
-local hooked = {}
-
 local function hookValue(plr, v)
-    if not hooked[plr] then return end
-    table.insert(hooked[plr].items, v)
+    if not data.hooked[plr] then return end
+    table.insert(data.hooked[plr].items, v)
 end
 
 local function unhookValue(plr, v)
-    if not hooked[plr] then return end
-    local t = hooked[plr].items
+    if not data.hooked[plr] then return end
+    local t = data.hooked[plr].items
     local i = table.find(t, v)
     if i then
         table.remove(t, i)
@@ -143,7 +152,7 @@ local hookinv = function(plr)
     plr = plr or lplr
     local inv = plr.Inventory
 
-    hooked[plr] = {
+    data.hooked[plr] = {
         inv = inv,
         items = {}
     }
@@ -167,11 +176,32 @@ local hookinv = function(plr)
     end))
 end
 
+local hookmode = function()
+    local gameMode = game:GetService("ReplicatedStorage"):WaitForChild("GameInfo"):WaitForChild("GameMode")
+
+    data.game.value = gameMode
+    data.game.current = gameMode.Value
+
+    if data.game.connection then
+        data.game.connection:Disconnect()
+    end
+
+    data.game.connection = gameMode:GetPropertyChangedSignal("Value"):Connect(function()
+        local newValue = gameMode.Value
+
+        if newValue ~= data.game.current then
+            data.game.current = newValue
+        end
+    end)
+
+    GuiLibrary.kit.track(data.game.connection)
+end
+
 local getitem = function(name, plr)
     plr = plr or lplr
-    if not hooked[plr] then return nil end
+    if not data.hooked[plr] then return nil end
 
-    for _, v in ipairs(hooked[plr].items) do
+    for _, v in ipairs(data.hooked[plr].items) do
         if v.Name:find(name) then
             return v
         end
@@ -193,7 +223,7 @@ local itmEqu
 
 do
     hookinv(lplr)
-
+    hookmode()
     getsword = function()
         local item = getitem("Sword")
         return item and item.Name or nil
@@ -1001,155 +1031,352 @@ runcode(function()
     })
 end)
 
-local ChestManager = {}
 runcode(function()
-    local cycle, index, teams = 1, 1, {}
-    local KeepInv = {}
-    local savedItems, saving = {}, false
-    local respawnConn, healthConn, lastHealth = nil, nil, 0
+    local saved, saving = {}, false
+    local rConn, hConn, lastHp = nil, nil, 0
     local lowestY = math.huge
-
     local inv = require(ReplicatedStorage.Modules.InventoryHandler)
-    local itemsData = require(ReplicatedStorage.Modules.DataModules.ItemsData)
+    local items = require(ReplicatedStorage.Modules.DataModules.ItemsData)
+    local KeepInv
 
     for _, v in pairs(workspace:GetDescendants()) do
         if v:IsA("BasePart") and v.CanCollide and v.Transparency < 1 then
-            local y = v.Position.Y - v.Size.Y/2
+            local y = v.Position.Y - v.Size.Y / 2
             if y < lowestY then lowestY = y end
         end
     end
 
-    ChestManager = GuiLibrary.Registry.utillityPanel.API.CreateOptionsButton({
+    local chestfuncs = {}
+
+    chestfuncs.Loop = function(loop, cycle, index, teams)
+        if not PlayerUtility.IsAlive(lplr) then return end
+        if lplr.Team == "Spectators" or #teams == 0 then
+            teams, index, cycle = getTeams(), 1, 1
+            return
+        end
+        local t = teams[index]
+        local chest = ReplicatedStorage.TeamChestsStorage:FindFirstChild(t)
+        if chest and t ~= "Spectators" then
+            local slot = chest:FindFirstChild(tostring(cycle))
+            local name = slot and slot:GetAttribute("Name")
+            if name and name ~= "" then
+                ReplicatedStorage.Remotes.TakeItemFromChest:FireServer(t, cycle, tostring(cycle))
+            end
+        end
+        index += 1
+        if index > #teams then index, cycle, teams = 1, cycle % 3 + 1, getTeams() end
+        return cycle, index, teams
+    end
+
+    chestfuncs.Save = function(team)
+        if saving then return end
+        saving, saved = true, {}
+        RunLoops:UnbindFromHeartbeat("ChestManagerLoop")
+        RunLoops:BindToHeartbeat("ChestManagerSave", function()
+            if not PlayerUtility.IsAlive(lplr) then return end
+            for _, invy in pairs(inv.Inventories) do
+                for i, slot in pairs(invy.Items) do
+                    if slot.Name ~= "" then
+                        local data = items[slot.Name]
+                        if data and data.CanStoreInChest then
+                            local key = slot.Name .. "_" .. i
+                            if not saved[key] then
+                                saved[key] = true
+                                ReplicatedStorage.Remotes.PutItemInChest:FireServer(slot.Name, team, i + 3)
+                            end
+                        end
+                    end
+                end
+            end
+        end)
+    end
+
+    chestfuncs.Restore = function(loop)
+        RunLoops:UnbindFromHeartbeat("ChestManagerSave")
+        local team = lplr.Team and lplr.Team.Name
+        if not team or team == "Spectators" or not next(saved) then
+            saved, saving = {}, false
+            return
+        end
+        local slots = {}
+        for key in pairs(saved) do
+            local s = key:match("_(%d+)")
+            if s then table.insert(slots, tonumber(s)) end
+        end
+        saved, saving = {}, false
+        task.spawn(function()
+            for _, s in ipairs(slots) do
+                task.wait(0.35)
+                ReplicatedStorage.Remotes.TakeItemFromChest:FireServer(team, s + 3, tostring(s + 3))
+            end
+            RunLoops:BindToHeartbeat("ChestManagerLoop", loop)
+        end)
+    end
+
+    chestfuncs.Cleanup = function()
+        RunLoops:UnbindFromHeartbeat("ChestManagerSave")
+        RunLoops:UnbindFromHeartbeat("ChestManagerVoid")
+        if hConn then hConn:Disconnect() hConn = nil end
+    end
+
+    chestfuncs.Hook = function(loop)
+        chestfuncs.Cleanup()
+        local char = lplr.Character
+        if not char then return end
+        local hum = char:WaitForChild("Humanoid")
+        local hrp = char:WaitForChild("HumanoidRootPart")
+        lastHp = hum.Health
+
+        RunLoops:BindToHeartbeat("ChestManagerVoid", function()
+            if not KeepInv.Enabled or saving then return end
+            if hrp and hrp.Parent and hrp.Position.Y <= lowestY - 15 then
+                local team = lplr.Team and lplr.Team.Name
+                if team and team ~= "Spectators" then chestfuncs.Save(team) end
+            end
+        end)
+
+        hConn = hum.HealthChanged:Connect(function(h)
+            if not KeepInv.Enabled then return end
+            local dmg = lastHp - h
+            lastHp = h
+            if saving or dmg <= 0 then return end
+            local team = lplr.Team and lplr.Team.Name
+            if not team or team == "Spectators" then return end
+            if h <= 0 or h <= dmg then
+                chestfuncs.Save(team)
+            else
+                chestfuncs.Restore(loop)
+            end
+        end)
+    end
+
+    local CM = GuiLibrary.Registry.utillityPanel.API.CreateOptionsButton({
         Name = "ChestManager",
         New = true,
         Function = function(cb)
-            if cb then
-                teams = getTeams()
-                ChestManager.Loop = function()
-                    if not PlayerUtility.IsAlive(lplr) then return end
+            if data.game.current ~= "Ranked 1v1"  or "Ranked 4v4" then
+                local cycle, index, teams = 1, 1, {}
 
-                    if lplr.Team == "Spectators" or #teams == 0 then
-                        teams, index, cycle = getTeams(), 1, 1
-                        return
-                    end
-
-                    local t = teams[index]
-                    local chest = ReplicatedStorage.TeamChestsStorage:FindFirstChild(t)
-
-                    if chest and t ~= "Spectators" then
-                        local slot = chest:FindFirstChild(tostring(cycle))
-                        local name = slot and slot:GetAttribute("Name")
-
-                        if name and name ~= "" then
-                            ReplicatedStorage.Remotes.TakeItemFromChest:FireServer(t, cycle, tostring(cycle))
-                            print("worked")
-                        end
-                    end
-
-                    index += 1
-                    if index > #teams then
-                        index, cycle, teams = 1, cycle % 3 + 1, getTeams()
-                    end
+                local function loop()
+                    cycle, index, teams = chestfuncs.Loop(loop, cycle, index, teams)
                 end
 
-                RunLoops:BindToHeartbeat("ChestManagerLoop", ChestManager.Loop)
-
-                local function hook()
-                    local char = lplr.Character or lplr.CharacterAdded:Wait()
-                    local hum = char:WaitForChild("Humanoid")
-                    local hrp = char:WaitForChild("HumanoidRootPart")
-
-                    lastHealth = hum.Health
-                    if healthConn then healthConn:Disconnect() end
-
-                    healthConn = hum.HealthChanged:Connect(function(h)
-                        if not KeepInv.Enabled then return end
-
-                        local dmg = lastHealth - h
-                        lastHealth = h
-
-                        if saving or dmg <= 0 or h > dmg * 2 then return end
-                        saving, savedItems = true, {}
-
-                        local team = lplr.Team and lplr.Team.Name
-                        if not team or team == "Spectators" then saving = false return end
-
-                        print("jere")
-                        RunLoops:UnbindFromHeartbeat("ChestManagerLoop")
-
-                        RunLoops:BindToHeartbeat("ChestManagerSave", function()
-                            if not PlayerUtility.IsAlive(lplr) then return end
-
-                            for _, invy in pairs(inv.Inventories) do
-                                for i, slot in pairs(invy.Items) do
-                                    if slot.Name ~= "" then
-                                        local data = itemsData[slot.Name]
-                                        if data and data.CanStoreInChest then
-                                            local key = slot.Name.."_"..i
-                                            if not savedItems[key] then
-                                                savedItems[key] = true
-                                                ReplicatedStorage.Remotes.PutItemInChest:FireServer(slot.Name, team, i + 3)
-                                            end
-                                        end
-                                    end
-                                end
-                            end
-                        end)
-
-                        task.spawn(function()
-                            repeat task.wait() until not PlayerUtility.IsAlive(lplr)
-                            repeat task.wait() until PlayerUtility.IsAlive(lplr)
-
-                            local newTeam = lplr.Team and lplr.Team.Name
-                            if newTeam and newTeam ~= "Spectators" then
-                                for key in pairs(savedItems) do
-                                    local slot = key:match("_(%d+)")
-                                    if slot then
-                                        task.wait(0.35)
-                                        ReplicatedStorage.Remotes.TakeItemFromChest:FireServer(newTeam, tonumber(slot) + 3, tostring(tonumber(slot) + 3))
-                                    end
-                                end
-                            end
-
-                            savedItems, saving = {}, false
-                            RunLoops:BindToHeartbeat("ChestManagerLoop", ChestManager.Loop)
-                        end)
+                if cb then
+                    teams = getTeams()
+                    if rConn then rConn:Disconnect() end
+                    rConn = lplr.CharacterAdded:Connect(function()
+                        task.wait()
+                        chestfuncs.Restore(loop)
+                        chestfuncs.Hook(loop)
                     end)
-
-                    RunLoops:BindToHeartbeat("ChestManagerVoid", function()
-                        if not KeepInv.Enabled then return end
-                        if not char or not char.Parent then return end
-
-                        if not saving and hrp.Position.Y <= lowestY - 20 then
-                            saving = true
-                            hum.Health = 0
-                        end
-                    end)
+                    chestfuncs.Hook(loop)
+                    RunLoops:BindToHeartbeat("ChestManagerLoop", loop)
+                else
+                    RunLoops:UnbindFromHeartbeat("ChestManagerLoop")
+                    chestfuncs.Cleanup()
+                    if rConn then rConn:Disconnect() rConn = nil end
+                    saved, saving = {}, false
                 end
-
-                hook()
-
-                respawnConn = lplr.CharacterAdded:Connect(function()
-                    task.wait()
-                    hook()
-                end)
-
-            else
-                RunLoops:UnbindFromHeartbeat("ChestManagerLoop")
-                RunLoops:UnbindFromHeartbeat("ChestManagerSave")
-                RunLoops:UnbindFromHeartbeat("ChestManagerVoid")
-
-                if healthConn then healthConn:Disconnect() end
-                if respawnConn then respawnConn:Disconnect() end
-
-                savedItems = {}
-                saving = false
             end
         end
     })
-    
-    KeepInv = ChestManager.CreateToggle({
-        Name = "KeepInv",
-        Function = function() end
+
+    KeepInv = CM.CreateToggle({ Name = "KeepInv", 
+        Function = function() end 
+    })
+end)
+
+runcode(function()
+    local ThemeDropdown = {}
+
+    local cleanupSnow = function()
+        local existing = workspace:FindFirstChild('Snowfall_Client')
+        if existing then existing:Destroy() end
+    end
+
+    local themes = {
+        Default = function()
+            cleanupSnow()
+            loadstring([[
+                local L=game:GetService('Lighting');L:ClearAllChildren();task.wait(0.3)
+                L.Ambient=Color3.new(0.576471,0.67451,0.784314);L.Brightness=3;L.ColorShift_Bottom=Color3.new(0.294118,0.235294,0.192157);L.ColorShift_Top=Color3.new(0,0,0);L.OutdoorAmbient=Color3.new(0.576471,0.67451,0.784314);L.FogColor=Color3.new(0.752941,0.752941,0.752941);L.FogEnd=100000;L.FogStart=0;L.GlobalShadows=true;L.GeographicLatitude=45;L.ExposureCompensation=0;L.EnvironmentDiffuseScale=1;L.EnvironmentSpecularScale=1;L.ClockTime=14.5;L.TimeOfDay='14:30:00';L.ShadowSoftness=0.1;L.Technology=Enum.Technology.ShadowMap
+                local blo=Instance.new('BloomEffect',L);blo.Name='Bloom';blo.Enabled=true;blo.Intensity=1;blo.Size=10;blo.Threshold=2
+                local col=Instance.new('ColorCorrectionEffect',L);col.Name='DeathBarrierEffect';col.Enabled=false;col.Brightness=0;col.Contrast=0;col.Saturation=0;col.TintColor=Color3.new(0.858824,0.627451,1)
+                local col2=Instance.new('ColorCorrectionEffect',L);col2.Name='ColorCorrection';col2.Enabled=true;col2.Brightness=0;col2.Contrast=0.05;col2.Saturation=0.05;col2.TintColor=Color3.new(1,1,1)
+                local sky=Instance.new('Sky',L);sky.Name='Sky';sky.CelestialBodiesShown=true;sky.SunAngularSize=21;sky.MoonAngularSize=11;sky.SkyboxBk='rbxassetid://93968881652239';sky.SkyboxDn='rbxassetid://102254730940508';sky.SkyboxFt='rbxassetid://93968881652239';sky.SkyboxLf='rbxassetid://93968881652239';sky.SkyboxRt='rbxassetid://93968881652239';sky.SkyboxUp='rbxassetid://112261788034018';sky.StarCount=3000;sky.SunTextureId='';sky.MoonTextureId=''
+                local col3=Instance.new('ColorCorrectionEffect',L);col3.Name='SmokeColorCorrection';col3.Enabled=false;col3.Brightness=0;col3.Contrast=0;col3.Saturation=-0.5;col3.TintColor=Color3.new(0.588235,0.588235,0.588235)
+            ]])()
+        end,
+
+        Winter = function()
+            cleanupSnow()
+            loadstring([[
+                local L=game:GetService('Lighting');L:ClearAllChildren();task.wait(0.3)
+                L.Ambient=Color3.new(0,0,0);L.Brightness=1;L.ColorShift_Bottom=Color3.new(0,0,0);L.ColorShift_Top=Color3.new(0,0,0);L.OutdoorAmbient=Color3.new(0.576471,0.6,0.760784);L.FogColor=Color3.new(0.576471,0.6,0.760784);L.FogEnd=300;L.FogStart=15;L.GlobalShadows=true;L.GeographicLatitude=23.5;L.ExposureCompensation=0;L.EnvironmentDiffuseScale=0.4;L.EnvironmentSpecularScale=0.6;L.ClockTime=12;L.TimeOfDay='12:00:00';L.ShadowSoftness=0.07;L.Technology=Enum.Technology.Future
+                local sky=Instance.new('Sky',L);sky.CelestialBodiesShown=false;sky.SkyboxBk='http://www.roblox.com/asset/?id=4514139911';sky.SkyboxDn='http://www.roblox.com/asset/?id=4514139911';sky.SkyboxFt='http://www.roblox.com/asset/?id=4514139911';sky.SkyboxLf='http://www.roblox.com/asset/?id=4514139911';sky.SkyboxRt='http://www.roblox.com/asset/?id=4514139911';sky.SkyboxUp='http://www.roblox.com/asset/?id=4514139911';sky.StarCount=3000
+                local atm=Instance.new('Atmosphere',L);atm.Name='Blizzard_Atmosphere';atm.Density=0.531;atm.Offset=0.281;atm.Color=Color3.new(0.686275,0.733333,0.780392);atm.Decay=Color3.new(0.619608,0.666667,0.784314);atm.Glare=2.69;atm.Haze=10
+            ]])()
+
+            local lp = game:GetService('Players').LocalPlayer
+            local rs = game:GetService('RunService')
+            local folder = Instance.new('Folder', workspace); folder.Name = 'Snowfall_Client'
+
+            local GRID_COLS, GRID_ROWS = 10, 8
+            local PLANE_W, PLANE_H = 100, 80
+            local ABOVE_OFFSET, Z_OFFSET, RAY_LEN, UPDATE_RATE = 40, 50, 90, 0.5
+            local cellW, cellH = PLANE_W / GRID_COLS, PLANE_H / GRID_ROWS
+
+            local rayParams = RaycastParams.new()
+            rayParams.FilterType = Enum.RaycastFilterType.Exclude
+
+            local function makeEmitter(parent)
+                local e = Instance.new('ParticleEmitter', parent); e.Name='Particle';e.Texture='rbxassetid://127302768524882'
+                e.Rate=0;e.Lifetime=NumberRange.new(6,8);e.Speed=NumberRange.new(20,50);e.Drag=0
+                e.Rotation=NumberRange.new(-15,15);e.RotSpeed=NumberRange.new(-90,90);e.VelocitySpread=5
+                e.SpreadAngle=Vector2.new(5,5);e.LightInfluence=1;e.LightEmission=0;e.ZOffset=0
+                e.Acceleration=Vector3.new(0,-0.4,0);e.EmissionDirection=Enum.NormalId.Front
+                e.Orientation=Enum.ParticleOrientation.FacingCamera;e.Shape=Enum.ParticleEmitterShape.Box
+                e.ShapeStyle=Enum.ParticleEmitterShapeStyle.Volume;e.ShapeInOut=Enum.ParticleEmitterShapeInOut.Outward
+                e.Color=ColorSequence.new({ColorSequenceKeypoint.new(0,Color3.new(1,1,1)),ColorSequenceKeypoint.new(1,Color3.new(1,1,1))})
+                e.Size=NumberSequence.new({NumberSequenceKeypoint.new(0,1.875),NumberSequenceKeypoint.new(0.374999,1.25),NumberSequenceKeypoint.new(1,0)})
+                e.Transparency=NumberSequence.new({NumberSequenceKeypoint.new(0,1),NumberSequenceKeypoint.new(0.501247,0.4375),NumberSequenceKeypoint.new(1,0)})
+                e.Enabled=false; return e
+            end
+
+            local cells = {}
+            for row = 1, GRID_ROWS do
+                cells[row] = {}
+                for col = 1, GRID_COLS do
+                    local p = Instance.new('Part', folder); p.Anchored=true;p.CanCollide=false;p.Transparency=1
+                    p.Size=Vector3.new(cellW,cellH,1);p.CFrame=CFrame.new(0,-9999,0)
+                    cells[row][col] = { part=p, emitter=makeEmitter(p) }
+                end
+            end
+
+            local lastUpdate = 0
+            local conn = rs.Heartbeat:Connect(function()
+                local char = lp.Character
+                local hrp = char and char:FindFirstChild('HumanoidRootPart')
+                if not hrp then return end
+
+                local charParts = {}
+                for _, v in ipairs(char:GetDescendants()) do if v:IsA('BasePart') then table.insert(charParts, v) end end
+                rayParams.FilterDescendantsInstances = charParts
+
+                local now = tick()
+                if (now - lastUpdate) < UPDATE_RATE then return end
+                lastUpdate = now
+
+                local origin = hrp.Position + Vector3.new(0, ABOVE_OFFSET, 0)
+                local look, right, up = hrp.CFrame.LookVector, hrp.CFrame.RightVector, hrp.CFrame.UpVector
+                local planeCenter = origin + look * Z_OFFSET
+                local yaw = CFrame.Angles(0, math.atan2(look.X, look.Z), 0)
+
+                for row = 1, GRID_ROWS do for col = 1, GRID_COLS do
+                    local cell = cells[row][col]
+                    local cellCenter = planeCenter + right * ((col-0.5)*cellW - PLANE_W*0.5) + up * ((row-0.5)*cellH - PLANE_H*0.5)
+                    local result = workspace:Raycast(cellCenter, Vector3.new(0,-RAY_LEN,0), rayParams)
+                    if result then
+                        cell.part.CFrame = CFrame.new(cellCenter.X, result.Position.Y + 1, cellCenter.Z) * yaw
+                        cell.part.Size = Vector3.new(cellW, 1, 1); cell.emitter.Rate=10
+                    else
+                        cell.part.CFrame = CFrame.new(cellCenter) * yaw
+                        cell.part.Size = Vector3.new(cellW, cellH, 1); cell.emitter.Rate=60
+                    end
+                    cell.emitter.Enabled = true
+                end end
+            end)
+
+            folder.AncestryChanged:Connect(function() if not folder.Parent then conn:Disconnect() end end)
+        end,
+
+        BloodMoon = function()
+            cleanupSnow()
+            loadstring([[
+                local L=game:GetService('Lighting');L:ClearAllChildren();task.wait(0.3)
+                L.Ambient=Color3.new(0.0784314,0.0784314,0.0784314);L.Brightness=0.5;L.ColorShift_Bottom=Color3.new(0,0,0);L.ColorShift_Top=Color3.new(0,0,0);L.OutdoorAmbient=Color3.new(0.423529,0.160784,0.164706);L.FogColor=Color3.new(0,0,0);L.FogEnd=300;L.FogStart=15;L.GlobalShadows=true;L.GeographicLatitude=23.5;L.ExposureCompensation=0;L.EnvironmentDiffuseScale=0.4;L.EnvironmentSpecularScale=0.6;L.ClockTime=0;L.TimeOfDay='00:00:00';L.ShadowSoftness=0.07;L.Technology=Enum.Technology.Future
+                local blu=Instance.new('BlurEffect',L);blu.Name='Blur';blu.Enabled=true;blu.Size=1
+                local blu2=Instance.new('BlurEffect',L);blu2.Name='Death_Blur';blu2.Enabled=false;blu2.Size=24
+                local blo=Instance.new('BloomEffect',L);blo.Name='DefaultBloom';blo.Enabled=true;blo.Intensity=0.2;blo.Size=100;blo.Threshold=0.8
+                local dep=Instance.new('DepthOfFieldEffect',L);dep.Name='FogDof';dep.Enabled=false;dep.FarIntensity=0.2;dep.FocusDistance=0;dep.InFocusRadius=30;dep.NearIntensity=0
+                local col=Instance.new('ColorCorrectionEffect',L);col.Name='LowHealth_CC';col.Enabled=false;col.Brightness=0;col.Contrast=0;col.Saturation=-1;col.TintColor=Color3.new(1,1,1)
+                local dep2=Instance.new('DepthOfFieldEffect',L);dep2.Name='LowHealth_Dof';dep2.Enabled=false;dep2.FarIntensity=0.5;dep2.FocusDistance=0;dep2.InFocusRadius=5;dep2.NearIntensity=0
+                local col2=Instance.new('ColorCorrectionEffect',L);col2.Name='Saturation';col2.Enabled=true;col2.Brightness=0;col2.Contrast=0;col2.Saturation=0.4;col2.TintColor=Color3.new(1,1,1)
+                local dep3=Instance.new('DepthOfFieldEffect',L);dep3.Name='ZoomDOF';dep3.Enabled=false;dep3.FarIntensity=0;dep3.FocusDistance=200;dep3.InFocusRadius=200;dep3.NearIntensity=0
+                local col3=Instance.new('ColorCorrectionEffect',L);col3.Name='HitSaturation';col3.Enabled=true;col3.Brightness=0;col3.Contrast=0;col3.Saturation=0;col3.TintColor=Color3.new(1,1,1)
+                local col4=Instance.new('ColorCorrectionEffect',L);col4.Name='PoisonEffect';col4.Enabled=true;col4.Brightness=0;col4.Contrast=0;col4.Saturation=0;col4.TintColor=Color3.new(1,1,1)
+                local col5=Instance.new('ColorCorrectionEffect',L);col5.Name='Bear5ColorCorrection';col5.Enabled=true;col5.Brightness=0;col5.Contrast=0;col5.Saturation=0;col5.TintColor=Color3.new(1,1,1)
+                local col6=Instance.new('ColorCorrectionEffect',L);col6.Name='HubCC';col6.Enabled=false;col6.Brightness=0;col6.Contrast=0;col6.Saturation=0;col6.TintColor=Color3.new(0.184314,0.603922,1)
+                local blu3=Instance.new('BlurEffect',L);blu3.Name='HubBlur';blu3.Enabled=false;blu3.Size=24
+                local sky=Instance.new('Sky',L);sky.Name='Sky';sky.CelestialBodiesShown=false;sky.SunAngularSize=0;sky.MoonAngularSize=0;sky.SkyboxBk='http://www.roblox.com/asset/?id=4514139911';sky.SkyboxDn='http://www.roblox.com/asset/?id=4514139911';sky.SkyboxFt='http://www.roblox.com/asset/?id=4514139911';sky.SkyboxLf='http://www.roblox.com/asset/?id=4514139911';sky.SkyboxRt='http://www.roblox.com/asset/?id=4514139911';sky.SkyboxUp='http://www.roblox.com/asset/?id=4514139911';sky.StarCount=3000;sky.SunTextureId='';sky.MoonTextureId=''
+                local atm=Instance.new('Atmosphere',L);atm.Name='BloodNight_Atmosphere';atm.Density=0.58;atm.Offset=0;atm.Color=Color3.new(0.254902,0.14902,0.152941);atm.Decay=Color3.new(0.27451,0.0431373,0.0509804);atm.Glare=0;atm.Haze=4.47
+            ]])()
+        end,
+
+        Nighttime = function()
+            cleanupSnow()
+            loadstring([[
+                local L=game:GetService('Lighting');L:ClearAllChildren();task.wait(0.3)
+                L.Ambient=Color3.new(0.137255,0.137255,0.137255);L.Brightness=0.66;L.ColorShift_Bottom=Color3.new(0,0,0);L.ColorShift_Top=Color3.new(0,0,0);L.OutdoorAmbient=Color3.new(0.231373,0.231373,0.231373);L.FogColor=Color3.new(0.0235294,0.0235294,0.0235294);L.FogEnd=300;L.FogStart=15;L.GlobalShadows=true;L.GeographicLatitude=23.5;L.ExposureCompensation=0;L.EnvironmentDiffuseScale=0.4;L.EnvironmentSpecularScale=0.6;L.ClockTime=0;L.TimeOfDay='00:00:00';L.ShadowSoftness=0.07;L.Technology=Enum.Technology.Future
+                local blu=Instance.new('BlurEffect',L);blu.Name='Blur';blu.Enabled=true;blu.Size=1
+                local blu2=Instance.new('BlurEffect',L);blu2.Name='Death_Blur';blu2.Enabled=false;blu2.Size=24
+                local blo=Instance.new('BloomEffect',L);blo.Name='DefaultBloom';blo.Enabled=true;blo.Intensity=0.2;blo.Size=100;blo.Threshold=0.8
+                local dep=Instance.new('DepthOfFieldEffect',L);dep.Name='FogDof';dep.Enabled=false;dep.FarIntensity=0.2;dep.FocusDistance=0;dep.InFocusRadius=30;dep.NearIntensity=0
+                local col=Instance.new('ColorCorrectionEffect',L);col.Name='LowHealth_CC';col.Enabled=false;col.Brightness=0;col.Contrast=0;col.Saturation=-1;col.TintColor=Color3.new(1,1,1)
+                local dep2=Instance.new('DepthOfFieldEffect',L);dep2.Name='LowHealth_Dof';dep2.Enabled=false;dep2.FarIntensity=0.5;dep2.FocusDistance=0;dep2.InFocusRadius=5;dep2.NearIntensity=0
+                local col2=Instance.new('ColorCorrectionEffect',L);col2.Name='Saturation';col2.Enabled=true;col2.Brightness=0;col2.Contrast=0;col2.Saturation=0.4;col2.TintColor=Color3.new(1,1,1)
+                local dep3=Instance.new('DepthOfFieldEffect',L);dep3.Name='ZoomDOF';dep3.Enabled=false;dep3.FarIntensity=0;dep3.FocusDistance=200;dep3.InFocusRadius=200;dep3.NearIntensity=0
+                local col3=Instance.new('ColorCorrectionEffect',L);col3.Name='HitSaturation';col3.Enabled=true;col3.Brightness=0;col3.Contrast=0;col3.Saturation=0;col3.TintColor=Color3.new(1,1,1)
+                local col4=Instance.new('ColorCorrectionEffect',L);col4.Name='PoisonEffect';col4.Enabled=true;col4.Brightness=0;col4.Contrast=0;col4.Saturation=0;col4.TintColor=Color3.new(1,1,1)
+                local col5=Instance.new('ColorCorrectionEffect',L);col5.Name='Bear5ColorCorrection';col5.Enabled=true;col5.Brightness=0;col5.Contrast=0;col5.Saturation=0;col5.TintColor=Color3.new(1,1,1)
+                local col6=Instance.new('ColorCorrectionEffect',L);col6.Name='HubCC';col6.Enabled=false;col6.Brightness=0;col6.Contrast=0;col6.Saturation=0;col6.TintColor=Color3.new(0.184314,0.603922,1)
+                local blu3=Instance.new('BlurEffect',L);blu3.Name='HubBlur';blu3.Enabled=false;blu3.Size=24
+                local sky=Instance.new('Sky',L);sky.Name='Sky';sky.CelestialBodiesShown=false;sky.SunAngularSize=0;sky.MoonAngularSize=0;sky.SkyboxBk='http://www.roblox.com/asset/?id=4514139911';sky.SkyboxDn='http://www.roblox.com/asset/?id=4514139911';sky.SkyboxFt='http://www.roblox.com/asset/?id=4514139911';sky.SkyboxLf='http://www.roblox.com/asset/?id=4514139911';sky.SkyboxRt='http://www.roblox.com/asset/?id=4514139911';sky.SkyboxUp='http://www.roblox.com/asset/?id=4514139911';sky.StarCount=3000;sky.SunTextureId='';sky.MoonTextureId=''
+            ]])()
+        end,
+
+        Foggy = function()
+            cleanupSnow()
+            loadstring([[
+                local L=game:GetService('Lighting');L:ClearAllChildren();task.wait(0.3)
+                L.Ambient=Color3.new(0,0,0);L.Brightness=1;L.ColorShift_Bottom=Color3.new(0,0,0);L.ColorShift_Top=Color3.new(0,0,0);L.OutdoorAmbient=Color3.new(0.431373,0.431373,0.431373);L.FogColor=Color3.new(0.521569,0.521569,0.521569);L.FogEnd=300;L.FogStart=15;L.GlobalShadows=true;L.GeographicLatitude=23.5;L.ExposureCompensation=0;L.EnvironmentDiffuseScale=0.4;L.EnvironmentSpecularScale=0.6;L.ClockTime=12;L.TimeOfDay='12:00:00';L.ShadowSoftness=0.07;L.Technology=Enum.Technology.Future
+                local blu=Instance.new('BlurEffect',L);blu.Name='Blur';blu.Enabled=true;blu.Size=1
+                local blu2=Instance.new('BlurEffect',L);blu2.Name='Death_Blur';blu2.Enabled=false;blu2.Size=24
+                local blo=Instance.new('BloomEffect',L);blo.Name='DefaultBloom';blo.Enabled=true;blo.Intensity=0.2;blo.Size=100;blo.Threshold=0.8
+                local dep=Instance.new('DepthOfFieldEffect',L);dep.Name='FogDof';dep.Enabled=false;dep.FarIntensity=0.2;dep.FocusDistance=0;dep.InFocusRadius=30;dep.NearIntensity=0
+                local col=Instance.new('ColorCorrectionEffect',L);col.Name='LowHealth_CC';col.Enabled=false;col.Brightness=0;col.Contrast=0;col.Saturation=-1;col.TintColor=Color3.new(1,1,1)
+                local dep2=Instance.new('DepthOfFieldEffect',L);dep2.Name='LowHealth_Dof';dep2.Enabled=false;dep2.FarIntensity=0.5;dep2.FocusDistance=0;dep2.InFocusRadius=5;dep2.NearIntensity=0
+                local col2=Instance.new('ColorCorrectionEffect',L);col2.Name='Saturation';col2.Enabled=true;col2.Brightness=0;col2.Contrast=0;col2.Saturation=0.4;col2.TintColor=Color3.new(1,1,1)
+                local dep3=Instance.new('DepthOfFieldEffect',L);dep3.Name='ZoomDOF';dep3.Enabled=false;dep3.FarIntensity=0;dep3.FocusDistance=200;dep3.InFocusRadius=200;dep3.NearIntensity=0
+                local col3=Instance.new('ColorCorrectionEffect',L);col3.Name='HitSaturation';col3.Enabled=true;col3.Brightness=0;col3.Contrast=0;col3.Saturation=0;col3.TintColor=Color3.new(1,1,1)
+                local col4=Instance.new('ColorCorrectionEffect',L);col4.Name='PoisonEffect';col4.Enabled=true;col4.Brightness=0;col4.Contrast=0;col4.Saturation=0;col4.TintColor=Color3.new(1,1,1)
+                local col5=Instance.new('ColorCorrectionEffect',L);col5.Name='Bear5ColorCorrection';col5.Enabled=true;col5.Brightness=0;col5.Contrast=0;col5.Saturation=0;col5.TintColor=Color3.new(1,1,1)
+                local col6=Instance.new('ColorCorrectionEffect',L);col6.Name='HubCC';col6.Enabled=false;col6.Brightness=0;col6.Contrast=0;col6.Saturation=0;col6.TintColor=Color3.new(0.184314,0.603922,1)
+                local blu3=Instance.new('BlurEffect',L);blu3.Name='HubBlur';blu3.Enabled=false;blu3.Size=24
+                local sky=Instance.new('Sky',L);sky.Name='Sky';sky.CelestialBodiesShown=false;sky.SunAngularSize=0;sky.MoonAngularSize=0;sky.SkyboxBk='http://www.roblox.com/asset/?id=4514139911';sky.SkyboxDn='http://www.roblox.com/asset/?id=4514139911';sky.SkyboxFt='http://www.roblox.com/asset/?id=4514139911';sky.SkyboxLf='http://www.roblox.com/asset/?id=4514139911';sky.SkyboxRt='http://www.roblox.com/asset/?id=4514139911';sky.SkyboxUp='http://www.roblox.com/asset/?id=4514139911';sky.StarCount=3000;sky.SunTextureId='';sky.MoonTextureId=''
+                local atm=Instance.new('Atmosphere',L);atm.Name='FoggyDay_Atmosphere';atm.Density=0.675;atm.Offset=0;atm.Color=Color3.new(0.780392,0.780392,0.780392);atm.Decay=Color3.new(0.454902,0.454902,0.454902);atm.Glare=4.95;atm.Haze=2.62
+            ]])()
+        end,
+    }
+
+    GameThemes = GuiLibrary.Registry.utillityPanel.API.CreateOptionsButton({
+        Name = "GameThemes",
+        Function = function(callback)
+            if callback then
+                themes[ThemeDropdown.Value]()
+            else
+                cleanupSnow()
+            end
+        end
+    })
+    ThemeDropdown = GameThemes.CreateDropdown({
+        Name = "theme",
+        List = {"Default", "Winter", "BloodMoon", "Nighttime", "Foggy"},
+        Default = "Default",
+        Function = function(selected)
+            if GameThemes.Enabled and themes[selected] then
+                themes[selected]()
+            end
+        end
     })
 end)
