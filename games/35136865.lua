@@ -672,7 +672,7 @@ runcode(function()
 
     LongFly = GuiLibrary.Registry.blatantPanel.API.CreateOptionsButton({
         Name = "LongFly",
-        Beta = true,
+        New = true,
         Function = function(callback)
             if callback then
                 if os.clock() - lastActivated < cooldown then
