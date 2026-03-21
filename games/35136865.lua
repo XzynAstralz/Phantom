@@ -652,11 +652,23 @@ end)
 
 runcode(function()
     local LongFlyValue, LongFlyDuration, LongFlySlopeAngle = {}, {}, {}
-    local overheadCheckEnabled = false
+    local overheadCheckEnabled, smartFlyEnabled = false, false
     local phase, noBlockTimer = "0", 0
+    local lastActivated, cooldown = 0, 0
     local GRACE_PERIOD = 0.03
-    local lastActivated = 0
-    local cooldown = 0
+
+    local function stopLongFly(root, reason)
+        if bodyVel then
+            bodyVel.Velocity = Vector3.zero
+            bodyVel.MaxForce = Vector3.zero
+            bodyVel:Destroy(); bodyVel = nil
+        end
+        if root then root.AssemblyLinearVelocity = Vector3.new(0, root.AssemblyLinearVelocity.Y, 0) end
+        phase, noBlockTimer = "0", 0
+        RunLoops:UnbindFromHeartbeat("LongFly")
+        if LongFly.Enabled then LongFly.Toggle() end
+        createNotification("LongFly", reason, 2)
+    end
 
     LongFly = GuiLibrary.Registry.blatantPanel.API.CreateOptionsButton({
         Name = "LongFly",
@@ -684,12 +696,27 @@ runcode(function()
                     return
                 end
 
+                local speedWasEnabled = Speed and Speed.Enabled
+                if speedWasEnabled then
+                    RunLoops:UnbindFromHeartbeat("Speed")
+                    if bodyVel then bodyVel.MaxForce = Vector3.zero end
+                end
+
+                root.Anchored = true
+                root.AssemblyLinearVelocity = Vector3.zero
+                task.wait(0.5)
+                root.Anchored = false
+
+                if speedWasEnabled and Speed and Speed.Enabled then Speed.Function(true) end
+
                 local camLook = workspace.CurrentCamera.CFrame.LookVector
                 local lockedDir = Vector3.new(camLook.X, 0, camLook.Z).Unit
                 local slopeRad = math.rad(LongFlySlopeAngle.Value)
                 local flyDir = Vector3.new(lockedDir.X * math.cos(slopeRad), math.sin(slopeRad), lockedDir.Z * math.cos(slopeRad))
                 local startTime, lastTick = os.clock(), os.clock()
                 local startPos = root.Position
+                local timeUnderBlock, totalTime = 0, 0
+                local wasUnderBlock, smartStopArmed = false, false
 
                 phase, noBlockTimer = overheadCheckEnabled and "1" or "0", 0
                 createBodyVel()
@@ -705,51 +732,60 @@ runcode(function()
                     humanoid = lplr.Character and lplr.Character:FindFirstChildOfClass("Humanoid")
                     if not root then return end
 
+                    totalTime += dt
+
+                    local rayParams = RaycastParams.new()
+                    rayParams.FilterDescendantsInstances = { lplr.Character }
+                    rayParams.FilterType = Enum.RaycastFilterType.Exclude
+
+                    local currentlyUnderBlock = workspace:Raycast(root.Position, Vector3.new(0, -100, 0), rayParams) ~= nil
+                    if currentlyUnderBlock then timeUnderBlock += dt; wasUnderBlock = true end
+
+                    if smartFlyEnabled and wasUnderBlock and currentlyUnderBlock then
+                        local blockCoverage = timeUnderBlock / math.max(totalTime, 0.001)
+                        local flightProgress = (now - startTime) / LongFlyDuration.Value
+                        if blockCoverage >= 0.45 and flightProgress >= 0.4 and not smartStopArmed then
+                            smartStopArmed = true
+                        end
+                        if smartStopArmed then
+                            local flatDir = Vector3.new(flyDir.X, 0, flyDir.Z).Unit
+                            local missingCount = 0
+                            for i = 1, 5 do
+                                local checkPos = root.Position + flatDir * (20 + i * 12)
+                                if not workspace:Raycast(Vector3.new(checkPos.X, root.Position.Y + 5, checkPos.Z), Vector3.new(0, -150, 0), rayParams) then
+                                    missingCount += 1
+                                end
+                            end
+                            if missingCount >= 4 then
+                                local dist = (Vector3.new(root.Position.X, 0, root.Position.Z) - Vector3.new(startPos.X, 0, startPos.Z)).Magnitude
+                                cooldown = math.clamp((dist / 50) ^ 2.5, 1, 3)
+                                stopLongFly(root, "SmartFly: void ahead")
+                                return
+                            end
+                        end
+                    end
+
                     if now - startTime >= LongFlyDuration.Value then
                         local dist = (Vector3.new(root.Position.X, 0, root.Position.Z) - Vector3.new(startPos.X, 0, startPos.Z)).Magnitude
                         cooldown = math.clamp((dist / 50) ^ 2.5, 1, 3)
-                        if bodyVel then
-                            bodyVel.Velocity = Vector3.new(0, bodyVel.Velocity.Y, 0)
-                            bodyVel:Destroy(); bodyVel = nil
-                        end
-                        phase, noBlockTimer = "0", 0
-                        RunLoops:UnbindFromHeartbeat("LongFly")
-                        if LongFly.Enabled then LongFly.Toggle() end
-                        createNotification("LongFly", "Ended", 2)
+                        stopLongFly(root, "Ended")
                         return
                     end
 
                     if overheadCheckEnabled then
-                        local p = RaycastParams.new()
-                        p.FilterDescendantsInstances = { lplr.Character }
-                        p.FilterType = Enum.RaycastFilterType.Exclude
-                        local under = workspace:Raycast(root.Position, Vector3.new(0, -100, 0), p) ~= nil
-
                         if phase == "1" then
-                            if under then
-                                phase, noBlockTimer = "3", 0
-                            end
+                            if currentlyUnderBlock then phase, noBlockTimer = "3", 0 end
                         elseif phase == "3" then
-                            if under then
-                                noBlockTimer = 0
+                            if currentlyUnderBlock then noBlockTimer = 0
                             else
                                 noBlockTimer += dt
-                                if noBlockTimer >= GRACE_PERIOD then
-                                    phase, noBlockTimer = "2", 0
-                                end
+                                if noBlockTimer >= GRACE_PERIOD then phase, noBlockTimer = "2", 0 end
                             end
                         elseif phase == "2" then
-                            if under then
+                            if currentlyUnderBlock then
                                 local dist = (Vector3.new(root.Position.X, 0, root.Position.Z) - Vector3.new(startPos.X, 0, startPos.Z)).Magnitude
                                 cooldown = math.clamp((dist / 50) ^ 2.5, 1, 3)
-                                if bodyVel then
-                                    bodyVel.Velocity = Vector3.new(0, bodyVel.Velocity.Y, 0)
-                                    bodyVel:Destroy(); bodyVel = nil
-                                end
-                                phase, noBlockTimer = "0", 0
-                                RunLoops:UnbindFromHeartbeat("LongFly")
-                                if LongFly.Enabled then LongFly.Toggle() end
-                                createNotification("LongFly", "Entered block coverage", 2)
+                                stopLongFly(root, "Entered block coverage")
                                 return
                             end
                         end
@@ -767,17 +803,13 @@ runcode(function()
                     if bodyVel then bodyVel.Velocity = flyDir * speed end
                 end)
             else
-                if bodyVel then
-                    bodyVel.Velocity = Vector3.new(0, bodyVel.Velocity.Y, 0)
-                    bodyVel:Destroy(); bodyVel = nil
-                end
-                phase, noBlockTimer = "0", 0
-                RunLoops:UnbindFromHeartbeat("LongFly")
+                local root = lplr.Character and lplr.Character:FindFirstChild("HumanoidRootPart")
+                stopLongFly(root, "Disabled")
             end
         end
     })
 
-    LongFlyValue = LongFly.CreateSlider({
+LongFlyValue = LongFly.CreateSlider({
         Name = "speed",
         Min = 0,
         Max = 300,
@@ -804,6 +836,13 @@ runcode(function()
         Function = function(state)
             overheadCheckEnabled = state
             phase, noBlockTimer = "0", 0
+        end
+    })
+    LongFly.CreateToggle({
+        Name = "SmartFly",
+        Default = false,
+        Function = function(state)
+            smartFlyEnabled = state
         end
     })
 end)
@@ -994,6 +1033,196 @@ runcode(function()
                 end)
             else
                 RunLoops:UnbindFromHeartbeat("StealAllChestsLoop")
+            end
+        end
+    })
+end)
+
+runcode(function()
+    local savedItems, saving = {}, false
+    local respawnConn, healthConn, lastHealth = nil, nil, 0
+    local lowestY = math.huge
+    local inv = require(ReplicatedStorage.Modules.InventoryHandler)
+    local itemsData = require(ReplicatedStorage.Modules.DataModules.ItemsData)
+
+    for _, v in pairs(workspace:GetDescendants()) do
+        if v:IsA("BasePart") and v.CanCollide and v.Transparency < 1 then
+            local y = v.Position.Y - v.Size.Y/2
+            if y < lowestY then lowestY = y end
+        end
+    end
+
+    local KeepInventory = GuiLibrary.Registry.utillityPanel.API.CreateOptionsButton({
+        Name = "KeepInventory",
+        New = true,
+        Function = function(cb)
+            if cb then
+                local hook = function()
+                    local char = lplr.Character or lplr.CharacterAdded:Wait()
+                    local hum = char:WaitForChild("Humanoid")
+                    local hrp = char:WaitForChild("HumanoidRootPart")
+                    lastHealth = hum.Health
+                    if healthConn then healthConn:Disconnect() end
+
+                    local storing = false
+                    local storedForRecovery = false
+
+                    local restoreItems = function(teamName)
+                        if StealAllChests and StealAllChests.Enabled then
+                            local cycle, index, teams = 1, 1, getTeams()
+                            RunLoops:BindToHeartbeat("StealAllChestsLoop", function()
+                                if lplr.Team == "Spectators" or #teams == 0 then
+                                    teams, index, cycle = getTeams(), 1, 1
+                                    return
+                                end
+                                local t = teams[index]
+                                local chest = game:GetService("ReplicatedStorage").TeamChestsStorage:FindFirstChild(t)
+                                if chest and t ~= "Spectators" then
+                                    local chestSlot = chest:FindFirstChild(tostring(cycle))
+                                    local slotName = chestSlot and chestSlot:GetAttribute("Name")
+                                    if slotName and slotName ~= "" then
+                                        game:GetService("ReplicatedStorage").Remotes.TakeItemFromChest:FireServer(t, cycle, tostring(cycle))
+                                    end
+                                end
+                                index += 1
+                                if index > #teams then
+                                    index, cycle, teams = 1, cycle % 3 + 1, getTeams()
+                                end
+                            end)
+                        end
+
+                        for key, _ in pairs(savedItems) do
+                            local slot = key:match("_(%d+)")
+                            if slot then
+                                task.wait(0.5)
+                                ReplicatedStorage.Remotes.TakeItemFromChest:FireServer(teamName, tonumber(slot) + 3, tostring(tonumber(slot) + 3))
+                            end
+                        end
+
+                        if StealAllChests and StealAllChests.Enabled then
+                            RunLoops:UnbindFromHeartbeat("StealAllChestsLoop")
+                        end
+
+                        savedItems = {}
+                        storedForRecovery = false
+                        saving = false
+
+                        if StealAllChests and StealAllChests.Enabled then
+                            local cycle, index, teams = 1, 1, getTeams()
+                            RunLoops:BindToHeartbeat("StealAllChestsLoop", function()
+                                if lplr.Team == "Spectators" or #teams == 0 then
+                                    teams, index, cycle = getTeams(), 1, 1
+                                    return
+                                end
+                                local t = teams[index]
+                                local chest = game:GetService("ReplicatedStorage").TeamChestsStorage:FindFirstChild(t)
+                                if chest and t ~= "Spectators" then
+                                    local chestSlot = chest:FindFirstChild(tostring(cycle))
+                                    local slotName = chestSlot and chestSlot:GetAttribute("Name")
+                                    if slotName and slotName ~= "" then
+                                        game:GetService("ReplicatedStorage").Remotes.TakeItemFromChest:FireServer(t, cycle, tostring(cycle))
+                                    end
+                                end
+                                index += 1
+                                if index > #teams then
+                                    index, cycle, teams = 1, cycle % 3 + 1, getTeams()
+                                end
+                            end)
+                        end
+                    end
+
+                    local save = function()
+                        if saving then return end
+                        saving = true
+                        savedItems = {}
+                        storedForRecovery = false
+
+                        local team = lplr.Team and lplr.Team.Name
+                        if not team or team == "Spectators" then saving = false return end
+
+                        if StealAllChests and StealAllChests.Enabled then
+                            RunLoops:UnbindFromHeartbeat("StealAllChestsLoop")
+                        end
+
+                        storing = true
+                        task.spawn(function()
+                            while storing and PlayerUtility.IsAlive(lplr) do
+                                for _, invy in pairs(inv.Inventories) do
+                                    for i, slot in pairs(invy.Items) do
+                                        local name = slot.Name
+                                        if name ~= "" then
+                                            local data = itemsData[name]
+                                            if data and data.CanStoreInChest then
+                                                local key = name .. "_" .. i
+                                                if not savedItems[key] then
+                                                    savedItems[key] = true
+                                                    ReplicatedStorage.Remotes.PutItemInChest:FireServer(name, team, i + 3)
+                                                end
+                                            end
+                                        end
+                                    end
+                                end
+                                task.wait(0.1)
+                            end
+                        end)
+
+                        storedForRecovery = true
+
+                        task.spawn(function()
+                            repeat task.wait() until not PlayerUtility.IsAlive(lplr) or not storedForRecovery
+                            storing = false
+
+                            if not PlayerUtility.IsAlive(lplr) then
+                                repeat task.wait() until PlayerUtility.IsAlive(lplr)
+                                local newTeam = lplr.Team and lplr.Team.Name
+                                if newTeam and newTeam ~= "Spectators" then
+                                    restoreItems(newTeam)
+                                else
+                                    savedItems = {}
+                                    storedForRecovery = false
+                                    saving = false
+                                end
+                            end
+                        end)
+                    end
+
+                    healthConn = hum.HealthChanged:Connect(function(h)
+                        local dmg = lastHealth - h
+                        lastHealth = h
+
+                        if not saving and dmg > 0 and h <= dmg * 2 then
+                            save()
+                        end
+
+                        if storedForRecovery and h >= 55 then
+                            local team = lplr.Team and lplr.Team.Name
+                            if team and team ~= "Spectators" then
+                                storedForRecovery = false
+                                storing = false
+                                restoreItems(team)
+                            end
+                        end
+                    end)
+
+                    task.spawn(function()
+                        while char.Parent do
+                            if not saving and hrp.Position.Y <= lowestY - 20 then
+                                save()
+                            end
+                            task.wait(0.1)
+                        end
+                    end)
+                end
+
+                hook()
+                respawnConn = lplr.CharacterAdded:Connect(function()
+                    task.wait()
+                    hook()
+                end)
+            else
+                if healthConn then healthConn:Disconnect() healthConn = nil end
+                if respawnConn then respawnConn:Disconnect() respawnConn = nil end
+                savedItems, saving = {}, false
             end
         end
     })
