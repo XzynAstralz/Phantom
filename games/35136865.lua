@@ -1337,16 +1337,22 @@ runcode(function()
 
         Blizzard = function()
             cleanupSnow(); cleanupNight()
-            loadstring([[local L=game:GetService('Lighting');L:ClearAllChildren();task.wait(0.3);L.Ambient=Color3.new(0,0,0);L.Brightness=0.6;L.ColorShift_Bottom=Color3.new(0,0,0);L.ColorShift_Top=Color3.new(0,0,0);L.OutdoorAmbient=Color3.new(0.42,0.46,0.56);L.FogColor=Color3.new(0.72,0.76,0.84);L.FogEnd=120;L.FogStart=5;L.GlobalShadows=true;L.GeographicLatitude=23.5;L.ExposureCompensation=-0.4;L.EnvironmentDiffuseScale=0.3;L.EnvironmentSpecularScale=0.2;L.ClockTime=12;L.TimeOfDay='12:00:00';L.ShadowSoftness=0.07;L.Technology=Enum.Technology.Future;local sky=Instance.new('Sky',L);sky.Name='Sky';sky.CelestialBodiesShown=false;sky.SkyboxBk='http://www.roblox.com/asset/?id=4514139911';sky.SkyboxDn='http://www.roblox.com/asset/?id=4514139911';sky.SkyboxFt='http://www.roblox.com/asset/?id=4514139911';sky.SkyboxLf='http://www.roblox.com/asset/?id=4514139911';sky.SkyboxRt='http://www.roblox.com/asset/?id=4514139911';sky.SkyboxUp='http://www.roblox.com/asset/?id=4514139911';sky.StarCount=0;local atm=Instance.new('Atmosphere',L);atm.Name='Blizzard_Atmosphere';atm.Density=0.72;atm.Offset=0.4;atm.Color=Color3.new(0.68,0.72,0.80);atm.Decay=Color3.new(0.52,0.56,0.66);atm.Glare=0;atm.Haze=10]])()
-            local lp = Players.LocalPlayer
+            loadstring([[
+                local L=game:GetService('Lighting');L:ClearAllChildren();task.wait(0.3)
+                L.Ambient=Color3.new(0,0,0);L.Brightness=1;L.ColorShift_Bottom=Color3.new(0,0,0);L.ColorShift_Top=Color3.new(0,0,0);L.OutdoorAmbient=Color3.new(0.576471,0.6,0.760784);L.FogColor=Color3.new(0.576471,0.6,0.760784);L.FogEnd=300;L.FogStart=15;L.GlobalShadows=true;L.GeographicLatitude=23.5;L.ExposureCompensation=0;L.EnvironmentDiffuseScale=0.4;L.EnvironmentSpecularScale=0.6;L.ClockTime=12;L.TimeOfDay='12:00:00';L.ShadowSoftness=0.07;L.Technology=Enum.Technology.Future
+                local sky=Instance.new('Sky',L);sky.Name='Sky';sky.CelestialBodiesShown=false;sky.SkyboxBk='http://www.roblox.com/asset/?id=4514139911';sky.SkyboxDn='http://www.roblox.com/asset/?id=4514139911';sky.SkyboxFt='http://www.roblox.com/asset/?id=4514139911';sky.SkyboxLf='http://www.roblox.com/asset/?id=4514139911';sky.SkyboxRt='http://www.roblox.com/asset/?id=4514139911';sky.SkyboxUp='http://www.roblox.com/asset/?id=4514139911';sky.StarCount=3000
+                local atm=Instance.new('Atmosphere',L);atm.Name='Blizzard_Atmosphere';atm.Density=0.531;atm.Offset=0.281;atm.Color=Color3.new(0.686275,0.733333,0.780392);atm.Decay=Color3.new(0.619608,0.666667,0.784314);atm.Glare=2.69;atm.Haze=10
+            ]])()
+            local lp = game:GetService('Players').LocalPlayer
             local folder = Instance.new('Folder', workspace); folder.Name = 'Snowfall_Client'
-            local part = Instance.new('Part', folder); part.Name='Blizzard';part.Anchored=true;part.CanCollide=false;part.Transparency=1;part.Size=Vector3.new(160,100,1);part.CFrame=CFrame.new(0,0,0)
-            local e = Instance.new('ParticleEmitter', part); e.Name='Particle';e.Texture='rbxassetid://127302768524882';e.Rate=20000;e.Lifetime=NumberRange.new(3,5);e.Speed=NumberRange.new(8,20);e.Drag=0;e.Rotation=NumberRange.new(-45,45);e.RotSpeed=NumberRange.new(-180,180);e.VelocitySpread=3;e.SpreadAngle=Vector2.new(3,3);e.LightInfluence=1;e.LightEmission=0;e.ZOffset=0;e.Acceleration=Vector3.new(18,-2,0);e.EmissionDirection=Enum.NormalId.Front;e.Orientation=Enum.ParticleOrientation.FacingCamera;e.Shape=Enum.ParticleEmitterShape.Box;e.ShapeStyle=Enum.ParticleEmitterShapeStyle.Volume;e.ShapeInOut=Enum.ParticleEmitterShapeInOut.Outward;e.Enabled=true
+            local part = Instance.new('Part', folder); part.Name='Blizzard';part.Anchored=true;part.CanCollide=false;part.Transparency=1;part.Size=Vector3.new(100,80,1);part.CFrame=CFrame.new(0,0,0)
+            local e = Instance.new('ParticleEmitter', part); e.Name='Particle';e.Texture='rbxassetid://127302768524882';e.Rate=5000;e.Lifetime=NumberRange.new(6,8);e.Speed=NumberRange.new(20,50);e.Drag=0;e.Rotation=NumberRange.new(-15,15);e.RotSpeed=NumberRange.new(-90,90);e.VelocitySpread=5;e.SpreadAngle=Vector2.new(5,5);e.LightInfluence=1;e.LightEmission=0;e.ZOffset=0;e.Acceleration=Vector3.new(0,-0.4,0);e.EmissionDirection=Enum.NormalId.Front;e.Orientation=Enum.ParticleOrientation.FacingCamera;e.Shape=Enum.ParticleEmitterShape.Box;e.ShapeStyle=Enum.ParticleEmitterShapeStyle.Volume;e.ShapeInOut=Enum.ParticleEmitterShapeInOut.Outward;e.Enabled=true
             e.Color=ColorSequence.new({ColorSequenceKeypoint.new(0,Color3.new(1,1,1)),ColorSequenceKeypoint.new(1,Color3.new(1,1,1))})
-            e.Size=NumberSequence.new({NumberSequenceKeypoint.new(0,1.2),NumberSequenceKeypoint.new(0.4,0.8),NumberSequenceKeypoint.new(1,0)})
-            e.Transparency=NumberSequence.new({NumberSequenceKeypoint.new(0,1),NumberSequenceKeypoint.new(0.4,0.3),NumberSequenceKeypoint.new(1,0)})
-            local conn = RunService.Heartbeat:Connect(function()
-                local hrp = lp.Character and lp.Character:FindFirstChild('HumanoidRootPart')
+            e.Size=NumberSequence.new({NumberSequenceKeypoint.new(0,1.875),NumberSequenceKeypoint.new(0.374999,1.25),NumberSequenceKeypoint.new(1,0)})
+            e.Transparency=NumberSequence.new({NumberSequenceKeypoint.new(0,1),NumberSequenceKeypoint.new(0.501247,0.4375),NumberSequenceKeypoint.new(1,0)})
+            local conn = game:GetService('RunService').Heartbeat:Connect(function()
+                local char = lp.Character
+                local hrp = char and char:FindFirstChild('HumanoidRootPart')
                 if hrp then part.CFrame = CFrame.new(hrp.Position + Vector3.new(0,0,50)) end
             end)
             part.AncestryChanged:Connect(function() if not part.Parent then conn:Disconnect() end end)

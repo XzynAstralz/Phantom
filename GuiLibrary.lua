@@ -2181,7 +2181,7 @@ function Spectrum.CreateCustomWindow(cfg)
         local sel = { Values = {}, Expanded = false }
         local DWrap = Instance.new("Frame"); DWrap.Parent = FOptHolder
         DWrap.BackgroundTransparency = 1; DWrap.BorderSizePixel = 0
-        DWrap.Size = UDim2.new(0, COL_W + 4, 0, 28); sel.Instance = DWrap
+        DWrap.Size = UDim2.new(0, COL_W, 0, 28); sel.Instance = DWrap
         local DBack = Instance.new("Frame"); DBack.Parent = DWrap
         DBack.AnchorPoint = Vector2.new(0.5, 0); DBack.BackgroundColor3 = P.BASE2
         DBack.BorderSizePixel = 0; DBack.Position = UDim2.new(0.5, 0, 0, 4)
