@@ -339,23 +339,11 @@ runcode(function()
     })
 end)
 
-local SpeedSlider ={}
+local SpeedSlider = {}
 runcode(function()
     local AutoJump = {}
-    local DamageBoost = {}
-    local SlowdownAnim = {}
     local Direction = {}
-
-    local damageBoost = {
-        [0] = {
-            speedBoost = 20,
-            speedTimer = .35
-        },
-        [5] = {
-            speedBoost = 20,
-            speedTimer = .5
-        },
-    }
+    local Mode = {}
 
     Speed = GuiLibrary.Registry.blatantPanel.API.CreateOptionsButton({
         Name = "Speed",
@@ -365,48 +353,64 @@ runcode(function()
                 
                 RunLoops:BindToHeartbeat("Speed", function(dt)
                     if PlayerUtility.IsAlive(lplr) and lplr.Character.Humanoid.MoveDirection.Magnitude > 0 then
-                        local moveDirection = lplr.Character.Humanoid.MoveDirection
+                        local hum = lplr.Character.Humanoid
+                        local root = lplr.Character.HumanoidRootPart
+                        local moveDirection = hum.MoveDirection
 
                         local newCFrame
                         if Direction.Enabled and moveDirection ~= Vector3.zero and not data.Attacking then
-                            newCFrame = CFrame.new(lplr.Character.HumanoidRootPart.Position, lplr.Character.HumanoidRootPart.Position + Vector3.new(lplr.Character.Humanoid.MoveDirection.X, 0, lplr.Character.Humanoid.MoveDirection.Z))
+                            newCFrame = CFrame.new(root.Position, root.Position + Vector3.new(moveDirection.X, 0, moveDirection.Z))
                         else
-                            newCFrame = lplr.Character.HumanoidRootPart.CFrame
+                            newCFrame = root.CFrame
                         end
 
-                        if not Fly.Enabled then
-                            local speedVelocity = moveDirection * (SpeedSlider.Value)
-                            speedVelocity /= (1 / dt)
-                            newCFrame = newCFrame + speedVelocity
+                        if Mode.Value == "CFrame" then
+                            if not Fly.Enabled then
+                                local speedVelocity = moveDirection * SpeedSlider.Value
+                                speedVelocity /= (1 / dt)
+                                newCFrame = newCFrame + speedVelocity
 
-                            createBodyVel()
-                            if not infFlyVel then
-                                bodyVel.MaxForce = Vector3.new(bodyVel.P, 0, bodyVel.P)
+                                createBodyVel()
+                                if not infFlyVel then
+                                    bodyVel.MaxForce = Vector3.new(bodyVel.P, 0, bodyVel.P)
+                                end
                             end
-                        end
-                        lplr.Character.HumanoidRootPart.CFrame = newCFrame
 
-                        if not Fly.Enabled and AutoJump.Enabled and data.Attacking and lplr.Character.Humanoid.FloorMaterial ~= Enum.Material.Air then
-                            lplr.Character.Humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+                            root.CFrame = newCFrame
+
+                        elseif Mode.Value == "Velocity" then
+                            root.AssemblyLinearVelocity =(moveDirection * SpeedSlider.Value) + Vector3.new(0, root.AssemblyLinearVelocity.Y, 0)
+                        end
+
+                        if not Fly.Enabled and AutoJump.Enabled and data.Attacking and hum.FloorMaterial ~= Enum.Material.Air then
+                            hum:ChangeState(Enum.HumanoidStateType.Jumping)
                         end
                     end
                 end)
+
             else
                 lplr.Character.Humanoid.AutoRotate = true
+
                 if bodyVel then
                     bodyVel:Destroy()
                     bodyVel = nil
                 end
+
                 RunLoops:UnbindFromHeartbeat("Speed")
             end
         end
     })
     SpeedSlider = Speed.CreateSlider({
-        Name = "value",
+        Name = "Value",
         Min = 0,
         Max = 23,
         Default = 23,
         Round = 1,
+    })
+    Mode = Speed.CreateDropdown({
+        Name = "Mode",
+        List = {"CFrame", "Velocity"},
+        Default = "CFrame",
     })
     AutoJump = Speed.CreateToggle({
         Name = "AutoJump",
@@ -416,17 +420,13 @@ runcode(function()
         Name = "Direction",
         Default = true,
         Function = function(callback)
-            repeat
-                task.wait()
-            until Speed.Enabled
+            repeat task.wait() until Speed.Enabled
             lplr.Character.Humanoid.AutoRotate = Speed.Enabled and not callback or true
         end,
-    }) 
+    })
 end)
 
-local InfiniteFly = {}
 local height = lplr.Character.HumanoidRootPart.Size.Y * 1.5
-
 runcode(function()
 	local ScreenGui = DrawLibrary.CreateBar(game.CoreGui)
 
