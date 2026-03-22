@@ -471,7 +471,7 @@ do
 	Watermark.Name                   = "Watermark"; Watermark.Parent = ArrayList
 	Watermark.BackgroundTransparency = 1
 	Watermark.Position               = UDim2.new(0, 0, 0.05, 0); Watermark.Size = UDim2.new(0, 601, 0.1456832382, 0)
-	Watermark.Font                   = Enum.Font.GothamSemibold; Watermark.Text = "phantom"
+	Watermark.Font                   = Enum.Font.GothamSemibold; Watermark.Text = "Phantom"
 	Watermark.TextColor3             = UI.kit:objectColor(Watermark)
 	Watermark.TextScaled             = true; Watermark.TextStrokeTransparency = 0
 	Watermark.TextWrapped            = true; Watermark.TextXAlignment = Enum.TextXAlignment.Right
