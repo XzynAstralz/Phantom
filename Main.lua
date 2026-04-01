@@ -279,6 +279,7 @@ local function bindGuiTheme(callback)
 end
 
 local tabs = UI.CreateDefaultTabs({
+	ShowIcons = true,
 	IconResolver = function(name)
 		return getIcon(name)
 	end,

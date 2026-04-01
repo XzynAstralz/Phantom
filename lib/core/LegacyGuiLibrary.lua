@@ -28,37 +28,42 @@ end
 local isBad = false
 
 local P = {
-    BASE0      = Color3.fromRGB(10,  11,  16),
-    BASE1      = Color3.fromRGB(17,  18,  25),
-    BASE2      = Color3.fromRGB(22,  23,  31),
-    BASE3      = Color3.fromRGB(26,  27,  36),
-    BASE_HOV   = Color3.fromRGB(30,  32,  44),
-    BASE_LIT   = Color3.fromRGB(24,  80, 188),
-    HUE        = Color3.fromRGB( 48, 115, 232),
-    HUE_FADE   = Color3.fromRGB( 28,  65, 148),
-    EDGE       = Color3.fromRGB( 33,  35,  50),
-    EDGE_HI    = Color3.fromRGB( 52,  98, 200),
-    INK_HI     = Color3.fromRGB(228, 230, 240),
-    INK_MID    = Color3.fromRGB(150, 153, 168),
-    INK_LOW    = Color3.fromRGB( 84,  87, 108),
-    INK_BETA   = Color3.fromRGB( 42, 182, 192),
-    INK_NEW    = Color3.fromRGB( 189, 111, 255),
-    STATE_ON   = Color3.fromRGB( 68, 192,  82),
-    STATE_OFF  = Color3.fromRGB(212,  60,  65),
-    CAUTION    = Color3.fromRGB(212, 168,  27),
+    BASE0      = Color3.fromRGB(4,   4,   4),
+    BASE1      = Color3.fromRGB(8,   8,   8),
+    BASE2      = Color3.fromRGB(11,  11,  11),
+    BASE3      = Color3.fromRGB(15,  15,  15),
+    BASE_HOV   = Color3.fromRGB(22,  22,  22),
+    BASE_LIT   = Color3.fromRGB(76,  26, 138),
+    HUE        = Color3.fromRGB(161, 74, 255),
+    HUE_FADE   = Color3.fromRGB(97,  28, 182),
+    EDGE       = Color3.fromRGB(24,  24,  24),
+    EDGE_HI    = Color3.fromRGB(84,  22, 160),
+    INK_HI     = Color3.fromRGB(241, 241, 241),
+    INK_MID    = Color3.fromRGB(177, 177, 177),
+    INK_LOW    = Color3.fromRGB(104, 104, 104),
+    INK_BETA   = Color3.fromRGB(86,  198, 238),
+    INK_NEW    = Color3.fromRGB(198, 122, 255),
+    STATE_ON   = Color3.fromRGB(68, 192, 82),
+    STATE_OFF  = Color3.fromRGB(212, 60, 65),
+    CAUTION    = Color3.fromRGB(212, 168, 27),
 }
 
-local R_SM = UDim.new(0, 3)
-local R_MD = UDim.new(0, 5)
-local R_LG = UDim.new(0, 7)
+local R_SM = UDim.new(0, 0)
+local R_MD = UDim.new(0, 0)
+local R_LG = UDim.new(0, 0)
 
-local COL_W    = 120
-local ROW_W    = 113
-local SUB_W    = 106
-local ROW_H    = 18
-local HDR_H    = 22
+local FONT_HDR = Enum.Font.ArialBold
+local FONT_ROW = Enum.Font.Arial
+local FONT_VALUE = Enum.Font.ArialBold
+
+local COL_W    = 124
+local ROW_W    = 118
+local SUB_W    = 112
+local ROW_H    = 16
+local HDR_H    = 18
 local PANEL_TOP_MARGIN = 12
 local PRESET_BAR_GAP = 6
+local PANEL_GAP = 6
 local Scaler
 
 local function mkCorner(p, r)
@@ -138,19 +143,19 @@ local GuiService   = cloneref(game:GetService("GuiService"))
 local IS_MOBILE = UIS.TouchEnabled and not UIS.KeyboardEnabled
 
 local TEXT_SIZE_SM = 10
-local TEXT_SIZE_MD = 12
-local TOGGLE_H = 18
-local SLIDER_H = 32
-local TEXTBOX_H = 22
-local PADDING_SM = 3
-local PADDING_MD = 5
+local TEXT_SIZE_MD = 11
+local TOGGLE_H = 16
+local SLIDER_H = 24
+local TEXTBOX_H = 18
+local PADDING_SM = 1
+local PADDING_MD = 2
 
 if IS_MOBILE then
     COL_W = 165
-    ROW_W = 155
-    SUB_W = 145
-    ROW_H = 28
-    HDR_H = 32
+    ROW_W = 156
+    SUB_W = 148
+    ROW_H = 24
+    HDR_H = 28
     TEXT_SIZE_SM = 13
     TEXT_SIZE_MD = 15
     TOGGLE_H = 26
@@ -226,6 +231,41 @@ end
 local function getPresetBarTopOffset(barHeight)
     local heightOffset = pixelsToUiOffset((barHeight or 18) + PRESET_BAR_GAP)
     return math.max(0, getPanelTopOffset() - heightOffset)
+end
+
+local PanelManualState = setmetatable({}, { __mode = "k" })
+
+local function getPanelManual(bar)
+    return PanelManualState[bar] == true
+end
+
+local function setPanelManual(bar, value)
+    if not bar then return false end
+    if value == true then
+        PanelManualState[bar] = true
+        return true
+    end
+    PanelManualState[bar] = nil
+    return false
+end
+
+local function clampPanelOffset(bar, x, y, scale)
+    local vp = getViewportSize()
+    local s = scale or ((Scaler and Scaler.Scale and Scaler.Scale > 0) and Scaler.Scale or 1)
+    local minX = 6
+    local minY = getPanelTopOffset()
+    local width = (bar and bar.Size and bar.Size.X.Offset) or COL_W
+    local height = (bar and bar.Size and bar.Size.Y.Offset) or HDR_H
+    local maxX = math.max(minX, math.floor(vp.X / s - width - 6))
+    local maxY = math.max(minY, math.floor(vp.Y / s - height - 6))
+    return math.clamp(math.floor((x or minX) + 0.5), minX, maxX),
+        math.clamp(math.floor((y or minY) + 0.5), minY, maxY)
+end
+
+local function applyPanelOffset(bar, x, y, scale)
+    local clampedX, clampedY = clampPanelOffset(bar, x, y, scale)
+    bar.Position = UDim2.new(0, clampedX, 0, clampedY)
+    return clampedX, clampedY
 end
 
 local function clampAnchorPosition(button, x, y)
@@ -363,11 +403,27 @@ do
         if not bars or #bars == 0 then return end
         local s      = scale or 1
         local vp     = workspace.CurrentCamera.ViewportSize
-        local totalW = #bars * COL_W + (#bars - 1) * 2
-        local startX = math.floor((vp.X / s - totalW) / 2)
         local topOffset = getPanelTopOffset()
-        for i, bar in ipairs(bars) do
-            bar.Position = UDim2.new(0, startX + (i - 1) * (COL_W + 2), 0, topOffset)
+        local autoBars = {}
+
+        for _, bar in ipairs(bars) do
+            if not getPanelManual(bar) then
+                autoBars[#autoBars + 1] = bar
+            end
+        end
+
+        if #autoBars > 0 then
+            local totalW = #autoBars * COL_W + (#autoBars - 1) * PANEL_GAP
+            local startX = math.floor((vp.X / s - totalW) / 2)
+            for i, bar in ipairs(autoBars) do
+                applyPanelOffset(bar, startX + (i - 1) * (COL_W + PANEL_GAP), topOffset, s)
+            end
+        end
+
+        for _, bar in ipairs(bars) do
+            if getPanelManual(bar) then
+                applyPanelOffset(bar, bar.Position.X.Offset, bar.Position.Y.Offset, s)
+            end
         end
     end
 
@@ -408,10 +464,12 @@ do
     function kit:rescale(scaler)
         local vp      = workspace.CurrentCamera.ViewportSize
         local total   = math.max(Spectrum.PanelCount or 1, 1)
-        local needed  = total * (COL_W + 2)
+        local needed  = total * COL_W + math.max(total - 1, 0) * PANEL_GAP + 24
         local minScale = IS_MOBILE and 0.45 or 0.25
         local maxScale = IS_MOBILE and 1.0 or 1.5
-        local natural = math.clamp(vp.X / needed, minScale, maxScale)
+        local widthScale = vp.X / needed
+        local heightScale = (vp.Y - getTopInsetPixels() - 24) / (HDR_H + 300)
+        local natural = math.clamp(math.min(widthScale, heightScale), minScale, maxScale)
         local s       = Spectrum.canScale == false and 1 or natural
         scaler.Scale  = s
         kit:repositionPanels(s)
@@ -485,7 +543,38 @@ Root.Size                   = UDim2.new(1, 0, 1, 0)
 Scaler.Parent = Screen
 
 local easing    = { Enum.EasingStyle.Circular, Enum.EasingDirection.Out }
-local panelTI   = TweenInfo.new(0.45, unpack(easing))
+local panelTI   = TweenInfo.new(0.2, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
+local hoverTI   = TweenInfo.new(0.1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+local accentTI  = TweenInfo.new(0.14, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+
+local function playTween(instance, info, props)
+    local tween = Tween:Create(instance, info, props)
+    tween:Play()
+    return tween
+end
+
+local function playStoredTween(bucket, key, instance, info, props, onComplete)
+    local current = bucket[key]
+    if current then
+        pcall(function()
+            current:Cancel()
+        end)
+        bucket[key] = nil
+    end
+
+    local tween = Tween:Create(instance, info, props)
+    bucket[key] = tween
+    tween.Completed:Connect(function(state)
+        if bucket[key] == tween then
+            bucket[key] = nil
+        end
+        if onComplete then
+            onComplete(state)
+        end
+    end)
+    tween:Play()
+    return tween
+end
 
 Spectrum.toggle = function()
     Root.Position = UDim2.new()
@@ -943,13 +1032,36 @@ local function readLayout()
     local ok, data = pcall(function()
         return HttpService:JSONDecode(readfile(LAYOUT_FILE))
     end)
-    return (ok and type(data) == "table") and data or {}
+    if not ok or type(data) ~= "table" then
+        return {}
+    end
+
+    local normalized = {}
+    for name, info in next, data do
+        if type(info) == "table" then
+            local x = tonumber(info.X)
+            local y = tonumber(info.Y)
+            if x and y then
+                normalized[name] = {
+                    X = math.floor(x + 0.5),
+                    Y = math.floor(y + 0.5),
+                    Manual = info.Manual ~= false,
+                }
+            end
+        end
+    end
+
+    return normalized
 end
 
 local function writeLayout()
     local positions = {}
     for _, bar in ipairs(Spectrum.PanelBars or {}) do
-        positions[bar.Name] = { X = bar.Position.X.Offset, Y = bar.Position.Y.Offset }
+        positions[bar.Name] = {
+            X = bar.Position.X.Offset,
+            Y = bar.Position.Y.Offset,
+            Manual = getPanelManual(bar),
+        }
     end
     pcall(function()
         if not isfolder("config") then makefolder("config") end
@@ -970,7 +1082,8 @@ local function makeBarDraggable(bar)
         activeType = input.UserInputType
         origin    = Vector2.new(input.Position.X, input.Position.Y)
         startOff  = Vector2.new(bar.Position.X.Offset, bar.Position.Y.Offset)
-        bar.BackgroundColor3 = P.BASE_HOV
+        setPanelManual(bar, true)
+        playTween(bar, hoverTI, { BackgroundColor3 = P.BASE_HOV })
     end)
     UIS.InputEnded:Connect(function(input)
         if not dragging then return end
@@ -980,7 +1093,8 @@ local function makeBarDraggable(bar)
             return
         end
         dragging = false
-        bar.BackgroundColor3 = P.BASE2
+        playTween(bar, hoverTI, { BackgroundColor3 = P.BASE2 })
+        applyPanelOffset(bar, bar.Position.X.Offset, bar.Position.Y.Offset)
         writeLayout()
     end)
     UIS.InputChanged:Connect(function(input)
@@ -992,7 +1106,7 @@ local function makeBarDraggable(bar)
         end
         local s     = Scaler.Scale > 0 and Scaler.Scale or 1
         local delta = Vector2.new(input.Position.X, input.Position.Y) - origin
-        bar.Position = UDim2.new(0, startOff.X + delta.X / s, 0, startOff.Y + delta.Y / s)
+        applyPanelOffset(bar, startOff.X + delta.X / s, startOff.Y + delta.Y / s, s)
     end)
 end
 
@@ -1011,7 +1125,7 @@ function Spectrum.window(cfg)
     Header.Position         = UDim2.new(0, 0, 0, getPanelTopOffset())
     Header.Size             = UDim2.new(0, COL_W, 0, HDR_H)
     Header.AutoButtonColor  = false
-    Header.Font             = Enum.Font.GothamBold
+    Header.Font             = FONT_HDR
     Header.Text             = ""
     Header.TextColor3       = P.INK_HI
     Header.TextSize         = 10
@@ -1020,39 +1134,49 @@ function Spectrum.window(cfg)
 
     table.insert(Spectrum.PanelBars, Header)
     local saved = Spectrum.Layout[cfg.Name .. "Header"]
-    if saved then
-        Header.Position = UDim2.new(0, saved.X, 0, saved.Y)
+    setPanelManual(Header, saved and saved.Manual == true)
+    if saved and getPanelManual(Header) then
+        applyPanelOffset(Header, saved.X, saved.Y, (Scaler.Scale > 0 and Scaler.Scale or 1))
     else
+        setPanelManual(Header, false)
         kit:rescale(Scaler)
     end
     makeBarDraggable(Header)
 
-    local HdrIcon = Instance.new("ImageLabel")
-    HdrIcon.Parent             = Header
-    HdrIcon.BackgroundTransparency = 1
-    HdrIcon.BorderSizePixel    = 0
-    HdrIcon.Position           = UDim2.new(0, 6, 0.5, -6)
-    HdrIcon.Size               = UDim2.new(0, 12, 0, 12)
-    HdrIcon.Image              = cfg.Icon or "rbxassetid://3926305904"
-    HdrIcon.ImageColor3        = P.INK_HI
-    HdrIcon.ImageRectOffset    = cfg.IconOffset or Vector2.new(4, 4)
-    HdrIcon.ImageRectSize      = cfg.IconSize   or Vector2.new(36, 36)
-    HdrIcon.ScaleType          = Enum.ScaleType.Fit
-    HdrIcon.ZIndex             = 2
+    local showHeaderIcon = cfg.ShowIcon == true and cfg.Icon ~= nil
+    local headerTextLeft = 0
+    local headerTextRight = -14
+
+    if showHeaderIcon then
+        local HdrIcon = Instance.new("ImageLabel")
+        HdrIcon.Parent             = Header
+        HdrIcon.BackgroundTransparency = 1
+        HdrIcon.BorderSizePixel    = 0
+        HdrIcon.Position           = UDim2.new(0, 6, 0.5, -5)
+        HdrIcon.Size               = UDim2.new(0, 10, 0, 10)
+        HdrIcon.Image              = cfg.Icon
+        HdrIcon.ImageColor3        = P.INK_HI
+        HdrIcon.ImageRectOffset    = cfg.IconOffset or Vector2.new(4, 4)
+        HdrIcon.ImageRectSize      = cfg.IconSize or Vector2.new(36, 36)
+        HdrIcon.ScaleType          = Enum.ScaleType.Fit
+        HdrIcon.ZIndex             = 2
+        headerTextLeft = 18
+        headerTextRight = -22
+    end
 
     local HdrTitle = Instance.new("TextLabel")
     HdrTitle.Name               = "Name"; HdrTitle.Parent = Header
-    HdrTitle.BackgroundTransparency = 1; HdrTitle.Position = UDim2.new(0, 22, 0, 0)
-    HdrTitle.Size               = UDim2.new(1, -50, 1, 0); HdrTitle.ZIndex = 2
-    HdrTitle.Font               = Enum.Font.GothamBold; HdrTitle.Text = cfg.Name
+    HdrTitle.BackgroundTransparency = 1; HdrTitle.Position = UDim2.new(0, headerTextLeft, 0, 0)
+    HdrTitle.Size               = UDim2.new(1, headerTextRight - headerTextLeft, 1, 0); HdrTitle.ZIndex = 2
+    HdrTitle.Font               = FONT_HDR; HdrTitle.Text = cfg.Name
     HdrTitle.TextColor3         = P.INK_HI; HdrTitle.TextSize = TEXT_SIZE_SM
-    HdrTitle.TextXAlignment     = Enum.TextXAlignment.Left
+    HdrTitle.TextXAlignment     = showHeaderIcon and Enum.TextXAlignment.Left or Enum.TextXAlignment.Center
 
     local CollapseBtn = Instance.new("ImageButton")
     CollapseBtn.Name               = "Collapse"; CollapseBtn.Parent = Header
     CollapseBtn.BackgroundTransparency = 1; CollapseBtn.BorderSizePixel = 0
-    CollapseBtn.Position           = UDim2.new(1, -18, 0.5, -6)
-    CollapseBtn.Rotation           = 180; CollapseBtn.Size = UDim2.new(0, 12, 0, 12)
+    CollapseBtn.Position           = UDim2.new(1, -12, 0.5, -4)
+    CollapseBtn.Rotation           = 180; CollapseBtn.Size = UDim2.new(0, 8, 0, 8)
     CollapseBtn.ZIndex             = 2
     CollapseBtn.Image              = "http://www.roblox.com/asset/?id=6031094679"
     CollapseBtn.ImageColor3        = P.INK_MID; CollapseBtn.ScaleType = Enum.ScaleType.Fit
@@ -1062,8 +1186,9 @@ function Spectrum.window(cfg)
     Body.BackgroundColor3       = P.BASE1
     Body.BackgroundTransparency = 0.02
     Body.BorderSizePixel        = 0
+    Body.ClipsDescendants       = true
     Body.Position               = UDim2.new(0, 0, 1, 1)
-    Body.Size                   = UDim2.new(0, COL_W, 0, 300)
+    Body.Size                   = UDim2.new(0, COL_W, 0, 0)
     mkCorner(Body, R_SM); mkBorder(Body, P.EDGE, 1)
 
     local BodyScroll = Instance.new("ScrollingFrame")
@@ -1071,7 +1196,7 @@ function Spectrum.window(cfg)
     BodyScroll.BackgroundTransparency = 1; BodyScroll.BorderSizePixel = 0
     BodyScroll.Size                  = UDim2.new(1, 0, 1, 0)
     BodyScroll.CanvasSize            = UDim2.new(0, 0, 0, 0)
-    BodyScroll.ScrollBarThickness    = 2
+    BodyScroll.ScrollBarThickness    = 1
     BodyScroll.ScrollBarImageColor3  = P.INK_LOW
     BodyScroll.ScrollingDirection    = Enum.ScrollingDirection.Y
 
@@ -1087,32 +1212,55 @@ function Spectrum.window(cfg)
     Flow.SortOrder           = Enum.SortOrder.LayoutOrder
     mkPad(EntryHolder, 3, 3, 0, 0)
 
-    function panel.Update()
-        local sz   = Flow.AbsoluteContentSize
-        local fullH = (sz.Y + 10.45) / Scaler.Scale
-        local vp    = workspace.CurrentCamera.ViewportSize
-        local maxH  = math.max(60, vp.Y / Scaler.Scale - 60)
+    function panel.Update(instant)
+        local scale = (Scaler.Scale > 0 and Scaler.Scale or 1)
+        local sz = Flow.AbsoluteContentSize
+        local fullH = math.max(0, (sz.Y + 10) / scale)
+        local vp = getViewportSize()
+        local maxH = math.max(72, vp.Y / scale - (getPanelTopOffset() + HDR_H + 18))
         local cappedH = math.min(fullH, maxH)
-        EntryHolder.Size      = UDim2.new(0, COL_W, 0, sz.Y / Scaler.Scale)
-        Body.Size             = UDim2.new(0, COL_W, 0, cappedH)
+        local targetHeight = panel.Open and cappedH or 0
+
+        EntryHolder.Size = UDim2.new(0, COL_W, 0, sz.Y / scale)
         BodyScroll.CanvasSize = UDim2.new(0, 0, 0, fullH)
+        BodyScroll.Active = panel.Open
+        BodyScroll.ScrollingEnabled = panel.Open
+
+        if instant then
+            Body.Size = UDim2.new(0, COL_W, 0, targetHeight)
+        else
+            playStoredTween(panel, "_bodyTween", Body, panelTI, {
+                Size = UDim2.new(0, COL_W, 0, targetHeight),
+            })
+        end
     end
-    kit:track(Flow:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(panel.Update))
-    panel.Update()
+
+    kit:track(Flow:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+        panel.Update(false)
+    end))
+
+    function panel.SetOpen(open, instant)
+        panel.Open = open == true
+
+        if instant then
+            CollapseBtn.Rotation = panel.Open and 180 or 0
+            CollapseBtn.ImageColor3 = panel.Open and P.INK_MID or P.INK_LOW
+        else
+            playStoredTween(panel, "_collapseTween", CollapseBtn, accentTI, {
+                Rotation = panel.Open and 180 or 0,
+                ImageColor3 = panel.Open and P.INK_MID or P.INK_LOW,
+            })
+        end
+
+        panel.Update(instant == true)
+    end
 
     function panel.Collapse()
-        if panel.Open then
-            Body.Visible        = false; panel.Open = false
-            CollapseBtn.Rotation    = 0;    CollapseBtn.ImageColor3 = P.INK_LOW
-            EntryHolder.Visible = false
-        else
-            Body.Visible        = true;  panel.Open = true
-            CollapseBtn.Rotation    = 180;   CollapseBtn.ImageColor3 = P.INK_MID
-            EntryHolder.Visible = true
-        end
-        panel.Update()
+        panel.SetOpen(not panel.Open, false)
     end
+
     CollapseBtn.MouseButton1Click:Connect(panel.Collapse)
+    panel.SetOpen(panel.Open, true)
     
     panel.Expand = panel.Collapse
 
@@ -1139,15 +1287,16 @@ function Spectrum.window(cfg)
         Row.BackgroundTransparency = 0
         Row.BorderSizePixel        = 0
         Row.Size                   = UDim2.new(0, ROW_W, 0, ROW_H)
-        Row.Font                   = Enum.Font.GothamSemibold
+        Row.Font                   = FONT_ROW
         Row.Text                   = ""
         Row.TextColor3             = P.INK_MID
         Row.TextSize               = 10
         Row.AutoButtonColor        = false
         entry.Instance             = Row
         mkCorner(Row, R_SM)
+        local RowEdge = mkBorder(Row, P.EDGE, 1, 0.52)
 
-        local RowArrow = mkChevron(Row, 4, nil, 8)
+        local RowArrow = mkChevron(Row, 4, nil, 6)
 
         local ExpandHitbox
         if IS_MOBILE then
@@ -1166,9 +1315,9 @@ function Spectrum.window(cfg)
         local RowLabel = Instance.new("TextLabel")
         RowLabel.Name               = "Name"; RowLabel.Parent = Row
         RowLabel.BackgroundTransparency = 1; RowLabel.BorderSizePixel = 0
-        RowLabel.Position           = UDim2.new(0, 16, 0, 0)
-        RowLabel.Size               = UDim2.new(1, -36, 1, 0)
-        RowLabel.Font               = Enum.Font.GothamSemibold; RowLabel.Text = cfg2.Name
+        RowLabel.Position           = UDim2.new(0, 14, 0, 0)
+        RowLabel.Size               = UDim2.new(1, -28, 1, 0)
+        RowLabel.Font               = FONT_ROW; RowLabel.Text = cfg2.Name
         RowLabel.TextColor3         = P.INK_MID; RowLabel.TextSize = TEXT_SIZE_SM
         RowLabel.TextScaled         = false; RowLabel.TextTruncate = Enum.TextTruncate.AtEnd
         RowLabel.TextXAlignment     = Enum.TextXAlignment.Left
@@ -1180,8 +1329,8 @@ function Spectrum.window(cfg)
             Badge.AnchorPoint        = Vector2.new(1, 0.5)
             Badge.Position           = UDim2.new(1, -6, 0.5, 0)
             Badge.Size               = UDim2.new(0, 28, 0, 14)
-            Badge.Font               = Enum.Font.GothamBold; Badge.Text = "Beta"
-            Badge.TextColor3         = P.INK_BETA; Badge.TextSize = 9
+            Badge.Font               = FONT_VALUE; Badge.Text = "Beta"
+            Badge.TextColor3         = P.INK_BETA; Badge.TextSize = 8
             Badge.TextXAlignment     = Enum.TextXAlignment.Right; Badge.ZIndex = 3
         end
 
@@ -1192,21 +1341,22 @@ function Spectrum.window(cfg)
             Badge.AnchorPoint        = Vector2.new(1, 0.5)
             Badge.Position           = UDim2.new(1, -6, 0.5, 0)
             Badge.Size               = UDim2.new(0, 28, 0, 14)
-            Badge.Font               = Enum.Font.GothamBold; Badge.Text = "New"
-            Badge.TextColor3         = P.INK_NEW; Badge.TextSize = 9
+            Badge.Font               = FONT_VALUE; Badge.Text = "New"
+            Badge.TextColor3         = P.INK_NEW; Badge.TextSize = 8
             Badge.TextXAlignment     = Enum.TextXAlignment.Right; Badge.ZIndex = 3
         end
 
         local SubHolder = Instance.new("Frame")
         SubHolder.Name                   = "SubHolder"
         SubHolder.Parent                 = EntryHolder
-        SubHolder.BackgroundColor3       = P.BASE3
-        SubHolder.BackgroundTransparency = 0.04
+        SubHolder.BackgroundColor3       = P.BASE1
+        SubHolder.BackgroundTransparency = 1
         SubHolder.BorderSizePixel        = 0
+        SubHolder.ClipsDescendants       = true
         SubHolder.Size                   = UDim2.new(0, ROW_W, 0, 0)
         SubHolder.Visible                = false
         mkCorner(SubHolder, R_SM)
-        mkBorder(SubHolder, P.EDGE, 1, 0.4)
+        local SubEdge = mkBorder(SubHolder, P.EDGE, 1, 0.8)
 
         local SubFlow = Instance.new("UIListLayout")
         SubFlow.Parent             = SubHolder
@@ -1421,42 +1571,102 @@ function Spectrum.window(cfg)
             end
         end
 
-        function entry.Update()
-            local s2 = SubFlow.AbsoluteContentSize
-            SubHolder.Size    = UDim2.new(0, ROW_W-2, 0, (s2.Y + 14 * Scaler.Scale) / Scaler.Scale)
-            local s3 = OptionFlow.AbsoluteContentSize
-            OptionHolder.Size = UDim2.new(0, ROW_W, 0, s3.Y / Scaler.Scale)
+        local rowHovered = false
+
+        local function renderEntryVisuals(instant)
+            local rowColor = entry.Enabled and P.BASE_LIT or (rowHovered and P.BASE_HOV or P.BASE2)
+            local labelColor = entry.Enabled and P.INK_HI or (rowHovered and P.INK_HI or P.INK_MID)
+            local arrowColor = entry.Enabled and P.INK_HI
+                or (entry.Expanded and P.INK_MID or P.INK_LOW)
+            local strokeColor = entry.Enabled and P.HUE or (rowHovered and P.EDGE_HI or P.EDGE)
+            local strokeTransparency = entry.Enabled and 0.18 or (rowHovered and 0.28 or 0.58)
+            local targetRotation = entry.Expanded and 0 or 180
+
+            if instant then
+                Row.BackgroundColor3 = rowColor
+                RowLabel.TextColor3 = labelColor
+                RowArrow.ImageColor3 = arrowColor
+                RowArrow.Rotation = targetRotation
+                RowEdge.Color = strokeColor
+                RowEdge.Transparency = strokeTransparency
+            else
+                playTween(Row, hoverTI, { BackgroundColor3 = rowColor })
+                playTween(RowLabel, accentTI, { TextColor3 = labelColor })
+                playTween(RowArrow, accentTI, {
+                    ImageColor3 = arrowColor,
+                    Rotation = targetRotation,
+                })
+                playTween(RowEdge, accentTI, {
+                    Color = strokeColor,
+                    Transparency = strokeTransparency,
+                })
+            end
         end
-        kit:track(OptionFlow:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(entry.Update))
-        kit:track(SubFlow:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(entry.Update))
+
+        local function renderSubHolder(instant)
+            local scale = (Scaler.Scale > 0 and Scaler.Scale or 1)
+            local optionSize = OptionFlow.AbsoluteContentSize
+            local subSize = SubFlow.AbsoluteContentSize
+            local targetHeight = entry.Expanded and math.max(0, (subSize.Y + 14 * scale) / scale) or 0
+
+            OptionHolder.Size = UDim2.new(0, ROW_W, 0, optionSize.Y / scale)
+            if entry.Expanded then
+                SubHolder.Visible = true
+            end
+
+            if instant then
+                SubHolder.Size = UDim2.new(0, ROW_W, 0, targetHeight)
+                SubHolder.BackgroundTransparency = entry.Expanded and 0.04 or 1
+                SubEdge.Color = P.EDGE
+                SubEdge.Transparency = 1
+                if not entry.Expanded then
+                    SubHolder.Visible = false
+                end
+            else
+                playStoredTween(entry, "_subTween", SubHolder, panelTI, {
+                    Size = UDim2.new(0, ROW_W, 0, targetHeight),
+                    BackgroundTransparency = entry.Expanded and 0.04 or 1,
+                }, function(state)
+                    if state == Enum.PlaybackState.Completed and not entry.Expanded then
+                        SubHolder.Visible = false
+                    end
+                end)
+                playTween(SubEdge, accentTI, {
+                    Color = P.EDGE,
+                    Transparency = 1,
+                })
+            end
+        end
+
+        function entry.Update(instant)
+            renderSubHolder(instant == true)
+        end
+
+        kit:track(OptionFlow:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+            entry.Update(false)
+        end))
+        kit:track(SubFlow:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+            entry.Update(false)
+        end))
 
         kit:track(PaletteSync:Bind(function()
-            if entry.Enabled then
-                RowArrow.ImageColor3 = P.HUE:Lerp(Color3.new(1, 1, 1), 0.3)
-            end
+            renderEntryVisuals(true)
+            renderSubHolder(true)
         end))
 
         kit:track(Row.MouseEnter:Connect(function()
-            if not entry.Enabled then Row.BackgroundColor3 = P.BASE_HOV end
+            rowHovered = true
+            renderEntryVisuals(false)
         end))
         kit:track(Row.MouseLeave:Connect(function()
-            if not entry.Enabled then Row.BackgroundColor3 = P.BASE2 end
+            rowHovered = false
+            renderEntryVisuals(false)
         end))
 
         local function applyEntryState(enabled, fromKey, skipCallback, skipToast)
-            if enabled then
-                entry.Enabled         = true
-                entry.Value           = true
-                Row.BackgroundColor3  = P.BASE_LIT
-                RowLabel.TextColor3   = P.INK_HI
-                RowArrow.ImageColor3  = P.HUE:Lerp(Color3.new(1, 1, 1), 0.3)
-            else
-                entry.Enabled         = false
-                entry.Value           = false
-                Row.BackgroundColor3  = P.BASE2
-                RowLabel.TextColor3   = P.INK_MID
-                RowArrow.ImageColor3  = P.INK_LOW
-            end
+            entry.Enabled = enabled == true
+            entry.Value = entry.Enabled
+            renderEntryVisuals(false)
             entry.RefreshMobileButton()
             local extra = type(cfg2.ExtraText) == "function" and cfg2.ExtraText() or cfg2.ExtraText
             ModuleSync:Emit(cfg2.Name, extra, entry.Enabled, fromKey, panelId)
@@ -1483,16 +1693,13 @@ function Spectrum.window(cfg)
         entry.Function = cfg2.Function
 
         function entry.Expand()
+            entry.Expanded = not entry.Expanded
             if entry.Expanded then
-                entry.Expanded       = false
-                SubHolder.Visible    = false
-                RowArrow.Rotation    = 180
-            else
-                entry.Expanded       = true
-                SubHolder.Visible    = true
-                RowArrow.Rotation    = 0
+                SubHolder.Visible = true
             end
-            panel.Update()
+            renderEntryVisuals(false)
+            entry.Update(false)
+            panel.Update(false)
         end
 
         kit:track(Row.MouseButton1Click:Connect(entry.Toggle))
@@ -1500,81 +1707,79 @@ function Spectrum.window(cfg)
         if ExpandHitbox then
             kit:track(ExpandHitbox.MouseButton1Click:Connect(entry.Expand))
         end
+
+        renderEntryVisuals(true)
+        entry.Update(true)
         
         function entry.CreateToggle(cfg3)
             local sw = { Enabled = false, Value = false, Dependents = {}, _depSaved = {} }
 
             local SwitchRow = Instance.new("TextButton")
             SwitchRow.Name                   = "Switch"; SwitchRow.Parent = OptionHolder
-            SwitchRow.BackgroundColor3       = P.BASE3; SwitchRow.BackgroundTransparency = 0
+            SwitchRow.BackgroundColor3       = P.BASE2; SwitchRow.BackgroundTransparency = 0
             SwitchRow.BorderSizePixel        = 0
             SwitchRow.Size                   = UDim2.new(0, SUB_W, 0, TOGGLE_H)
             SwitchRow.Text                   = ""; SwitchRow.AutoButtonColor = false
             sw.Instance                      = SwitchRow
             mkCorner(SwitchRow, R_SM)
 
+            local ToggleBox = Instance.new("Frame")
+            ToggleBox.Name               = "Box"; ToggleBox.Parent = SwitchRow
+            ToggleBox.AnchorPoint        = Vector2.new(0, 0.5)
+            ToggleBox.BackgroundColor3   = P.BASE1; ToggleBox.BackgroundTransparency = 0
+            ToggleBox.BorderSizePixel    = 0
+            ToggleBox.Position           = UDim2.new(0, 6, 0.5, 0)
+            ToggleBox.Size               = UDim2.fromOffset(IS_MOBILE and 12 or 10, IS_MOBILE and 12 or 10)
+            mkCorner(ToggleBox, UDim.new(0, IS_MOBILE and 3 or 2))
+
+            local ToggleCheck = Instance.new("TextLabel")
+            ToggleCheck.Name               = "Check"; ToggleCheck.Parent = ToggleBox
+            ToggleCheck.BackgroundTransparency = 1; ToggleCheck.BorderSizePixel = 0
+            ToggleCheck.Size               = UDim2.new(1, 0, 1, 0)
+            ToggleCheck.Font               = Enum.Font.GothamBold; ToggleCheck.Text = "✓"
+            ToggleCheck.TextColor3         = P.INK_HI; ToggleCheck.TextSize = IS_MOBILE and 11 or 9
+            ToggleCheck.TextTransparency   = 1
+
             local SwitchLabel = Instance.new("TextLabel")
             SwitchLabel.Name               = "Name"; SwitchLabel.Parent = SwitchRow
             SwitchLabel.BackgroundTransparency = 1; SwitchLabel.BorderSizePixel = 0
-            SwitchLabel.Position           = UDim2.new(0, 9, 0, 0); SwitchLabel.Size = UDim2.new(1, -38, 1, 0)
-            SwitchLabel.Font               = Enum.Font.GothamSemibold; SwitchLabel.Text = cfg3.Name
+            SwitchLabel.Position           = UDim2.new(0, IS_MOBILE and 24 or 22, 0, 0)
+            SwitchLabel.Size               = UDim2.new(1, -(IS_MOBILE and 28 or 26), 1, 0)
+            SwitchLabel.Font               = FONT_ROW; SwitchLabel.Text = cfg3.Name
             SwitchLabel.TextColor3         = P.INK_MID; SwitchLabel.TextSize = TEXT_SIZE_SM
             SwitchLabel.TextScaled         = false; SwitchLabel.TextTruncate = Enum.TextTruncate.AtEnd
             SwitchLabel.TextXAlignment     = Enum.TextXAlignment.Left
 
-            local Track = Instance.new("TextButton")
-            Track.Name               = "Track"; Track.Parent = SwitchRow
-            Track.AnchorPoint        = Vector2.new(0, 0.5)
-            Track.BackgroundColor3   = P.BASE1; Track.BackgroundTransparency = 0
-            Track.BorderSizePixel    = 0
-            Track.Position           = UDim2.new(1, -32, 0.5, 0)
-            Track.Size               = UDim2.new(0, 22, 0, 11)
-            Track.Text               = ""; Track.AutoButtonColor = false
-            mkCorner(Track, UDim.new(1, 0))
-            local trackEdge = mkBorder(Track, P.EDGE, 1)
+            local switchHovered = false
 
-            local Knob = Instance.new("TextButton")
-            Knob.Name             = "Knob"; Knob.Parent = Track
-            Knob.AnchorPoint      = Vector2.new(0, 0)
-            Knob.BackgroundColor3 = P.HUE; Knob.BorderSizePixel = 0
-            Knob.Position         = UDim2.fromOffset(2, 2)
-            Knob.Size             = UDim2.fromOffset(7, 7)
-            Knob.Text             = ""; Knob.AutoButtonColor = false
-            mkCorner(Knob, UDim.new(1, 0))
+            local function renderSwitch(instant)
+                local rowColor = switchHovered and P.BASE_HOV or P.BASE2
+                local boxColor = sw.Enabled and P.HUE or P.BASE1
+                local labelColor = sw.Enabled and P.INK_HI or (switchHovered and P.INK_HI or P.INK_MID)
+                local checkTransparency = sw.Enabled and 0 or 1
+
+                if instant then
+                    SwitchRow.BackgroundColor3 = rowColor
+                    ToggleBox.BackgroundColor3 = boxColor
+                    ToggleCheck.TextTransparency = checkTransparency
+                    SwitchLabel.TextColor3 = labelColor
+                else
+                    playTween(SwitchRow, hoverTI, { BackgroundColor3 = rowColor })
+                    playTween(ToggleBox, accentTI, { BackgroundColor3 = boxColor })
+                    playTween(ToggleCheck, accentTI, { TextTransparency = checkTransparency })
+                    playTween(SwitchLabel, accentTI, { TextColor3 = labelColor })
+                end
+            end
 
             kit:track(PaletteSync:Bind(function()
-                Knob.BackgroundColor3 = P.HUE
-                if sw.Enabled then
-                    Track.BackgroundColor3 = P.HUE:Lerp(P.BASE1, 0.55)
-                    trackEdge.Color        = P.HUE
-                end
+                ToggleCheck.TextColor3 = P.INK_HI
+                renderSwitch(true)
             end))
 
             function sw.Toggle(skipAnim)
-                if sw.Enabled then
-                    sw.Enabled             = false
-                    sw.Value               = false
-                    Track.BackgroundColor3 = P.BASE1
-                    trackEdge.Color        = P.EDGE
-                    SwitchLabel.TextColor3 = P.INK_MID
-                    if not skipAnim then
-                        Knob:TweenPosition(UDim2.fromOffset(2, 2), "Out", "Quad", 0.15, true)
-                    else
-                        Knob.Position = UDim2.fromOffset(2, 2)
-                    end
-                else
-                    sw.Enabled                 = true
-                    sw.Value                   = true
-                    Track.BackgroundColor3     = P.HUE:Lerp(P.BASE1, 0.55)
-                    trackEdge.Color            = P.HUE
-                    Knob.BackgroundColor3      = P.HUE
-                    SwitchLabel.TextColor3     = P.INK_HI
-                    if not skipAnim then
-                        Knob:TweenPosition(UDim2.fromOffset(13, 2), "Out", "Quad", 0.15, true)
-                    else
-                        Knob.Position = UDim2.fromOffset(13, 2)
-                    end
-                end
+                sw.Enabled = not sw.Enabled
+                sw.Value = sw.Enabled
+                renderSwitch(skipAnim == true)
                 if cfg3.Function then task.spawn(cfg3.Function, sw.Enabled) end
                 for _, dep in next, sw.Dependents do
                     dep.Instance.Visible = sw.Enabled
@@ -1625,21 +1830,20 @@ function Spectrum.window(cfg)
                 end
             end
 
-            kit:track(Knob.MouseButton1Click:Connect(sw.Toggle))
-            kit:track(Track.MouseButton1Click:Connect(sw.Toggle))
             kit:track(SwitchRow.MouseButton1Click:Connect(sw.Toggle))
             sw.Function = cfg3.Function
 
             kit:track(SwitchRow.MouseEnter:Connect(function()
-                SwitchRow.BackgroundColor3 = P.BASE_HOV
-                trackEdge.Color = sw.Enabled and P.HUE or P.EDGE_HI
+                switchHovered = true
+                renderSwitch(false)
             end))
             kit:track(SwitchRow.MouseLeave:Connect(function()
-                SwitchRow.BackgroundColor3 = P.BASE3
-                trackEdge.Color = sw.Enabled and P.HUE or P.EDGE
+                switchHovered = false
+                renderSwitch(false)
             end))
 
             if cfg3.Default and sw.Enabled ~= cfg3.Default then sw.Toggle(true) end
+            renderSwitch(true)
 
             kit:register(cfg3.Name .. "Toggle_" .. entryId,
                 { Name = cfg3.Name, Instance = SwitchRow, Type = "Toggle",
@@ -1660,16 +1864,17 @@ function Spectrum.window(cfg)
 
             local RangeFrame = Instance.new("Frame")
             RangeFrame.Name                   = "Range"; RangeFrame.Parent = OptionHolder
-            RangeFrame.BackgroundColor3       = P.BASE3; RangeFrame.BackgroundTransparency = 0
+            RangeFrame.BackgroundColor3       = P.BASE2; RangeFrame.BackgroundTransparency = 0
             RangeFrame.BorderSizePixel        = 0; RangeFrame.Size = UDim2.new(0, SUB_W, 0, SLIDER_H)
             range.Instance                    = RangeFrame
             mkCorner(RangeFrame, R_SM)
+            local rangeEdge = mkBorder(RangeFrame, P.EDGE, 1, 0.45)
 
             local RangeLabel = Instance.new("TextLabel")
             RangeLabel.Name               = "Name"; RangeLabel.Parent = RangeFrame
             RangeLabel.BackgroundTransparency = 1; RangeLabel.BorderSizePixel = 0
-            RangeLabel.Position           = UDim2.new(0, 9, 0, 4); RangeLabel.Size = UDim2.new(1, -52, 0, 14)
-            RangeLabel.Font               = Enum.Font.GothamSemibold; RangeLabel.Text = cfg3.Name
+            RangeLabel.Position           = UDim2.new(0, 6, 0, 2); RangeLabel.Size = UDim2.new(1, -46, 0, 12)
+            RangeLabel.Font               = FONT_ROW; RangeLabel.Text = cfg3.Name
             RangeLabel.TextColor3         = P.INK_MID; RangeLabel.TextSize = TEXT_SIZE_SM
             RangeLabel.TextScaled         = false; RangeLabel.TextTruncate = Enum.TextTruncate.AtEnd
             RangeLabel.TextXAlignment     = Enum.TextXAlignment.Left
@@ -1677,12 +1882,12 @@ function Spectrum.window(cfg)
             local ValBox = Instance.new("TextBox")
             ValBox.Name                  = "Val"; ValBox.Parent = RangeFrame
             ValBox.AnchorPoint           = Vector2.new(1, 0)
-            ValBox.BackgroundTransparency = 1; ValBox.Position = UDim2.new(1, -9, 0, 4)
-            ValBox.Size                  = UDim2.new(0, 38, 0, 14)
-            ValBox.Font                  = Enum.Font.GothamBold; ValBox.PlaceholderText = "val"
+            ValBox.BackgroundTransparency = 1; ValBox.Position = UDim2.new(1, -6, 0, 2)
+            ValBox.Size                  = UDim2.new(0, 38, 0, 12)
+            ValBox.Font                  = FONT_VALUE; ValBox.PlaceholderText = "val"
             ValBox.Text                  = fmt(rDef); ValBox.TextColor3 = P.HUE
             ValBox.TextSize              = TEXT_SIZE_SM; ValBox.TextXAlignment = Enum.TextXAlignment.Right
-            ValBox.BackgroundColor3      = P.BASE3
+            ValBox.BackgroundColor3      = P.BASE2
 
             local ValLine = Instance.new("Frame")
             ValLine.Name             = "ValLine"; ValLine.Parent = ValBox
@@ -1693,10 +1898,10 @@ function Spectrum.window(cfg)
             local Track = Instance.new("Frame")
             Track.Name             = "Track"; Track.Parent = RangeFrame
             Track.AnchorPoint      = Vector2.new(0.5, 1)
-            Track.BackgroundColor3 = P.BASE1; Track.BorderSizePixel = 0
-            Track.Position         = UDim2.new(0.5, 0, 1, -7)
-            Track.Size             = UDim2.new(1, -18, 0, 3)
-            mkCorner(Track, UDim.new(1, 0))
+            Track.BackgroundColor3 = P.EDGE; Track.BorderSizePixel = 0
+            Track.Position         = UDim2.new(0.5, 0, 1, -4)
+            Track.Size             = UDim2.new(1, -12, 0, 2)
+            mkCorner(Track, R_SM)
 
             local Fill = Instance.new("Frame")
             Fill.Name             = "Fill"; Fill.Parent = Track
@@ -1704,11 +1909,17 @@ function Spectrum.window(cfg)
             Fill.BackgroundColor3 = P.HUE; Fill.BorderSizePixel = 0
             Fill.Position         = UDim2.new(0, 0, 0.5, 0)
             Fill.Size             = UDim2.new(0, 50, 1, 0)
-            mkCorner(Fill, UDim.new(1, 0))
+            mkCorner(Fill, R_SM)
 
             kit:track(PaletteSync:Bind(function() Fill.BackgroundColor3 = P.HUE end))
-            kit:track(RangeFrame.MouseEnter:Connect(function() RangeFrame.BackgroundColor3 = P.BASE_HOV end))
-            kit:track(RangeFrame.MouseLeave:Connect(function() RangeFrame.BackgroundColor3 = P.BASE3 end))
+            kit:track(RangeFrame.MouseEnter:Connect(function()
+                RangeFrame.BackgroundColor3 = P.BASE_HOV
+                rangeEdge.Color = P.EDGE_HI
+            end))
+            kit:track(RangeFrame.MouseLeave:Connect(function()
+                RangeFrame.BackgroundColor3 = P.BASE2
+                rangeEdge.Color = P.EDGE
+            end))
             kit:track(ValBox.MouseEnter:Connect(function() ValLine.Visible = true end))
             kit:track(ValBox.MouseLeave:Connect(function()
                 if not ValBox:IsFocused() then ValLine.Visible = false end
@@ -1834,16 +2045,16 @@ function Spectrum.window(cfg)
             SelBack.AnchorPoint            = Vector2.new(0.5, 0)
             SelBack.BackgroundColor3       = P.BASE2; SelBack.BackgroundTransparency = 0
             SelBack.BorderSizePixel        = 0
-            SelBack.Position               = UDim2.new(0.5, 0, 0, 4)
-            SelBack.Size                   = UDim2.new(0, SUB_W - 8, 0, 20)
+            SelBack.Position               = UDim2.new(0.5, 0, 0, 2)
+            SelBack.Size                   = UDim2.new(0, SUB_W, 0, TEXTBOX_H)
             mkCorner(SelBack, R_SM)
             local selEdge = mkBorder(SelBack, P.EDGE, 1, 0.4)
 
             local SelLabel = Instance.new("TextLabel")
             SelLabel.Name               = "Name"; SelLabel.Parent = SelBack
             SelLabel.BackgroundTransparency = 1; SelLabel.BorderSizePixel = 0
-            SelLabel.Position           = UDim2.new(0, 9, 0, 0); SelLabel.Size = UDim2.new(1, -26, 1, 0)
-            SelLabel.Font               = Enum.Font.GothamSemibold; SelLabel.Text = cfg3.Name
+            SelLabel.Position           = UDim2.new(0, 6, 0, 0); SelLabel.Size = UDim2.new(1, -18, 1, 0)
+            SelLabel.Font               = FONT_ROW; SelLabel.Text = cfg3.Name
             SelLabel.TextColor3         = P.INK_MID; SelLabel.TextSize = TEXT_SIZE_SM
             SelLabel.TextXAlignment     = Enum.TextXAlignment.Left
             SelLabel.TextTruncate       = Enum.TextTruncate.AtEnd
@@ -1852,8 +2063,8 @@ function Spectrum.window(cfg)
             SelChevron.Name               = "Chevron"; SelChevron.Parent = SelBack
             SelChevron.AnchorPoint        = Vector2.new(0, 0.5)
             SelChevron.BackgroundTransparency = 1; SelChevron.BorderSizePixel = 0
-            SelChevron.Position           = UDim2.new(1, -18, 0.5, 0); SelChevron.Rotation = 0
-            SelChevron.Size               = UDim2.new(0, 14, 0, 14); SelChevron.ZIndex = 2
+            SelChevron.Position           = UDim2.new(1, -11, 0.5, 0); SelChevron.Rotation = 0
+            SelChevron.Size               = UDim2.new(0, 8, 0, 8); SelChevron.ZIndex = 2
             SelChevron.Image              = "http://www.roblox.com/asset/?id=6031094679"
             SelChevron.ImageColor3        = P.INK_LOW; SelChevron.ScaleType = Enum.ScaleType.Fit
 
@@ -1862,18 +2073,18 @@ function Spectrum.window(cfg)
             SelList.AnchorPoint            = Vector2.new(0.5, 0)
             SelList.BackgroundColor3       = P.BASE1; SelList.BackgroundTransparency = 0
             SelList.BorderSizePixel        = 0; SelList.ClipsDescendants = true
-            SelList.Position               = UDim2.new(0.5, 0, 0, 28)
-            SelList.Size                   = UDim2.new(0, SUB_W - 8, 0, 0)
+            SelList.Position               = UDim2.new(0.5, 0, 0, TEXTBOX_H + 4)
+            SelList.Size                   = UDim2.new(0, SUB_W, 0, 0)
             SelList.Visible                = false
             mkCorner(SelList, R_SM); mkBorder(SelList, P.EDGE, 1, 0.4)
-            mkPad(SelList, 2, 2, 0, 0)
+            mkPad(SelList, 1, 1, 0, 0)
 
             local SelScroll = Instance.new("ScrollingFrame")
             SelScroll.Parent               = SelList
             SelScroll.BackgroundTransparency = 1; SelScroll.BorderSizePixel = 0
             SelScroll.Size                 = UDim2.new(1, 0, 1, 0)
             SelScroll.CanvasSize           = UDim2.new(0, 0, 0, 0)
-            SelScroll.ScrollBarThickness   = 2
+            SelScroll.ScrollBarThickness   = 1
             SelScroll.ScrollBarImageColor3 = P.INK_LOW
             SelScroll.ScrollingDirection   = Enum.ScrollingDirection.Y
 
@@ -1892,18 +2103,46 @@ function Spectrum.window(cfg)
             end))
 
             local SEL_MAX_H = 160
-            function sel.Update()
+            function sel.Update(instant)
+                local scale = (Scaler.Scale > 0 and Scaler.Scale or 1)
                 local sz = SelItemFlow.AbsoluteContentSize.Y
-                local cappedSz = math.min(sz, SEL_MAX_H * Scaler.Scale)
-                if SelList.Visible then
-                    SelWrap.Size = UDim2.new(0, SUB_W, 0, (28 * Scaler.Scale + cappedSz + 6) / Scaler.Scale)
-                    SelList.Size = UDim2.new(0, SUB_W - 8, 0, cappedSz / Scaler.Scale + 4)
-                    SelScroll.CanvasSize = UDim2.new(0, 0, 0, sz / Scaler.Scale)
+                local cappedSz = math.min(sz, SEL_MAX_H * scale)
+                local wrapHeight = sel.Expanded and (((TEXTBOX_H + 4) * scale + cappedSz + 2) / scale) or TEXTBOX_H + 2
+                local listHeight = sel.Expanded and (cappedSz / scale + 2) or 0
+
+                SelScroll.CanvasSize = UDim2.new(0, 0, 0, sz / scale)
+                if sel.Expanded then
+                    SelList.Visible = true
+                end
+
+                if instant then
+                    SelWrap.Size = UDim2.new(0, SUB_W, 0, wrapHeight)
+                    SelList.Size = UDim2.new(0, SUB_W, 0, listHeight)
+                    SelChevron.Rotation = sel.Expanded and 180 or 0
+                    SelChevron.ImageColor3 = sel.Expanded and P.HUE or P.INK_LOW
+                    if not sel.Expanded then
+                        SelList.Visible = false
+                    end
                 else
-                    SelWrap.Size = UDim2.new(0, SUB_W, 0, 22)
+                    playStoredTween(sel, "_wrapTween", SelWrap, panelTI, {
+                        Size = UDim2.new(0, SUB_W, 0, wrapHeight),
+                    })
+                    playStoredTween(sel, "_listTween", SelList, panelTI, {
+                        Size = UDim2.new(0, SUB_W, 0, listHeight),
+                    }, function(state)
+                        if state == Enum.PlaybackState.Completed and not sel.Expanded then
+                            SelList.Visible = false
+                        end
+                    end)
+                    playStoredTween(sel, "_chevronTween", SelChevron, accentTI, {
+                        Rotation = sel.Expanded and 180 or 0,
+                        ImageColor3 = sel.Expanded and P.HUE or P.INK_LOW,
+                    })
                 end
             end
-            kit:track(SelItemFlow:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(sel.Update))
+            kit:track(SelItemFlow:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+                sel.Update(false)
+            end))
 
             function sel.SetValue(val)
                 for _, v in next, sel.Values do
@@ -1911,7 +2150,7 @@ function Spectrum.window(cfg)
                     v.SelectedInstance.Visible = match
                     if match then
                         sel.Value     = tostring(val)
-                        SelLabel.Text = cfg3.Name .. " > " .. tostring(val)
+                        SelLabel.Text = cfg3.Name .. ": " .. tostring(val)
                         SelLabel.TextColor3 = P.INK_HI
                         if cfg3.Function then task.spawn(cfg3.Function, val) end
                     for _, vd in next, sel.ValueDependents do
@@ -1963,7 +2202,7 @@ function Spectrum.window(cfg)
                 local vi = { Value = val }
                 local Btn = Instance.new("TextButton"); Btn.Parent = SelScroll
                 Btn.BackgroundColor3 = P.BASE1; Btn.BackgroundTransparency = 0
-                Btn.BorderSizePixel  = 0; Btn.Size = UDim2.new(0, SUB_W - 14, 0, 20)
+                Btn.BorderSizePixel  = 0; Btn.Size = UDim2.new(0, SUB_W - 2, 0, 16)
                 Btn.Text             = ""; Btn.AutoButtonColor = false
                 mkCorner(Btn, R_SM)
                 Btn.MouseButton1Click:Connect(function() sel.SetValue(val) end)
@@ -1971,28 +2210,25 @@ function Spectrum.window(cfg)
                 kit:track(Btn.MouseLeave:Connect(function() Btn.BackgroundColor3 = P.BASE1 end))
                 local Lbl = Instance.new("TextLabel"); Lbl.Parent = Btn
                 Lbl.BackgroundTransparency = 1; Lbl.BorderSizePixel = 0
-                Lbl.Position = UDim2.new(0, 12, 0, 0); Lbl.Size = UDim2.new(1, -18, 1, 0)
-                Lbl.Font = Enum.Font.GothamSemibold; Lbl.Text = tostring(val)
+                Lbl.Position = UDim2.new(0, 10, 0, 0); Lbl.Size = UDim2.new(1, -14, 1, 0)
+                Lbl.Font = FONT_ROW; Lbl.Text = tostring(val)
                 Lbl.TextColor3 = P.INK_MID; Lbl.TextSize = TEXT_SIZE_SM
                 Lbl.TextXAlignment = Enum.TextXAlignment.Left
                 local Dot = Instance.new("Frame"); Dot.Parent = Btn
                 Dot.AnchorPoint = Vector2.new(0, 0.5); Dot.BackgroundColor3 = P.HUE
                 Dot.Visible     = false; Dot.BorderSizePixel = 0
-                Dot.Position    = UDim2.new(0, 3, 0.5, 0); Dot.Size = UDim2.new(0, 2, 0.5, 0)
-                mkCorner(Dot, UDim.new(1, 0))
+                Dot.Position    = UDim2.new(0, 2, 0.5, 0); Dot.Size = UDim2.new(0, 4, 0, 10)
+                mkCorner(Dot, R_SM)
                 kit:track(PaletteSync:Bind(function() Dot.BackgroundColor3 = P.HUE end))
                 vi.SelectedInstance = Dot; vi.Instance = Btn; return vi
             end
 
             function sel.Expand()
+                sel.Expanded = not sel.Expanded
                 if sel.Expanded then
-                    sel.Expanded      = false; SelList.Visible = false
-                    SelChevron.Rotation = 0;    SelChevron.ImageColor3 = P.INK_LOW
-                else
-                    SelChevron.Rotation = 180;  SelChevron.ImageColor3 = P.HUE
-                    sel.Expanded      = true;   SelList.Visible = true
+                    SelList.Visible = true
                 end
-                sel.Update()
+                sel.Update(false)
             end
             kit:track(SelChevron.MouseButton1Click:Connect(sel.Expand))
 
@@ -2000,11 +2236,13 @@ function Spectrum.window(cfg)
                 sel.Values[#sel.Values + 1] = newItem(v)
             end
             if cfg3.Default then sel.SetValue(cfg3.Default) end
+            sel.Update(true)
 
             function sel.SetList(list)
                 for i, v in next, sel.Values do v.Instance:Destroy(); sel.Values[i] = nil end
                 sel.Values = {}
                 for _, v in next, list do sel.Values[#sel.Values + 1] = newItem(v) end
+                sel.Update(true)
             end
 
             kit:register(cfg3.Name .. "Dropdown_" .. entryId,
@@ -2082,18 +2320,46 @@ function Spectrum.window(cfg)
             end))
 
             local MS_MAX_H = 160
-            function ms.Update()
+            function ms.Update(instant)
+                local scale = (Scaler.Scale > 0 and Scaler.Scale or 1)
                 local sz = MSItemFlow.AbsoluteContentSize.Y
-                local cappedSz = math.min(sz, MS_MAX_H * Scaler.Scale)
-                if MSList.Visible then
-                    MSWrap.Size = UDim2.new(0, SUB_W, 0, (28 * Scaler.Scale + cappedSz + 6) / Scaler.Scale)
-                    MSList.Size = UDim2.new(0, SUB_W - 8, 0, cappedSz / Scaler.Scale + 4)
-                    MSScroll.CanvasSize = UDim2.new(0, 0, 0, sz / Scaler.Scale)
+                local cappedSz = math.min(sz, MS_MAX_H * scale)
+                local wrapHeight = ms.Expanded and ((28 * scale + cappedSz + 6) / scale) or 22
+                local listHeight = ms.Expanded and (cappedSz / scale + 4) or 0
+
+                MSScroll.CanvasSize = UDim2.new(0, 0, 0, sz / scale)
+                if ms.Expanded then
+                    MSList.Visible = true
+                end
+
+                if instant then
+                    MSWrap.Size = UDim2.new(0, SUB_W, 0, wrapHeight)
+                    MSList.Size = UDim2.new(0, SUB_W - 8, 0, listHeight)
+                    MSChevron.Rotation = ms.Expanded and 180 or 0
+                    MSChevron.ImageColor3 = ms.Expanded and P.HUE or P.INK_LOW
+                    if not ms.Expanded then
+                        MSList.Visible = false
+                    end
                 else
-                    MSWrap.Size = UDim2.new(0, SUB_W, 0, 22)
+                    playStoredTween(ms, "_wrapTween", MSWrap, panelTI, {
+                        Size = UDim2.new(0, SUB_W, 0, wrapHeight),
+                    })
+                    playStoredTween(ms, "_listTween", MSList, panelTI, {
+                        Size = UDim2.new(0, SUB_W - 8, 0, listHeight),
+                    }, function(state)
+                        if state == Enum.PlaybackState.Completed and not ms.Expanded then
+                            MSList.Visible = false
+                        end
+                    end)
+                    playStoredTween(ms, "_chevronTween", MSChevron, accentTI, {
+                        Rotation = ms.Expanded and 180 or 0,
+                        ImageColor3 = ms.Expanded and P.HUE or P.INK_LOW,
+                    })
                 end
             end
-            kit:track(MSItemFlow:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(ms.Update))
+            kit:track(MSItemFlow:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+                ms.Update(false)
+            end))
 
             function ms.ToggleValue(val)
                 for _, v in next, ms.Values do
@@ -2148,19 +2414,17 @@ function Spectrum.window(cfg)
                 for i, v in next, ms.Values do v.Instance:Destroy(); ms.Values[i] = nil end
                 ms.Values = {}
                 for _, v in next, list do ms.Values[tostring(v)] = newMSItem(v) end
+                ms.Update(true)
             end
 
             function ms.Expand()
+                ms.Expanded = not ms.Expanded
                 if ms.Expanded then
-                    ms.Expanded = false; MSList.Visible = false
-                    MSChevron.Rotation = 0; MSChevron.ImageColor3 = P.INK_LOW
-                else
-                    MSChevron.Rotation = 180; MSChevron.ImageColor3 = P.HUE
-                    ms.Expanded = true; MSList.Visible = true
+                    MSList.Visible = true
                 end
-                ms.Update()
+                ms.Update(false)
             end
-            ms.Update()
+            ms.Update(true)
             kit:track(MSChevron.MouseButton1Click:Connect(ms.Expand))
 
             kit:register(cfg3.Name .. "MultiDropdown_" .. entryId,
@@ -3328,10 +3592,12 @@ function Spectrum.CreateDefaultTabs(cfg)
         "combat", "blatant", "render", "utillity", "world", "misc", "inventory", "other"
     }
     local iconResolver = cfg and cfg.IconResolver
+    local showIcons = cfg and cfg.ShowIcons == true
     for _, tabName in ipairs(order) do
         tabs[tabName] = Spectrum.window({
             Name = tabName,
-            Icon = iconResolver and iconResolver(tabName) or nil
+            Icon = iconResolver and iconResolver(tabName) or nil,
+            ShowIcon = showIcons,
         })
     end
     return tabs
