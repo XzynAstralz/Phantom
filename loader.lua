@@ -1,0 +1,537 @@
+repeat task.wait() until game:IsLoaded()
+
+local getgenv = _G.getgenv or getgenv
+local isfile = _G.isfile or isfile
+local isfolder = _G.isfolder or isfolder
+local makefolder = _G.makefolder or makefolder
+local readfile = _G.readfile or readfile
+local writefile = _G.writefile or writefile
+local request = _G.request or request
+local http_request = _G.http_request or http_request
+local gethui = _G.gethui or gethui
+local get_hidden_gui = _G.get_hidden_gui or get_hidden_gui
+local syn = _G.syn or syn
+local http = _G.http or http
+local fluxus = _G.fluxus or fluxus
+
+if not getgenv then
+	return warn("[phantom] unsupported executor.")
+end
+
+local HttpService = game:GetService("HttpService")
+local ROOT = "Phantom"
+local REPO_OWNER = "XzynAstralz"
+local REPO_NAME = "Phantom"
+
+local function normalize(path)
+	path = tostring(path or "")
+	path = path:gsub("\\", "/")
+	path = path:gsub("^%./", "")
+	path = path:gsub("^/+", "")
+	path = path:gsub("/+", "/")
+	path = path:gsub("/$", "")
+	return path
+end
+
+local function resolve(path)
+	path = normalize(path)
+	if path == "" then
+		return ROOT
+	end
+	if path:lower():sub(1, #ROOT + 1) == (ROOT:lower() .. "/") then
+		return path
+	end
+	return ROOT .. "/" .. path
+end
+
+local function ensureFolder(path)
+	local relative = normalize(path)
+	local current = ROOT
+
+	if not isfolder(current) then
+		pcall(makefolder, current)
+	end
+
+	if relative == "" then
+		return
+	end
+
+	for segment in relative:gmatch("[^/]+") do
+		current = current .. "/" .. segment
+		if not isfolder(current) then
+			pcall(makefolder, current)
+		end
+	end
+end
+
+local function ensureParent(path)
+	local relative = normalize(path)
+	local parent = relative:match("^(.*)/[^/]+$")
+	if parent and parent ~= "" then
+		ensureFolder(parent)
+	else
+		ensureFolder("")
+	end
+end
+
+local function readFile(path)
+	local fullPath = resolve(path)
+	if not isfile(fullPath) then
+		return nil
+	end
+	local ok, contents = pcall(readfile, fullPath)
+	if ok then
+		return contents
+	end
+	return nil
+end
+
+local function writeFile(path, contents)
+	ensureParent(path)
+	return pcall(writefile, resolve(path), contents)
+end
+
+local function readJson(path, defaultValue)
+	local contents = readFile(path)
+	if not contents or contents == "" then
+		return defaultValue
+	end
+	local ok, decoded = pcall(function()
+		return HttpService:JSONDecode(contents)
+	end)
+	if ok then
+		return decoded
+	end
+	return defaultValue
+end
+
+local function writeJson(path, value)
+	local ok, encoded = pcall(function()
+		return HttpService:JSONEncode(value)
+	end)
+	if not ok then
+		return false, encoded
+	end
+	return writeFile(path, encoded)
+end
+
+local function requestFunction()
+	return request
+		or http_request
+		or (syn and syn.request)
+		or (http and http.request)
+		or (fluxus and fluxus.request)
+end
+
+local function httpGet(url, headers)
+	local request = requestFunction()
+	if request then
+		local ok, response = pcall(request, {
+			Url = url,
+			Method = "GET",
+			Headers = headers or {},
+		})
+		if ok and response and tonumber(response.StatusCode) and response.StatusCode >= 200 and response.StatusCode < 300 then
+			return true, response.Body, response
+		end
+		return false, response and response.Body or response, response
+	end
+
+	local ok, body = pcall(function()
+		if game.HttpGet then
+			return game:HttpGet(url, true)
+		end
+		return HttpService:GetAsync(url, true)
+	end)
+	if ok then
+		return true, body, { StatusCode = 200 }
+	end
+	return false, body, { StatusCode = 0 }
+end
+
+local function httpGetJson(url, headers)
+	local ok, body, response = httpGet(url, headers)
+	if not ok then
+		return false, body, response
+	end
+	local success, decoded = pcall(function()
+		return HttpService:JSONDecode(body)
+	end)
+	if success then
+		return true, decoded, response
+	end
+	return false, decoded, response
+end
+
+local function encodePath(path)
+	return tostring(path):gsub(" ", "%%20")
+end
+
+local function buildRawBase(ref)
+	return string.format("https://raw.githubusercontent.com/%s/%s/%s/", REPO_OWNER, REPO_NAME, ref)
+end
+
+local function fetchLatestManifest()
+	local ok, release = httpGetJson(string.format("https://api.github.com/repos/%s/%s/releases/latest", REPO_OWNER, REPO_NAME), {
+		Accept = "application/vnd.github+json",
+	})
+	if not ok or type(release) ~= "table" then
+		return nil, release
+	end
+
+	for _, asset in ipairs(release.assets or {}) do
+		if asset.name == "release-manifest.json" and asset.browser_download_url then
+			local assetOk, manifest = httpGetJson(asset.browser_download_url, {
+				Accept = "application/json",
+			})
+			if assetOk and type(manifest) == "table" then
+				manifest.releaseTag = manifest.releaseTag or release.tag_name or "main"
+				manifest.version = manifest.version or manifest.releaseTag
+				manifest.rawBaseUrl = manifest.rawBaseUrl or buildRawBase(manifest.releaseTag)
+				manifest.files = manifest.files or {}
+				return manifest, release
+			end
+		end
+	end
+
+	local rawOk, manifest = httpGetJson(buildRawBase(release.tag_name or "main") .. "release-manifest.json")
+	if rawOk and type(manifest) == "table" then
+		manifest.releaseTag = manifest.releaseTag or release.tag_name or "main"
+		manifest.version = manifest.version or manifest.releaseTag
+		manifest.rawBaseUrl = manifest.rawBaseUrl or buildRawBase(manifest.releaseTag)
+		manifest.files = manifest.files or {}
+		return manifest, release
+	end
+
+	return nil, "release manifest missing"
+end
+
+local function replacePlain(source, target, replacement, limit)
+	if target == "" then
+		return source, 0
+	end
+
+	local count = 0
+	local result = {}
+	local cursor = 1
+
+	while true do
+		local first, last = string.find(source, target, cursor, true)
+		if not first or (limit and count >= limit) then
+			result[#result + 1] = source:sub(cursor)
+			break
+		end
+
+		result[#result + 1] = source:sub(cursor, first - 1)
+		result[#result + 1] = replacement
+		count = count + 1
+		cursor = last + 1
+	end
+
+	if count == 0 then
+		return source, 0
+	end
+
+	return table.concat(result), count
+end
+
+local function applyPatch(entry)
+	local source = readFile(entry.path)
+	if not source then
+		return false, "missing local file for patch"
+	end
+
+	for _, patch in ipairs(entry.patches or {}) do
+		local updated, replacements
+		if patch.plain == false then
+			updated, replacements = source:gsub(patch.find or "", patch.replace or "", patch.count or 1)
+		else
+			updated, replacements = replacePlain(source, patch.find or "", patch.replace or "", patch.count)
+		end
+		if replacements == 0 and not patch.optional then
+			return false, "patch target not found"
+		end
+		source = updated
+	end
+
+	return writeFile(entry.path, source)
+end
+
+local function isPreserved(path)
+	path = normalize(path)
+	return path:sub(1, 7) == "config/" or path:sub(1, 8) == "configs/" or path:sub(1, 6) == "cache/"
+end
+
+local function isDeveloperProtected(path)
+	return tostring(path):match("%.lua$") ~= nil
+end
+
+local function getSettings()
+	local settings = readJson("config/loader.json", {
+		autoUpdate = true,
+		developerMode = false,
+		debugLogs = false,
+		allowPatching = true,
+		releaseChannel = "stable",
+	})
+	settings.autoUpdate = settings.autoUpdate ~= false
+	settings.developerMode = settings.developerMode == true
+	settings.debugLogs = settings.debugLogs == true
+	settings.allowPatching = settings.allowPatching ~= false
+	return settings
+end
+
+local function createLoaderUi()
+	local parent = (get_hidden_gui and get_hidden_gui()) or (gethui and gethui()) or game.CoreGui
+	local gui = Instance.new("ScreenGui")
+	gui.Name = "PhantomLoader"
+	gui.ResetOnSpawn = false
+	gui.IgnoreGuiInset = true
+	gui.DisplayOrder = 999998
+	gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+	gui.Parent = parent
+
+	local root = Instance.new("Frame")
+	root.Parent = gui
+	root.AnchorPoint = Vector2.new(0.5, 0.5)
+	root.Position = UDim2.fromScale(0.5, 0.5)
+	root.Size = UDim2.new(0, 420, 0, 166)
+	root.BackgroundColor3 = Color3.fromRGB(10, 14, 21)
+	root.BorderSizePixel = 0
+
+	local rootCorner = Instance.new("UICorner")
+	rootCorner.CornerRadius = UDim.new(0, 18)
+	rootCorner.Parent = root
+
+	local rootStroke = Instance.new("UIStroke")
+	rootStroke.Color = Color3.fromRGB(67, 78, 96)
+	rootStroke.Transparency = 0.2
+	rootStroke.Parent = root
+
+	local title = Instance.new("TextLabel")
+	title.Parent = root
+	title.BackgroundTransparency = 1
+	title.Position = UDim2.new(0, 18, 0, 16)
+	title.Size = UDim2.new(1, -36, 0, 24)
+	title.Font = Enum.Font.GothamBold
+	title.Text = "Phantom Loader"
+	title.TextColor3 = Color3.fromRGB(241, 235, 226)
+	title.TextSize = 20
+	title.TextXAlignment = Enum.TextXAlignment.Left
+
+	local subtitle = Instance.new("TextLabel")
+	subtitle.Parent = root
+	subtitle.BackgroundTransparency = 1
+	subtitle.Position = UDim2.new(0, 18, 0, 44)
+	subtitle.Size = UDim2.new(1, -36, 0, 16)
+	subtitle.Font = Enum.Font.Gotham
+	subtitle.Text = "GameID " .. tostring(game.PlaceId)
+	subtitle.TextColor3 = Color3.fromRGB(165, 174, 190)
+	subtitle.TextSize = 12
+	subtitle.TextXAlignment = Enum.TextXAlignment.Left
+
+	local status = Instance.new("TextLabel")
+	status.Parent = root
+	status.BackgroundTransparency = 1
+	status.Position = UDim2.new(0, 18, 0, 74)
+	status.Size = UDim2.new(1, -36, 0, 20)
+	status.Font = Enum.Font.GothamMedium
+	status.Text = "Checking for updates..."
+	status.TextColor3 = Color3.fromRGB(239, 155, 73)
+	status.TextSize = 14
+	status.TextXAlignment = Enum.TextXAlignment.Left
+
+	local detail = Instance.new("TextLabel")
+	detail.Parent = root
+	detail.BackgroundTransparency = 1
+	detail.Position = UDim2.new(0, 18, 0, 96)
+	detail.Size = UDim2.new(1, -36, 0, 16)
+	detail.Font = Enum.Font.Gotham
+	detail.Text = "0/0"
+	detail.TextColor3 = Color3.fromRGB(165, 174, 190)
+	detail.TextSize = 12
+	detail.TextXAlignment = Enum.TextXAlignment.Left
+
+	local track = Instance.new("Frame")
+	track.Parent = root
+	track.BackgroundColor3 = Color3.fromRGB(24, 31, 45)
+	track.BorderSizePixel = 0
+	track.Position = UDim2.new(0, 18, 1, -34)
+	track.Size = UDim2.new(1, -36, 0, 12)
+
+	local trackCorner = Instance.new("UICorner")
+	trackCorner.CornerRadius = UDim.new(0, 6)
+	trackCorner.Parent = track
+
+	local fill = Instance.new("Frame")
+	fill.Parent = track
+	fill.BackgroundColor3 = Color3.fromRGB(239, 155, 73)
+	fill.BorderSizePixel = 0
+	fill.Size = UDim2.new(0, 0, 1, 0)
+
+	local fillCorner = Instance.new("UICorner")
+	fillCorner.CornerRadius = UDim.new(0, 6)
+	fillCorner.Parent = fill
+
+	return {
+		SetStatus = function(_, text)
+			status.Text = tostring(text)
+		end,
+		SetProgress = function(_, complete, total, current)
+			local ratio = total > 0 and math.clamp(complete / total, 0, 1) or 0
+			fill.Size = UDim2.new(ratio, 0, 1, 0)
+			detail.Text = string.format("%d/%d  %s", complete, total, tostring(current or game.PlaceId))
+		end,
+		Destroy = function()
+			if gui.Parent then
+				gui:Destroy()
+			end
+		end,
+	}
+end
+
+ensureFolder("")
+ensureFolder("assets")
+ensureFolder("assets/icons")
+ensureFolder("cache")
+ensureFolder("config")
+ensureFolder("configs")
+ensureFolder("games")
+ensureFolder("lib")
+ensureFolder("lib/core")
+ensureFolder("scripts")
+
+local settings = getSettings()
+local ui = createLoaderUi()
+local localManifest = readJson("cache/release-manifest.json", nil)
+local remoteManifest, releaseOrError = fetchLatestManifest()
+local forceBootstrap = not isfile(resolve("Main.lua")) or not isfile(resolve("lib/core/Render.lua"))
+
+local function downloadUrl(manifest, entry)
+	if entry.url then
+		return entry.url
+	end
+	return (manifest.rawBaseUrl or buildRawBase(manifest.releaseTag or "main")) .. encodePath(entry.path)
+end
+
+local function buildPlan(manifest)
+	local localFiles = {}
+	if localManifest and type(localManifest.files) == "table" then
+		for _, entry in ipairs(localManifest.files) do
+			if entry.path then
+				localFiles[entry.path] = entry
+			end
+		end
+	end
+
+	local plan = { toDownload = {}, skipped = {} }
+	for _, entry in ipairs(manifest.files or {}) do
+		local path = normalize(entry.path)
+		local localEntry = localFiles[path]
+		local exists = isfile(resolve(path))
+		local sameHash = localEntry and entry.sha256 and localEntry.sha256 == entry.sha256 and exists
+
+		if sameHash then
+			-- up to date
+		elseif isPreserved(path) then
+			plan.skipped[#plan.skipped + 1] = { path = path, reason = "preserved" }
+		elseif settings.developerMode and not forceBootstrap and isDeveloperProtected(path) and exists then
+			plan.skipped[#plan.skipped + 1] = { path = path, reason = "developer-mode" }
+		else
+			entry.path = path
+			plan.toDownload[#plan.toDownload + 1] = entry
+		end
+	end
+	return plan
+end
+
+local function applyUpdatePlan(manifest, plan)
+	local failures = {}
+	local total = #plan.toDownload
+
+	for index, entry in ipairs(plan.toDownload) do
+		ui:SetStatus("Updating " .. entry.path)
+		ui:SetProgress(index - 1, total, entry.path)
+
+		local ok, result = false, ""
+		if entry.mode == "patch" and settings.allowPatching then
+			ok, result = applyPatch(entry)
+		end
+		if not ok then
+			local downloaded, body = httpGet(downloadUrl(manifest, entry))
+			if downloaded then
+				ok, result = writeFile(entry.path, body)
+			else
+				ok, result = false, body
+			end
+		end
+
+		if not ok then
+			failures[#failures + 1] = { path = entry.path, error = result }
+			warn("[phantom] update failed", entry.path, result)
+		end
+	end
+
+	ui:SetProgress(total, total, tostring(game.PlaceId))
+	return failures
+end
+
+local updateStatus = "offline-local"
+if remoteManifest then
+	local plan = buildPlan(remoteManifest)
+	if (not settings.autoUpdate and not forceBootstrap) then
+		updateStatus = "disabled"
+		ui:SetStatus("Auto updater disabled.")
+	elseif #plan.toDownload == 0 then
+		updateStatus = "up-to-date"
+		writeJson("cache/release-manifest.json", remoteManifest)
+		ui:SetStatus("Up to date")
+		ui:SetProgress(1, 1, tostring(game.PlaceId))
+	else
+		updateStatus = "updated"
+		local failures = applyUpdatePlan(remoteManifest, plan)
+		if #failures == 0 then
+			writeJson("cache/release-manifest.json", remoteManifest)
+			ui:SetStatus("Update complete")
+		else
+			updateStatus = "partial"
+			ui:SetStatus("Update finished with warnings")
+		end
+	end
+else
+	ui:SetStatus("GitHub unavailable. Using local files.")
+	ui:SetProgress(0, 0, tostring(game.PlaceId))
+	if not isfile(resolve("Main.lua")) then
+		ui:Destroy()
+		return warn("[phantom] unable to bootstrap runtime: " .. tostring(releaseOrError))
+	end
+end
+
+local patcherSource = readFile("lib/patcher.lua")
+if patcherSource then
+	local patcherChunk = loadstring(patcherSource, "@" .. resolve("lib/patcher.lua"))
+	if patcherChunk then
+		pcall(patcherChunk)
+	end
+end
+
+local mainSource = readFile("Main.lua")
+if not mainSource then
+	ui:Destroy()
+	return warn("[phantom] Main.lua missing after loader update.")
+end
+
+ui:SetStatus("Launching Phantom...")
+task.delay(updateStatus == "up-to-date" and 0.15 or 0.45, function()
+	ui:Destroy()
+end)
+
+local mainChunk, compileError = loadstring(mainSource, "@" .. resolve("Main.lua"))
+if not mainChunk then
+	return warn("[phantom] failed to compile Main.lua: " .. tostring(compileError))
+end
+
+local ok, runtimeError = pcall(mainChunk)
+if not ok then
+	return warn("[phantom] runtime error: " .. tostring(runtimeError))
+end
