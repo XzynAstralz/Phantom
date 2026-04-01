@@ -3589,8 +3589,8 @@ end
 function Spectrum.CreateDefaultTabs(cfg)
     local tabs = {}
     local order = (cfg and cfg.Order) or {
-        "combat", "blatant", "render", "world", "misc", "utillity", "inventory", "other"
-    }
+	    "combat", "blatant", "render", "utillity", "world", "misc", "inventory", "other"
+	}
     local iconResolver = cfg and cfg.IconResolver
     local showIcons = cfg and cfg.ShowIcons == true
     for _, tabName in ipairs(order) do
