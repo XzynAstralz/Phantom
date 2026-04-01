@@ -2257,20 +2257,44 @@ Spectrum.CreateWindow = Spectrum.window
 
 local OVERLAY_FILE = "config/overlay.cfg.json"
 
-local function _readOverlayCfg()
-    local ok, d = pcall(function() return HttpService:JSONDecode(readfile(OVERLAY_FILE)) end)
+local function _normalizeOverlayPath(path)
+    return tostring(path or OVERLAY_FILE):gsub("\\", "/")
+end
+
+local function _ensureOverlayDir(path)
+    local parent = _normalizeOverlayPath(path):match("^(.*)/[^/]+$")
+    local current = ""
+
+    if not parent or parent == "" then
+        return
+    end
+
+    for segment in parent:gmatch("[^/]+") do
+        current = current == "" and segment or (current .. "/" .. segment)
+        if not isfolder(current) then
+            pcall(makefolder, current)
+        end
+    end
+end
+
+local function _readOverlayCfg(path)
+    local overlayFile = _normalizeOverlayPath(path)
+    local ok, d = pcall(function() return HttpService:JSONDecode(readfile(overlayFile)) end)
     return (ok and type(d) == "table") and d or {}
 end
-local function _writeOverlayCfg(t)
+local function _writeOverlayCfg(path, t)
     pcall(function()
-        if not isfolder("config") then makefolder("config") end
-        writefile(OVERLAY_FILE, HttpService:JSONEncode(t))
+        local overlayFile = _normalizeOverlayPath(path)
+        _ensureOverlayDir(overlayFile)
+        writefile(overlayFile, HttpService:JSONEncode(t))
     end)
 end
 
 function Spectrum.CreateHudConfig(cfg)
+    cfg = cfg or {}
     local ovl       = {}
-    local persisted = _readOverlayCfg()
+    local overlayFile = cfg.StateFile or OVERLAY_FILE
+    local persisted = _readOverlayCfg(overlayFile)
     local stateCache = {}
 
     for key, value in pairs(persisted) do
@@ -2278,7 +2302,7 @@ function Spectrum.CreateHudConfig(cfg)
     end
 
     local function persist(key, val)
-        stateCache[key] = val; _writeOverlayCfg(stateCache)
+        stateCache[key] = val; _writeOverlayCfg(overlayFile, stateCache)
     end
 
     local OvlFrame = Instance.new("Frame")
