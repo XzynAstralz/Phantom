@@ -2362,8 +2362,7 @@ end)
 runcode(function()
     local fpConn = nil
     local FirstPerson = {}
-
-    local UpdateChar = function()
+    local function resetCharTransparency()
         local char = lplr.Character
         if not char then return end
         for _, desc in ipairs(char:GetDescendants()) do
@@ -2373,7 +2372,7 @@ runcode(function()
         end
     end
 
-    FirstPerson = GuiLibrary.Registry.renderPanel.API.CreateOptionsButton({
+    FirstPerson = GuiLibrary.Registry.utillityPanel.API.CreateOptionsButton({
         Name = "FirstPerson",
         Function = function(callback)
             if callback then
@@ -2390,7 +2389,7 @@ runcode(function()
                 RunService:UnbindFromRenderStep("PhantomForceFP")
                 if fpConn then fpConn:Disconnect(); fpConn = nil end
                 bedfight.modules.PlayerConfig.InFirstPerson.Value = false
-                UpdateChar()
+                resetCharTransparency()
             end
         end
     })
@@ -2877,13 +2876,14 @@ end)
 runcode(function()
     local MiningData = require(game:GetService("ReplicatedStorage").Modules.DataModules.MiningData)
     local origMining = {}
+    local FastBreak = {}
     for name, d in pairs(MiningData) do
         if type(d) == "table" and d.Cooldown ~= nil then
             origMining[name] = d.Cooldown
         end
     end
-    GuiLibrary.Registry.utillityPanel.API.CreateOptionsButton({
-        Name = "Instant Mine",
+    FastBreak = GuiLibrary.Registry.utillityPanel.API.CreateOptionsButton({
+        Name = "FastBreak",
         Function = function(v)
             for name, orig in pairs(origMining) do
                 local d = MiningData[name]
