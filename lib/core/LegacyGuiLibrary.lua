@@ -137,6 +137,29 @@ local GuiService   = cloneref(game:GetService("GuiService"))
 
 local IS_MOBILE = UIS.TouchEnabled and not UIS.KeyboardEnabled
 
+local TEXT_SIZE_SM = 10
+local TEXT_SIZE_MD = 12
+local TOGGLE_H = 18
+local SLIDER_H = 32
+local TEXTBOX_H = 22
+local PADDING_SM = 3
+local PADDING_MD = 5
+
+if IS_MOBILE then
+    COL_W = 165
+    ROW_W = 155
+    SUB_W = 145
+    ROW_H = 28
+    HDR_H = 32
+    TEXT_SIZE_SM = 13
+    TEXT_SIZE_MD = 15
+    TOGGLE_H = 26
+    SLIDER_H = 42
+    TEXTBOX_H = 30
+    PADDING_SM = 5
+    PADDING_MD = 8
+end
+
 local function isPrimaryPress(inputType)
     return inputType == Enum.UserInputType.MouseButton1 or inputType == Enum.UserInputType.Touch
 end
@@ -386,7 +409,9 @@ do
         local vp      = workspace.CurrentCamera.ViewportSize
         local total   = math.max(Spectrum.PanelCount or 1, 1)
         local needed  = total * (COL_W + 2)
-        local natural = math.clamp(vp.X / needed, 0.25, 1.5)
+        local minScale = IS_MOBILE and 0.45 or 0.25
+        local maxScale = IS_MOBILE and 1.0 or 1.5
+        local natural = math.clamp(vp.X / needed, minScale, maxScale)
         local s       = Spectrum.canScale == false and 1 or natural
         scaler.Scale  = s
         kit:repositionPanels(s)
@@ -581,8 +606,8 @@ end
 local function getMobileButtonSize(text, primary)
     text = tostring(text or "")
     local vp = getViewportSize()
-    local height = math.clamp(math.floor(vp.Y * 0.05), primary and 32 or 36, primary and 40 or 46)
-    local width = math.clamp(math.floor(#text * (height * 0.42) + (primary and 34 or 46)), primary and 76 or 88, primary and 116 or 144)
+    local height = math.clamp(math.floor(vp.Y * 0.065), primary and 42 or 48, primary and 52 or 62)
+    local width = math.clamp(math.floor(#text * (height * 0.45) + (primary and 48 or 60)), primary and 96 or 120, primary and 150 or 185)
     return UDim2.new(0, width, 0, height)
 end
 
@@ -1020,7 +1045,7 @@ function Spectrum.window(cfg)
     HdrTitle.BackgroundTransparency = 1; HdrTitle.Position = UDim2.new(0, 22, 0, 0)
     HdrTitle.Size               = UDim2.new(1, -50, 1, 0); HdrTitle.ZIndex = 2
     HdrTitle.Font               = Enum.Font.GothamBold; HdrTitle.Text = cfg.Name
-    HdrTitle.TextColor3         = P.INK_HI; HdrTitle.TextSize = 10
+    HdrTitle.TextColor3         = P.INK_HI; HdrTitle.TextSize = TEXT_SIZE_SM
     HdrTitle.TextXAlignment     = Enum.TextXAlignment.Left
 
     local CollapseBtn = Instance.new("ImageButton")
@@ -1144,7 +1169,7 @@ function Spectrum.window(cfg)
         RowLabel.Position           = UDim2.new(0, 16, 0, 0)
         RowLabel.Size               = UDim2.new(1, -36, 1, 0)
         RowLabel.Font               = Enum.Font.GothamSemibold; RowLabel.Text = cfg2.Name
-        RowLabel.TextColor3         = P.INK_MID; RowLabel.TextSize = 10
+        RowLabel.TextColor3         = P.INK_MID; RowLabel.TextSize = TEXT_SIZE_SM
         RowLabel.TextScaled         = false; RowLabel.TextTruncate = Enum.TextTruncate.AtEnd
         RowLabel.TextXAlignment     = Enum.TextXAlignment.Left
 
@@ -1187,8 +1212,8 @@ function Spectrum.window(cfg)
         SubFlow.Parent             = SubHolder
         SubFlow.HorizontalAlignment = Enum.HorizontalAlignment.Center
         SubFlow.SortOrder          = Enum.SortOrder.LayoutOrder
-        SubFlow.Padding            = UDim.new(0, 3)
-        mkPad(SubHolder, 5, 5, 0, 0)
+        SubFlow.Padding            = UDim.new(0, PADDING_SM)
+        mkPad(SubHolder, PADDING_MD, PADDING_MD, 0, 0)
 
         local BindRow, BindLabel
         if not IS_MOBILE then
@@ -1196,9 +1221,9 @@ function Spectrum.window(cfg)
             BindRow.Name                   = "BindRow"; BindRow.Parent = SubHolder
             BindRow.BackgroundColor3       = P.BASE2; BindRow.BackgroundTransparency = 0
             BindRow.BorderSizePixel        = 0; BindRow.LayoutOrder = 2
-            BindRow.Size                   = UDim2.new(0, SUB_W, 0, 18)
+            BindRow.Size                   = UDim2.new(0, SUB_W, 0, TOGGLE_H)
             BindRow.Font                   = Enum.Font.GothamSemibold; BindRow.Text = ""
-            BindRow.TextColor3             = P.INK_MID; BindRow.TextSize = 10
+            BindRow.TextColor3             = P.INK_MID; BindRow.TextSize = TEXT_SIZE_SM
             BindRow.AutoButtonColor = false; BindRow.Visible = true
             mkCorner(BindRow, R_SM)
             local bindEdge = mkBorder(BindRow, P.EDGE, 1, 0.5)
@@ -1208,7 +1233,7 @@ function Spectrum.window(cfg)
             BindLabel.BackgroundTransparency = 1; BindLabel.BorderSizePixel = 0
             BindLabel.Position           = UDim2.new(0, 9, 0, 0); BindLabel.Size = UDim2.new(1, -11, 1, 0)
             BindLabel.Font               = Enum.Font.GothamSemibold; BindLabel.Text = "bind: none"
-            BindLabel.TextColor3         = P.INK_LOW; BindLabel.TextSize = 10
+            BindLabel.TextColor3         = P.INK_LOW; BindLabel.TextSize = TEXT_SIZE_SM
             BindLabel.TextXAlignment     = Enum.TextXAlignment.Left
 
             kit:track(BindRow.MouseEnter:Connect(function()
@@ -1235,9 +1260,9 @@ function Spectrum.window(cfg)
             TouchBindRow.Name                   = "TouchBindRow"; TouchBindRow.Parent = SubHolder
             TouchBindRow.BackgroundColor3       = P.BASE2; TouchBindRow.BackgroundTransparency = 0
             TouchBindRow.BorderSizePixel        = 0; TouchBindRow.LayoutOrder = 2
-            TouchBindRow.Size                   = UDim2.new(0, SUB_W, 0, 18)
+            TouchBindRow.Size                   = UDim2.new(0, SUB_W, 0, TOGGLE_H)
             TouchBindRow.Font                   = Enum.Font.GothamSemibold; TouchBindRow.Text = ""
-            TouchBindRow.TextColor3             = P.INK_MID; TouchBindRow.TextSize = 10
+            TouchBindRow.TextColor3             = P.INK_MID; TouchBindRow.TextSize = TEXT_SIZE_SM
             TouchBindRow.AutoButtonColor = false; TouchBindRow.Visible = true
             mkCorner(TouchBindRow, R_SM)
             local touchBindEdge = mkBorder(TouchBindRow, P.EDGE, 1, 0.5)
@@ -1247,7 +1272,7 @@ function Spectrum.window(cfg)
             TouchBindLabel.BackgroundTransparency = 1; TouchBindLabel.BorderSizePixel = 0
             TouchBindLabel.Position           = UDim2.new(0, 9, 0, 0); TouchBindLabel.Size = UDim2.new(1, -11, 1, 0)
             TouchBindLabel.Font               = Enum.Font.GothamSemibold; TouchBindLabel.Text = "screen button: off"
-            TouchBindLabel.TextColor3         = P.INK_LOW; TouchBindLabel.TextSize = 10
+            TouchBindLabel.TextColor3         = P.INK_LOW; TouchBindLabel.TextSize = TEXT_SIZE_SM
             TouchBindLabel.TextXAlignment     = Enum.TextXAlignment.Left
 
             kit:track(TouchBindRow.MouseEnter:Connect(function()
@@ -1270,7 +1295,7 @@ function Spectrum.window(cfg)
         OptionFlow.Parent             = OptionHolder
         OptionFlow.HorizontalAlignment = Enum.HorizontalAlignment.Center
         OptionFlow.SortOrder          = Enum.SortOrder.LayoutOrder
-        OptionFlow.Padding            = UDim.new(0, 3)
+        OptionFlow.Padding            = UDim.new(0, PADDING_SM)
 
         local function updateTouchBindRow()
             if not TouchBindLabel then return end
@@ -1483,7 +1508,7 @@ function Spectrum.window(cfg)
             SwitchRow.Name                   = "Switch"; SwitchRow.Parent = OptionHolder
             SwitchRow.BackgroundColor3       = P.BASE3; SwitchRow.BackgroundTransparency = 0
             SwitchRow.BorderSizePixel        = 0
-            SwitchRow.Size                   = UDim2.new(0, SUB_W, 0, 18)
+            SwitchRow.Size                   = UDim2.new(0, SUB_W, 0, TOGGLE_H)
             SwitchRow.Text                   = ""; SwitchRow.AutoButtonColor = false
             sw.Instance                      = SwitchRow
             mkCorner(SwitchRow, R_SM)
@@ -1493,7 +1518,7 @@ function Spectrum.window(cfg)
             SwitchLabel.BackgroundTransparency = 1; SwitchLabel.BorderSizePixel = 0
             SwitchLabel.Position           = UDim2.new(0, 9, 0, 0); SwitchLabel.Size = UDim2.new(1, -38, 1, 0)
             SwitchLabel.Font               = Enum.Font.GothamSemibold; SwitchLabel.Text = cfg3.Name
-            SwitchLabel.TextColor3         = P.INK_MID; SwitchLabel.TextSize = 10
+            SwitchLabel.TextColor3         = P.INK_MID; SwitchLabel.TextSize = TEXT_SIZE_SM
             SwitchLabel.TextScaled         = false; SwitchLabel.TextTruncate = Enum.TextTruncate.AtEnd
             SwitchLabel.TextXAlignment     = Enum.TextXAlignment.Left
 
@@ -1636,7 +1661,7 @@ function Spectrum.window(cfg)
             local RangeFrame = Instance.new("Frame")
             RangeFrame.Name                   = "Range"; RangeFrame.Parent = OptionHolder
             RangeFrame.BackgroundColor3       = P.BASE3; RangeFrame.BackgroundTransparency = 0
-            RangeFrame.BorderSizePixel        = 0; RangeFrame.Size = UDim2.new(0, SUB_W, 0, 32)
+            RangeFrame.BorderSizePixel        = 0; RangeFrame.Size = UDim2.new(0, SUB_W, 0, SLIDER_H)
             range.Instance                    = RangeFrame
             mkCorner(RangeFrame, R_SM)
 
@@ -1645,7 +1670,7 @@ function Spectrum.window(cfg)
             RangeLabel.BackgroundTransparency = 1; RangeLabel.BorderSizePixel = 0
             RangeLabel.Position           = UDim2.new(0, 9, 0, 4); RangeLabel.Size = UDim2.new(1, -52, 0, 14)
             RangeLabel.Font               = Enum.Font.GothamSemibold; RangeLabel.Text = cfg3.Name
-            RangeLabel.TextColor3         = P.INK_MID; RangeLabel.TextSize = 10
+            RangeLabel.TextColor3         = P.INK_MID; RangeLabel.TextSize = TEXT_SIZE_SM
             RangeLabel.TextScaled         = false; RangeLabel.TextTruncate = Enum.TextTruncate.AtEnd
             RangeLabel.TextXAlignment     = Enum.TextXAlignment.Left
 
@@ -1656,7 +1681,7 @@ function Spectrum.window(cfg)
             ValBox.Size                  = UDim2.new(0, 38, 0, 14)
             ValBox.Font                  = Enum.Font.GothamBold; ValBox.PlaceholderText = "val"
             ValBox.Text                  = fmt(rDef); ValBox.TextColor3 = P.HUE
-            ValBox.TextSize              = 10; ValBox.TextXAlignment = Enum.TextXAlignment.Right
+            ValBox.TextSize              = TEXT_SIZE_SM; ValBox.TextXAlignment = Enum.TextXAlignment.Right
             ValBox.BackgroundColor3      = P.BASE3
 
             local ValLine = Instance.new("Frame")
@@ -1747,7 +1772,7 @@ function Spectrum.window(cfg)
             local InputWrap = Instance.new("Frame")
             InputWrap.Name                   = "Input"; InputWrap.Parent = OptionHolder
             InputWrap.BackgroundTransparency = 1; InputWrap.BorderSizePixel = 0
-            InputWrap.Size                   = UDim2.new(0, SUB_W, 0, 22)
+            InputWrap.Size                   = UDim2.new(0, SUB_W, 0, TEXTBOX_H)
             inp.Instance                     = InputWrap
 
             local InputBack = Instance.new("Frame")
@@ -1801,7 +1826,7 @@ function Spectrum.window(cfg)
             local SelWrap = Instance.new("Frame")
             SelWrap.Name                   = "Select"; SelWrap.Parent = OptionHolder
             SelWrap.BackgroundTransparency = 1; SelWrap.BorderSizePixel = 0
-            SelWrap.Size                   = UDim2.new(0, SUB_W, 0, 22)
+            SelWrap.Size                   = UDim2.new(0, SUB_W, 0, TEXTBOX_H)
             sel.Instance                   = SelWrap
 
             local SelBack = Instance.new("Frame")
@@ -1819,7 +1844,7 @@ function Spectrum.window(cfg)
             SelLabel.BackgroundTransparency = 1; SelLabel.BorderSizePixel = 0
             SelLabel.Position           = UDim2.new(0, 9, 0, 0); SelLabel.Size = UDim2.new(1, -26, 1, 0)
             SelLabel.Font               = Enum.Font.GothamSemibold; SelLabel.Text = cfg3.Name
-            SelLabel.TextColor3         = P.INK_MID; SelLabel.TextSize = 10
+            SelLabel.TextColor3         = P.INK_MID; SelLabel.TextSize = TEXT_SIZE_SM
             SelLabel.TextXAlignment     = Enum.TextXAlignment.Left
             SelLabel.TextTruncate       = Enum.TextTruncate.AtEnd
 
@@ -1948,7 +1973,7 @@ function Spectrum.window(cfg)
                 Lbl.BackgroundTransparency = 1; Lbl.BorderSizePixel = 0
                 Lbl.Position = UDim2.new(0, 12, 0, 0); Lbl.Size = UDim2.new(1, -18, 1, 0)
                 Lbl.Font = Enum.Font.GothamSemibold; Lbl.Text = tostring(val)
-                Lbl.TextColor3 = P.INK_MID; Lbl.TextSize = 10
+                Lbl.TextColor3 = P.INK_MID; Lbl.TextSize = TEXT_SIZE_SM
                 Lbl.TextXAlignment = Enum.TextXAlignment.Left
                 local Dot = Instance.new("Frame"); Dot.Parent = Btn
                 Dot.AnchorPoint = Vector2.new(0, 0.5); Dot.BackgroundColor3 = P.HUE
@@ -1994,7 +2019,7 @@ function Spectrum.window(cfg)
             local MSWrap = Instance.new("Frame")
             MSWrap.Name                   = "MultiSelect"; MSWrap.Parent = OptionHolder
             MSWrap.BackgroundTransparency = 1; MSWrap.BorderSizePixel = 0
-            MSWrap.Size                   = UDim2.new(0, SUB_W, 0, 22)
+            MSWrap.Size                   = UDim2.new(0, SUB_W, 0, TEXTBOX_H)
             ms.Instance                   = MSWrap
 
             local MSBack = Instance.new("Frame")
@@ -2011,7 +2036,7 @@ function Spectrum.window(cfg)
             MSLabel.BackgroundTransparency = 1; MSLabel.BorderSizePixel = 0
             MSLabel.Position           = UDim2.new(0, 9, 0, 0); MSLabel.Size = UDim2.new(1, -26, 1, 0)
             MSLabel.Font               = Enum.Font.GothamSemibold; MSLabel.Text = cfg3.Name
-            MSLabel.TextColor3         = P.INK_MID; MSLabel.TextSize = 10
+            MSLabel.TextColor3         = P.INK_MID; MSLabel.TextSize = TEXT_SIZE_SM
             MSLabel.TextXAlignment     = Enum.TextXAlignment.Left
             MSLabel.TextTruncate       = Enum.TextTruncate.AtEnd
 
@@ -2099,7 +2124,7 @@ function Spectrum.window(cfg)
                 Lbl.BackgroundTransparency = 1; Lbl.BorderSizePixel = 0
                 Lbl.Position = UDim2.new(0, 12, 0, 0); Lbl.Size = UDim2.new(1, -18, 1, 0)
                 Lbl.Font = Enum.Font.GothamSemibold; Lbl.Text = tostring(val)
-                Lbl.TextColor3 = P.INK_MID; Lbl.TextSize = 10
+                Lbl.TextColor3 = P.INK_MID; Lbl.TextSize = TEXT_SIZE_SM
                 Lbl.TextXAlignment = Enum.TextXAlignment.Left
                 local Dot = Instance.new("Frame"); Dot.Parent = Btn
                 Dot.AnchorPoint = Vector2.new(0, 0.5); Dot.BackgroundColor3 = P.HUE
@@ -2420,7 +2445,7 @@ function Spectrum.CreateHudConfig(cfg)
     NameField.BackgroundTransparency = 1; NameField.BorderSizePixel = 0
     NameField.Position = UDim2.new(0, 6, 0, 0); NameField.Size = UDim2.new(1, -12, 1, 0)
     NameField.Font = Enum.Font.GothamSemibold; NameField.PlaceholderText = "preset name..."
-    NameField.Text = ""; NameField.TextColor3 = P.INK_HI; NameField.TextSize = 10
+    NameField.Text = ""; NameField.TextColor3 = P.INK_HI; NameField.TextSize = TEXT_SIZE_SM
     NameField.PlaceholderColor3 = P.INK_LOW; NameField.ClearTextOnFocus = false
 
     local StatusLbl = Instance.new("TextLabel"); StatusLbl.Parent = PresetPane
@@ -2587,7 +2612,7 @@ function Spectrum.CreateHudConfig(cfg)
         lbl.BackgroundTransparency = 1; lbl.BorderSizePixel = 0
         lbl.Position = UDim2.new(0, 9, 0, 0); lbl.Size = UDim2.new(1, -42, 1, 0)
         lbl.Font = Enum.Font.GothamSemibold; lbl.Text = label
-        lbl.TextColor3 = P.INK_MID; lbl.TextSize = 10; lbl.TextXAlignment = Enum.TextXAlignment.Left
+lbl.TextColor3 = P.INK_MID; lbl.TextSize = TEXT_SIZE_SM; lbl.TextXAlignment = Enum.TextXAlignment.Left
 
         local Trk = Instance.new("Frame"); Trk.Parent = TogRow
         Trk.AnchorPoint = Vector2.new(1, 0.5); Trk.BackgroundColor3 = P.BASE1; Trk.BorderSizePixel = 0
