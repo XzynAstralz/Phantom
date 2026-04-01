@@ -131,6 +131,95 @@ local Tween        = cloneref(game:GetService("TweenService"))
 local Runner       = cloneref(game:GetService("RunService"))
 local HttpService  = cloneref(game:GetService("HttpService"))
 
+local IS_MOBILE = UIS.TouchEnabled and not UIS.KeyboardEnabled
+
+local function isPrimaryPress(inputType)
+    return inputType == Enum.UserInputType.MouseButton1 or inputType == Enum.UserInputType.Touch
+end
+
+local function isPointerMove(inputType)
+    return inputType == Enum.UserInputType.MouseMovement or inputType == Enum.UserInputType.Touch
+end
+
+local MOBILE_UI_FILE = "config/mobile.ui.json"
+
+local function readStoredJson(path, fallback)
+    local ok, data = pcall(function()
+        return HttpService:JSONDecode(readfile(path))
+    end)
+    if ok and type(data) == "table" then
+        return data
+    end
+    return fallback or {}
+end
+
+local function writeStoredJson(path, data)
+    pcall(function()
+        if not isfolder("config") then makefolder("config") end
+        writefile(path, HttpService:JSONEncode(data))
+    end)
+end
+
+local MobileUIState = readStoredJson(MOBILE_UI_FILE, {})
+MobileUIState.Buttons = type(MobileUIState.Buttons) == "table" and MobileUIState.Buttons or {}
+MobileUIState.Open = type(MobileUIState.Open) == "table" and MobileUIState.Open or {}
+
+local function saveMobileUIState()
+    writeStoredJson(MOBILE_UI_FILE, MobileUIState)
+end
+
+local function getViewportSize()
+    local camera = workspace.CurrentCamera
+    if camera then
+        return camera.ViewportSize
+    end
+    return Vector2.new(1280, 720)
+end
+
+local function clampAnchorPosition(button, x, y)
+    local vp = getViewportSize()
+    local absSize = button.AbsoluteSize
+    local halfX = math.max((absSize.X or 0) / 2, 18)
+    local halfY = math.max((absSize.Y or 0) / 2, 18)
+    local px = math.clamp(x * vp.X, halfX + 6, vp.X - halfX - 6)
+    local py = math.clamp(y * vp.Y, halfY + 6, vp.Y - halfY - 6)
+    return px / vp.X, py / vp.Y
+end
+
+local function readMobilePoint(store, defaultX, defaultY)
+    if type(store) ~= "table" then
+        return defaultX, defaultY
+    end
+    return math.clamp(tonumber(store.X) or defaultX, 0.06, 0.94),
+        math.clamp(tonumber(store.Y) or defaultY, 0.06, 0.94)
+end
+
+local function nextMobileButtonSlot()
+    local used = 0
+    for _, info in next, MobileUIState.Buttons do
+        if type(info) == "table" and info.Enabled == true then
+            used = used + 1
+        end
+    end
+    local y = 0.84 - math.min(used, 5) * 0.09
+    if used > 5 then
+        y = 0.30 + ((used - 6) * 0.06)
+    end
+    return 0.86, math.clamp(y, 0.18, 0.84)
+end
+
+local function ensureMobileButtonState(id, defaultX, defaultY)
+    local entry = MobileUIState.Buttons[id]
+    if type(entry) ~= "table" then
+        entry = { Enabled = false, Manual = false, X = defaultX, Y = defaultY }
+        MobileUIState.Buttons[id] = entry
+    end
+    entry.X, entry.Y = readMobilePoint(entry, defaultX, defaultY)
+    entry.Enabled = entry.Enabled == true
+    entry.Manual = entry.Manual == true
+    return entry
+end
+
 
 local Spectrum = {
     RainbowMode = false,
@@ -232,18 +321,30 @@ do
 
     function kit:drag(gui, handle)
         local dragging, origin, startPos = false
+        local activeType
         handle.InputBegan:Connect(function(input)
-            if input.UserInputType == Enum.UserInputType.MouseButton1 then
-                dragging  = true
-                origin    = Vector2.new(input.Position.X, input.Position.Y)
-                startPos  = gui.Position
-            end
+            if not isPrimaryPress(input.UserInputType) then return end
+            dragging  = true
+            activeType = input.UserInputType
+            origin    = Vector2.new(input.Position.X, input.Position.Y)
+            startPos  = gui.Position
         end)
         UIS.InputEnded:Connect(function(input)
-            if input.UserInputType == Enum.UserInputType.MouseButton1 then dragging = false end
+            if not dragging then return end
+            if activeType == Enum.UserInputType.Touch then
+                if input.UserInputType ~= Enum.UserInputType.Touch then return end
+            elseif input.UserInputType ~= Enum.UserInputType.MouseButton1 then
+                return
+            end
+            dragging = false
         end)
         UIS.InputChanged:Connect(function(input)
-            if not dragging or input.UserInputType ~= Enum.UserInputType.MouseMovement then return end
+            if not dragging then return end
+            if activeType == Enum.UserInputType.Touch then
+                if input.UserInputType ~= Enum.UserInputType.Touch then return end
+            elseif input.UserInputType ~= Enum.UserInputType.MouseMovement then
+                return
+            end
             local s     = Scaler.Scale > 0 and Scaler.Scale or 1
             local delta = Vector2.new(input.Position.X, input.Position.Y) - origin
             gui.Position = UDim2.new(
@@ -372,6 +473,231 @@ Spectrum.UIScale   = Scaler
 Spectrum.ClickGUI  = Root
 Spectrum.ScreenGui = Screen
 Spectrum.toggleGui = Spectrum.toggle
+Spectrum.IsMobile  = IS_MOBILE
+
+local function updateMobileGradient(button, gradient, stroke, accent)
+    local y = 0
+    pcall(function()
+        y = button.AbsolutePosition.Y
+    end)
+
+    local c0, c1, c2
+    if kit:rainbowActive() then
+        c0 = kit:rainbowColor(y)
+        c1 = kit:rainbowColor(y + 180)
+        c2 = kit:rainbowColor(y + 360)
+    else
+        accent = accent or kit:activeColor()
+        c0 = accent
+        c1 = accent:Lerp(Color3.new(1, 1, 1), 0.18)
+        c2 = accent:Lerp(Color3.new(0, 0, 0), 0.18)
+    end
+
+    gradient.Color = ColorSequence.new({
+        ColorSequenceKeypoint.new(0, c0),
+        ColorSequenceKeypoint.new(0.5, c1),
+        ColorSequenceKeypoint.new(1, c2),
+    })
+    gradient.Rotation = 18
+    if stroke then
+        stroke.Color = accent or c0
+    end
+end
+
+local function getMobileButtonSize(text, primary)
+    text = tostring(text or "")
+    local vp = getViewportSize()
+    local height = math.clamp(math.floor(vp.Y * 0.05), primary and 32 or 36, primary and 40 or 46)
+    local width = math.clamp(math.floor(#text * (height * 0.42) + (primary and 34 or 46)), primary and 76 or 88, primary and 116 or 144)
+    return UDim2.new(0, width, 0, height)
+end
+
+local function setFloatingButtonPosition(button, x, y)
+    local clampedX, clampedY = clampAnchorPosition(button, x, y)
+    button.Position = UDim2.fromScale(clampedX, clampedY)
+    return clampedX, clampedY
+end
+
+local function styleFloatingButton(button, stateResolver)
+    button.BackgroundColor3 = P.BASE1
+    button.TextStrokeTransparency = 0.85
+
+    local stroke = mkBorder(button, P.EDGE, 1, 0.08)
+    local gradient = Instance.new("UIGradient")
+    gradient.Parent = button
+
+    local function apply()
+        local enabled, accent = true, nil
+        if stateResolver then
+            enabled, accent = stateResolver()
+        end
+
+        button.BackgroundTransparency = enabled == false and 0.28 or 0.08
+        button.TextColor3 = enabled == false and P.INK_MID or P.INK_HI
+        updateMobileGradient(button, gradient, stroke, accent or kit:activeColor())
+        stroke.Transparency = enabled == false and 0.18 or 0.04
+    end
+
+    apply()
+    return {
+        Stroke = stroke,
+        Gradient = gradient,
+        ThemeBinding = PaletteSync:Bind(apply),
+        Refresh = apply,
+    }
+end
+
+local function attachFloatingButton(button, options)
+    local connections = {}
+    local dragging = false
+    local activeType
+    local origin
+    local startScale
+    local moved = false
+
+    local function connect(signal, callback)
+        local conn = signal:Connect(callback)
+        table.insert(connections, conn)
+        return conn
+    end
+
+    local function getStore()
+        return options and options.getStore and options.getStore() or nil
+    end
+
+    local function savePosition()
+        local store = getStore()
+        if type(store) == "table" then
+            store.X = button.Position.X.Scale
+            store.Y = button.Position.Y.Scale
+            saveMobileUIState()
+        end
+    end
+
+    local function refreshSize()
+        button.Size = getMobileButtonSize(options and options.text or button.Text, options and options.primary == true)
+        setFloatingButtonPosition(button, button.Position.X.Scale, button.Position.Y.Scale)
+    end
+
+    local startX = options and options.defaultX or 0.5
+    local startY = options and options.defaultY or 0.5
+    local store = getStore()
+    if store then
+        startX, startY = readMobilePoint(store, startX, startY)
+        store.X, store.Y = startX, startY
+    end
+
+    refreshSize()
+    setFloatingButtonPosition(button, startX, startY)
+
+    connect(button.InputBegan, function(input)
+        if not isPrimaryPress(input.UserInputType) then return end
+        dragging = true
+        activeType = input.UserInputType
+        origin = Vector2.new(input.Position.X, input.Position.Y)
+        startScale = Vector2.new(button.Position.X.Scale, button.Position.Y.Scale)
+        moved = false
+    end)
+
+    connect(UIS.InputChanged, function(input)
+        if not dragging then return end
+        if activeType == Enum.UserInputType.Touch then
+            if input.UserInputType ~= Enum.UserInputType.Touch then return end
+        elseif input.UserInputType ~= Enum.UserInputType.MouseMovement then
+            return
+        end
+
+        local vp = getViewportSize()
+        local delta = Vector2.new(input.Position.X, input.Position.Y) - origin
+        if delta.Magnitude >= 8 then
+            moved = true
+        end
+
+        local posPx = Vector2.new(startScale.X * vp.X, startScale.Y * vp.Y) + delta
+        local x, y = clampAnchorPosition(button, posPx.X / vp.X, posPx.Y / vp.Y)
+        button.Position = UDim2.fromScale(x, y)
+    end)
+
+    connect(UIS.InputEnded, function(input)
+        if not dragging then return end
+        if activeType == Enum.UserInputType.Touch then
+            if input.UserInputType ~= Enum.UserInputType.Touch then return end
+        elseif input.UserInputType ~= Enum.UserInputType.MouseButton1 then
+            return
+        end
+
+        dragging = false
+        savePosition()
+        if not moved and options and options.onTap then
+            options.onTap()
+        end
+    end)
+
+    local camera = workspace.CurrentCamera
+    if camera then
+        connect(camera:GetPropertyChangedSignal("ViewportSize"), refreshSize)
+    end
+
+    return {
+        RefreshSize = refreshSize,
+        SavePosition = savePosition,
+        Destroy = function()
+            for _, conn in ipairs(connections) do
+                if conn and conn.Disconnect then
+                    conn:Disconnect()
+                end
+            end
+        end,
+    }
+end
+
+local MobileOpenButton
+local function ensureMobileOpenButton()
+    if not IS_MOBILE or MobileOpenButton then return end
+
+    local openStore = MobileUIState.Open
+    openStore.X, openStore.Y = readMobilePoint(openStore, 0.14, 0.82)
+
+    local button = Instance.new("TextButton")
+    button.Name = "MobileOpen"
+    button.Parent = Screen
+    button.AnchorPoint = Vector2.new(0.5, 0.5)
+    button.AutoButtonColor = false
+    button.BorderSizePixel = 0
+    button.BackgroundColor3 = P.BASE1
+    button.Font = Enum.Font.GothamBold
+    button.Text = "open"
+    button.TextSize = 13
+    button.ZIndex = 30
+    mkCorner(button, UDim.new(0, 10))
+
+    local theme = styleFloatingButton(button, function()
+        return not Root.Visible, kit:activeColor()
+    end)
+    local handle = attachFloatingButton(button, {
+        text = "open",
+        primary = true,
+        defaultX = openStore.X,
+        defaultY = openStore.Y,
+        getStore = function() return MobileUIState.Open end,
+        onTap = function()
+            Spectrum.toggle()
+            theme.Refresh()
+        end,
+    })
+    local visibleSync = Root:GetPropertyChangedSignal("Visible"):Connect(theme.Refresh)
+
+    MobileOpenButton = {
+        Instance = button,
+        Theme = theme,
+        Handle = handle,
+        VisibleSync = visibleSync,
+    }
+end
+
+if IS_MOBILE then
+    ensureMobileOpenButton()
+end
 
 kit:track(PaletteSync:Bind(function()
     local col      = kit:readPalette()
@@ -512,7 +838,7 @@ end
 
 Spectrum.createNotification = Spectrum.toast
 
-local LAYOUT_FILE = "config/layout.json"
+local LAYOUT_FILE = IS_MOBILE and "config/layout.mobile.json" or "config/layout.json"
 
 local function readLayout()
     local ok, data = pcall(function()
@@ -538,21 +864,33 @@ Spectrum.TabPositions       = Spectrum.Layout
 
 local function makeBarDraggable(bar)
     local dragging, origin, startOff = false
+    local activeType
     bar.InputBegan:Connect(function(input)
-        if input.UserInputType ~= Enum.UserInputType.MouseButton1 then return end
+        if not isPrimaryPress(input.UserInputType) then return end
         dragging  = true
+        activeType = input.UserInputType
         origin    = Vector2.new(input.Position.X, input.Position.Y)
         startOff  = Vector2.new(bar.Position.X.Offset, bar.Position.Y.Offset)
         bar.BackgroundColor3 = P.BASE_HOV
     end)
     UIS.InputEnded:Connect(function(input)
-        if input.UserInputType ~= Enum.UserInputType.MouseButton1 or not dragging then return end
+        if not dragging then return end
+        if activeType == Enum.UserInputType.Touch then
+            if input.UserInputType ~= Enum.UserInputType.Touch then return end
+        elseif input.UserInputType ~= Enum.UserInputType.MouseButton1 then
+            return
+        end
         dragging = false
         bar.BackgroundColor3 = P.BASE2
         writeLayout()
     end)
     UIS.InputChanged:Connect(function(input)
-        if not dragging or input.UserInputType ~= Enum.UserInputType.MouseMovement then return end
+        if not dragging then return end
+        if activeType == Enum.UserInputType.Touch then
+            if input.UserInputType ~= Enum.UserInputType.Touch then return end
+        elseif input.UserInputType ~= Enum.UserInputType.MouseMovement then
+            return
+        end
         local s     = Scaler.Scale > 0 and Scaler.Scale or 1
         local delta = Vector2.new(input.Position.X, input.Position.Y) - origin
         bar.Position = UDim2.new(0, startOff.X + delta.X / s, 0, startOff.Y + delta.Y / s)
@@ -682,6 +1020,9 @@ function Spectrum.window(cfg)
     function panel.CreateOptionsButton(cfg2)
         local entry     = { Expanded = false, Enabled = false, Recording = false, Value = false }
         local entryId   = cfg2.Name .. "Module"
+        local defaultTouchX, defaultTouchY = nextMobileButtonSlot()
+        entry.MobileBindState = IS_MOBILE and ensureMobileButtonState(entryId, defaultTouchX, defaultTouchY) or nil
+        entry.MobileButtonEnabled = entry.MobileBindState and entry.MobileBindState.Enabled or false
 
         local Row = Instance.new("TextButton")
         Row.Name                   = entryId .. "Row"
@@ -699,6 +1040,20 @@ function Spectrum.window(cfg)
         mkCorner(Row, R_SM)
 
         local RowArrow = mkChevron(Row, 4, nil, 8)
+
+        local ExpandHitbox
+        if IS_MOBILE then
+            ExpandHitbox = Instance.new("TextButton")
+            ExpandHitbox.Name = "ExpandHitbox"
+            ExpandHitbox.Parent = Row
+            ExpandHitbox.BackgroundTransparency = 1
+            ExpandHitbox.BorderSizePixel = 0
+            ExpandHitbox.Position = UDim2.new(0, 0, 0, 0)
+            ExpandHitbox.Size = UDim2.new(0, 18, 1, 0)
+            ExpandHitbox.Text = ""
+            ExpandHitbox.AutoButtonColor = false
+            ExpandHitbox.ZIndex = 3
+        end
 
         local RowLabel = Instance.new("TextLabel")
         RowLabel.Name               = "Name"; RowLabel.Parent = Row
@@ -752,42 +1107,73 @@ function Spectrum.window(cfg)
         SubFlow.Padding            = UDim.new(0, 3)
         mkPad(SubHolder, 5, 5, 0, 0)
 
-        
-        local BindRow = Instance.new("TextButton")
-        BindRow.Name                   = "BindRow"; BindRow.Parent = SubHolder
-        BindRow.BackgroundColor3       = P.BASE2; BindRow.BackgroundTransparency = 0
-        BindRow.BorderSizePixel        = 0; BindRow.LayoutOrder = 2
-        BindRow.Size                   = UDim2.new(0, SUB_W, 0, 18)
-        BindRow.Font                   = Enum.Font.GothamSemibold; BindRow.Text = ""
-        BindRow.TextColor3             = P.INK_MID; BindRow.TextSize = 10
-        BindRow.AutoButtonColor = false; BindRow.Visible = true
-        mkCorner(BindRow, R_SM)
-        local bindEdge = mkBorder(BindRow, P.EDGE, 1, 0.5)
+        local BindRow, BindLabel
+        if not IS_MOBILE then
+            BindRow = Instance.new("TextButton")
+            BindRow.Name                   = "BindRow"; BindRow.Parent = SubHolder
+            BindRow.BackgroundColor3       = P.BASE2; BindRow.BackgroundTransparency = 0
+            BindRow.BorderSizePixel        = 0; BindRow.LayoutOrder = 2
+            BindRow.Size                   = UDim2.new(0, SUB_W, 0, 18)
+            BindRow.Font                   = Enum.Font.GothamSemibold; BindRow.Text = ""
+            BindRow.TextColor3             = P.INK_MID; BindRow.TextSize = 10
+            BindRow.AutoButtonColor = false; BindRow.Visible = true
+            mkCorner(BindRow, R_SM)
+            local bindEdge = mkBorder(BindRow, P.EDGE, 1, 0.5)
 
-        local BindLabel = Instance.new("TextLabel")
-        BindLabel.Name               = "Name"; BindLabel.Parent = BindRow
-        BindLabel.BackgroundTransparency = 1; BindLabel.BorderSizePixel = 0
-        BindLabel.Position           = UDim2.new(0, 9, 0, 0); BindLabel.Size = UDim2.new(1, -11, 1, 0)
-        BindLabel.Font               = Enum.Font.GothamSemibold; BindLabel.Text = "bind: none"
-        BindLabel.TextColor3         = P.INK_LOW; BindLabel.TextSize = 10
-        BindLabel.TextXAlignment     = Enum.TextXAlignment.Left
+            BindLabel = Instance.new("TextLabel")
+            BindLabel.Name               = "Name"; BindLabel.Parent = BindRow
+            BindLabel.BackgroundTransparency = 1; BindLabel.BorderSizePixel = 0
+            BindLabel.Position           = UDim2.new(0, 9, 0, 0); BindLabel.Size = UDim2.new(1, -11, 1, 0)
+            BindLabel.Font               = Enum.Font.GothamSemibold; BindLabel.Text = "bind: none"
+            BindLabel.TextColor3         = P.INK_LOW; BindLabel.TextSize = 10
+            BindLabel.TextXAlignment     = Enum.TextXAlignment.Left
 
-        kit:track(BindRow.MouseEnter:Connect(function()
-            bindEdge.Transparency = 0; BindRow.BackgroundColor3 = P.BASE_HOV
-        end))
-        kit:track(BindRow.MouseLeave:Connect(function()
-            bindEdge.Transparency = 0.5; BindRow.BackgroundColor3 = P.BASE2
-        end))
-        kit:track(BindRow.MouseButton1Click:Connect(function()
-            if Spectrum.IsRecording then return end
-            entry.Recording = not entry.Recording
-            BindRow.Visible = true
-            if entry.Recording then
-                Spectrum.IsRecording = true
-                BindLabel.Text       = "press a key..."
-                BindLabel.TextColor3 = P.HUE
-            end
-        end))
+            kit:track(BindRow.MouseEnter:Connect(function()
+                bindEdge.Transparency = 0; BindRow.BackgroundColor3 = P.BASE_HOV
+            end))
+            kit:track(BindRow.MouseLeave:Connect(function()
+                bindEdge.Transparency = 0.5; BindRow.BackgroundColor3 = P.BASE2
+            end))
+            kit:track(BindRow.MouseButton1Click:Connect(function()
+                if Spectrum.IsRecording then return end
+                entry.Recording = not entry.Recording
+                BindRow.Visible = true
+                if entry.Recording then
+                    Spectrum.IsRecording = true
+                    BindLabel.Text       = "press a key..."
+                    BindLabel.TextColor3 = P.HUE
+                end
+            end))
+        end
+
+        local TouchBindRow, TouchBindLabel
+        if IS_MOBILE then
+            TouchBindRow = Instance.new("TextButton")
+            TouchBindRow.Name                   = "TouchBindRow"; TouchBindRow.Parent = SubHolder
+            TouchBindRow.BackgroundColor3       = P.BASE2; TouchBindRow.BackgroundTransparency = 0
+            TouchBindRow.BorderSizePixel        = 0; TouchBindRow.LayoutOrder = 2
+            TouchBindRow.Size                   = UDim2.new(0, SUB_W, 0, 18)
+            TouchBindRow.Font                   = Enum.Font.GothamSemibold; TouchBindRow.Text = ""
+            TouchBindRow.TextColor3             = P.INK_MID; TouchBindRow.TextSize = 10
+            TouchBindRow.AutoButtonColor = false; TouchBindRow.Visible = true
+            mkCorner(TouchBindRow, R_SM)
+            local touchBindEdge = mkBorder(TouchBindRow, P.EDGE, 1, 0.5)
+
+            TouchBindLabel = Instance.new("TextLabel")
+            TouchBindLabel.Name               = "Name"; TouchBindLabel.Parent = TouchBindRow
+            TouchBindLabel.BackgroundTransparency = 1; TouchBindLabel.BorderSizePixel = 0
+            TouchBindLabel.Position           = UDim2.new(0, 9, 0, 0); TouchBindLabel.Size = UDim2.new(1, -11, 1, 0)
+            TouchBindLabel.Font               = Enum.Font.GothamSemibold; TouchBindLabel.Text = "screen button: off"
+            TouchBindLabel.TextColor3         = P.INK_LOW; TouchBindLabel.TextSize = 10
+            TouchBindLabel.TextXAlignment     = Enum.TextXAlignment.Left
+
+            kit:track(TouchBindRow.MouseEnter:Connect(function()
+                touchBindEdge.Transparency = 0; TouchBindRow.BackgroundColor3 = P.BASE_HOV
+            end))
+            kit:track(TouchBindRow.MouseLeave:Connect(function()
+                touchBindEdge.Transparency = 0.5; TouchBindRow.BackgroundColor3 = P.BASE2
+            end))
+        end
 
         local OptionHolder = Instance.new("Frame")
         OptionHolder.Name                   = "OptionHolder"
@@ -803,16 +1189,129 @@ function Spectrum.window(cfg)
         OptionFlow.SortOrder          = Enum.SortOrder.LayoutOrder
         OptionFlow.Padding            = UDim.new(0, 3)
 
+        local function updateTouchBindRow()
+            if not TouchBindLabel then return end
+            TouchBindLabel.Text = "screen button: " .. (entry.MobileButtonEnabled and "on" or "off")
+            TouchBindLabel.TextColor3 = entry.MobileButtonEnabled and P.HUE or P.INK_LOW
+        end
+
         function entry.SetBind(key)
             entry.Recording    = false
             Spectrum.IsRecording = false
             entry.Bind         = key or nil
-            BindLabel.Text     = "bind: " .. (entry.Bind and entry.Bind:lower() or "none")
-            BindLabel.TextColor3 = entry.Bind and P.INK_HI or P.INK_LOW
-            BindRow.Visible    = true
+            if BindLabel then
+                BindLabel.Text     = "bind: " .. (entry.Bind and entry.Bind:lower() or "none")
+                BindLabel.TextColor3 = entry.Bind and P.INK_HI or P.INK_LOW
+            end
+            if BindRow then
+                BindRow.Visible = true
+            end
+            if entry.SyncMobileButtonFromBind then
+                entry.SyncMobileButtonFromBind()
+            end
         end
         local bk = cfg2.Bind or cfg2.DefaultBind
-        if bk then entry.SetBind(bk) end
+
+        function entry.RefreshMobileButton()
+            if entry.MobileButtonTheme and entry.MobileButtonTheme.Refresh then
+                entry.MobileButtonTheme.Refresh()
+            end
+        end
+
+        function entry.DestroyMobileButton()
+            if entry.MobileButtonHandle and entry.MobileButtonHandle.Destroy then
+                entry.MobileButtonHandle:Destroy()
+            end
+            if entry.MobileButtonTheme and entry.MobileButtonTheme.ThemeBinding then
+                entry.MobileButtonTheme.ThemeBinding:Unbind()
+            end
+            if entry.MobileButton then
+                entry.MobileButton:Destroy()
+            end
+            entry.MobileButton = nil
+            entry.MobileButtonHandle = nil
+            entry.MobileButtonTheme = nil
+        end
+
+        function entry.EnsureMobileButton()
+            if not IS_MOBILE or not entry.MobileBindState or entry.MobileButton then return end
+
+            local button = Instance.new("TextButton")
+            button.Name = entryId .. "TouchButton"
+            button.Parent = Screen
+            button.AnchorPoint = Vector2.new(0.5, 0.5)
+            button.AutoButtonColor = false
+            button.BorderSizePixel = 0
+            button.BackgroundColor3 = P.BASE1
+            button.Font = Enum.Font.GothamBold
+            button.Text = cfg2.Name
+            button.TextSize = 12
+            button.TextTruncate = Enum.TextTruncate.AtEnd
+            button.ZIndex = 28
+            mkCorner(button, UDim.new(0, 10))
+
+            local theme = styleFloatingButton(button, function()
+                if entry.Enabled then
+                    return true, kit:activeColor()
+                end
+                return false, P.EDGE_HI
+            end)
+            local handle = attachFloatingButton(button, {
+                text = cfg2.Name,
+                defaultX = entry.MobileBindState.X,
+                defaultY = entry.MobileBindState.Y,
+                getStore = function() return entry.MobileBindState end,
+                onTap = function()
+                    entry.Toggle(true)
+                end,
+            })
+
+            entry.MobileButton = button
+            entry.MobileButtonHandle = handle
+            entry.MobileButtonTheme = theme
+            entry.RefreshMobileButton()
+        end
+
+        function entry.SetMobileBindEnabled(enabled, isManual)
+            if not entry.MobileBindState then return false end
+            entry.MobileButtonEnabled = enabled == true
+            entry.MobileBindState.Enabled = entry.MobileButtonEnabled
+            if isManual ~= nil then
+                entry.MobileBindState.Manual = isManual == true
+            end
+            if entry.MobileButtonEnabled then
+                entry.EnsureMobileButton()
+            else
+                entry.DestroyMobileButton()
+            end
+            updateTouchBindRow()
+            saveMobileUIState()
+            return entry.MobileButtonEnabled
+        end
+
+        function entry.SyncMobileButtonFromBind()
+            if not entry.MobileBindState or entry.MobileBindState.Manual then return end
+            local hasBind = entry.Bind ~= nil and entry.Bind ~= ""
+            local shouldEnable = hasBind and cfg2.NoSave ~= true
+            entry.SetMobileBindEnabled(shouldEnable, false)
+        end
+
+        if bk then
+            entry.SetBind(bk)
+        elseif entry.MobileBindState and not entry.MobileBindState.Manual then
+            entry.SetMobileBindEnabled(false, false)
+        end
+
+        if TouchBindRow then
+            kit:track(PaletteSync:Bind(updateTouchBindRow))
+            kit:track(TouchBindRow.MouseButton1Click:Connect(function()
+                entry.SetMobileBindEnabled(not entry.MobileButtonEnabled, true)
+            end))
+            updateTouchBindRow()
+            if entry.MobileButtonEnabled then
+                entry.EnsureMobileButton()
+            end
+        end
 
         function entry.Update()
             local s2 = SubFlow.AbsoluteContentSize
@@ -850,6 +1349,7 @@ function Spectrum.window(cfg)
                 RowLabel.TextColor3   = P.INK_MID
                 RowArrow.ImageColor3  = P.INK_LOW
             end
+            entry.RefreshMobileButton()
             local extra = type(cfg2.ExtraText) == "function" and cfg2.ExtraText() or cfg2.ExtraText
             ModuleSync:Emit(cfg2.Name, extra, entry.Enabled, fromKey, panelId)
             if not skipCallback and cfg2.Function then task.spawn(cfg2.Function, entry.Enabled, fromKey) end
@@ -889,6 +1389,9 @@ function Spectrum.window(cfg)
 
         kit:track(Row.MouseButton1Click:Connect(entry.Toggle))
         kit:track(Row.MouseButton2Click:Connect(entry.Expand))
+        if ExpandHitbox then
+            kit:track(ExpandHitbox.MouseButton1Click:Connect(entry.Expand))
+        end
         
         function entry.CreateToggle(cfg3)
             local sw = { Enabled = false, Value = false, Dependents = {}, _depSaved = {} }
@@ -1134,7 +1637,7 @@ function Spectrum.window(cfg)
                 end
             end))
             kit:track(UIS.InputChanged:Connect(function(input)
-                if sliding and input.UserInputType == Enum.UserInputType.MouseMovement then drag(input) end
+                if sliding and isPointerMove(input.UserInputType) then drag(input) end
             end))
 
             function range.Set(val, overMax)
@@ -2064,7 +2567,7 @@ function Spectrum.CreateHudConfig(cfg)
             if i.UserInputType == Enum.UserInputType.MouseButton1 then sliding = false end
         end))
         kit:track(UIS.InputChanged:Connect(function(i)
-            if not sliding or i.UserInputType ~= Enum.UserInputType.MouseMovement then return end
+            if not sliding or not isPointerMove(i.UserInputType) then return end
             local sx = math.clamp((i.Position.X - Trk.AbsolutePosition.X) / Trk.AbsoluteSize.X, 0, 1)
             local nv = math.floor((((mx - mn) * sx + mn) * (10 ^ r)) + 0.5) / (10 ^ r)
             rowApi.Set(nv)
@@ -2390,7 +2893,7 @@ function Spectrum.CreateCustomWindow(cfg)
             end
         end))
         kit:track(UIS.InputChanged:Connect(function(i)
-            if isSliding and i.UserInputType == Enum.UserInputType.MouseMovement then drag(i) end
+            if isSliding and isPointerMove(i.UserInputType) then drag(i) end
         end))
         function rng.Set(val, overMax)
             local clamped = not overMax
