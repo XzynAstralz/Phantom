@@ -137,7 +137,8 @@ local queueTeleport = executorQueueForTeleport or executorQueueOnTeleport or exe
 local placeId = tostring(game.PlaceId)
 local creatorId = tonumber(game.CreatorId) and tostring(game.CreatorId) or ""
 local profileSlot = "default"
-local overlayState = fileApi:ReadJson("config/overlay.cfg.json", {})
+local overlayStatePath = "config/overlay.cfg.json"
+local overlayState = fileApi:ReadJson(overlayStatePath, {})
 local hudEditor
 local configBar
 local arrayListWidget
@@ -295,6 +296,7 @@ end
 if UI.CreateHudConfig then
 	hudEditor = UI.CreateHudConfig({
 		Name = "settings hub",
+		StateFile = fileApi:Resolve(overlayStatePath),
 	})
 	if hudEditor.SetDir then
 		hudEditor.SetDir(fileApi:Resolve("configs/" .. placeId))
