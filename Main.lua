@@ -176,8 +176,11 @@ local function activeGameKey()
 	return placeId
 end
 
-if type(overlayState) == "table" and overlayState.__preload then
-	profileSlot = tostring(overlayState.__preloadCfg or profileSlot)
+if type(overlayState) == "table" and overlayState.__preload == true then
+	local preloadSlot = overlayState.__preloadCfg
+	if type(preloadSlot) == "string" and preloadSlot ~= "" then
+		profileSlot = preloadSlot
+	end
 end
 
 local function getIcon(name)
