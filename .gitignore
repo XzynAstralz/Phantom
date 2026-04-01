@@ -1,0 +1,7 @@
+/configs
+/config
+/cache
+/configs
+*.rar
+*.zip
+.vscode
