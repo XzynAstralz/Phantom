@@ -16,7 +16,6 @@ local RunService = cloneref(game:GetService("RunService"))
 local ReplicatedStorage = cloneref(game:GetService("ReplicatedStorage"))
 local Lighting = cloneref(game:GetService("Lighting"))
 local Teams = cloneref(game:GetService("Teams"))
-local HttpService = cloneref(game:GetService("HttpService"))
 local UserInputService = cloneref(game:GetService("UserInputService"))
 
 local lplr = Players.LocalPlayer
@@ -31,9 +30,9 @@ local createNotification = GuiLibrary.toast
 
 local LongFly = {}
 local projFireAt = nil
-local PlayerUtility = phantom.module:Load("utility") or loadstring(readfile("Phantom/lib/Utility.lua"))()
-local Prediction    = phantom.module:Load("prediction") or loadstring(readfile("Phantom/lib/Prediction.lua"))()
-local DrawLibrary = phantom.module:Load("fly") or loadstring(readfile("Phantom/lib/fly.lua"))()
+local PlayerUtility = loadstring(readfile("Phantom/lib/Utility.lua"))()
+local Prediction    = loadstring(readfile("Phantom/lib/Prediction.lua"))()
+local DrawLibrary = loadstring(readfile("Phantom/lib/fly.lua"))()
 
 local data = {
     hooked = {},
@@ -51,8 +50,7 @@ for _, v in ipairs({"Antideath", "Gravity", "ESP", "AntiFall", "TriggerBot", "Ai
     UI.kit:deregister(v .. "Module")
 end
 
-local bedfight
-bedfight = {
+local bedfight = {
     remotes = {
         EquipTool = ReplicatedStorage.Remotes.ItemsRemotes.EquipTool,
         SwordHit = ReplicatedStorage.Remotes.ItemsRemotes.SwordHit,
@@ -72,6 +70,10 @@ bedfight = {
         RangedData = require(ReplicatedStorage.Modules.DataModules.RangedData),
         ProjectilesData = require(ReplicatedStorage.Modules.DataModules.ProjectilesData),
         ProjectilesController = require(ReplicatedStorage.Modules.ProjectilesController),
+        PlayerConfig = require(ReplicatedStorage.Modules.PlayerConfigurations),
+        BlocksData = require(ReplicatedStorage.Modules.DataModules.BlocksData),
+        JetpackState = require(ReplicatedStorage.Modules.JetpackState),
+        SwordsData = require(ReplicatedStorage.Modules.DataModules.SwordsData),
         spawnFakeProjectile = function(origin, aimDir, launchVel, pName)
             if not bedfight.modules.ProjectilesController or not bedfight.modules.ProjectilesData then return end
             local pData = bedfight.modules.ProjectilesData[pName]
@@ -91,6 +93,20 @@ bedfight = {
 
 local rangedData  = bedfight.modules.RangedData
 local projData    = bedfight.modules.ProjectilesData
+
+local wsScriptChildren = {}
+do
+    local snapshot = {}
+    for _, c in ipairs(workspace:GetChildren()) do snapshot[c] = true end
+    workspace.ChildAdded:Connect(function(c)
+        if not snapshot[c] then table.insert(wsScriptChildren, c) end
+    end)
+    workspace.ChildRemoved:Connect(function(c)
+        for i = #wsScriptChildren, 1, -1 do
+            if wsScriptChildren[i] == c then table.remove(wsScriptChildren, i); break end
+        end
+    end)
+end
 
 local RANGED_NAMES = {}
 if rangedData then
@@ -517,7 +533,6 @@ runcode(function()
     local shieldActive = false
     local shieldConn = nil
     local equipTime = 0
-    local swordsModule = require(ReplicatedStorage.Modules.DataModules.SwordsData)
     local lastSwing = 0
     local lastAnimTime = 0
 
@@ -607,7 +622,7 @@ runcode(function()
 
                     swordtype = getsword()
                     if not swordtype then revertitem() return end
-                    local swordData = swordsModule[swordtype]
+                    local swordData = bedfight.modules.SwordsData[swordtype]
                     if not swordData then return end
                     local ping = getPing()
 
@@ -695,13 +710,21 @@ runcode(function()
     local AutoJump = {}
     local Direction = {}
     local Mode = {}
-    
+    local HSHighSpeed = {Value = 32}
+    local HSLowSpeed  = {Value = 16}
+    local HSHighDur   = {Value = 0.5}
+    local HSLowDur    = {Value = 0.5}
+    local hsPhase     = "boost"
+    local hsTimer     = 0
+
     Speed = GuiLibrary.Registry.blatantPanel.API.CreateOptionsButton({
         Name = "Speed",
         ExtraText = "CFrame",
         Function = function(callback)
             if callback then
-                
+                hsPhase = "boost"
+                hsTimer = 0
+
                 RunLoops:BindToHeartbeat("Speed", function(dt)
                     if PlayerUtility.lplrIsAlive and lplr.Character.Humanoid.MoveDirection.Magnitude > 0 then
                         local hum = lplr.Character.Humanoid
@@ -731,6 +754,16 @@ runcode(function()
 
                         elseif Mode.Value == "Velocity" then
                             root.AssemblyLinearVelocity =(moveDirection * SpeedSlider.Value) + Vector3.new(0, root.AssemblyLinearVelocity.Y, 0)
+
+                        elseif Mode.Value == "HeatSeeker" then
+                            hsTimer = hsTimer + dt
+                            local phaseDur = hsPhase == "boost" and HSHighDur.Value or HSLowDur.Value
+                            if hsTimer >= phaseDur then
+                                hsTimer = 0
+                                hsPhase = hsPhase == "boost" and "normal" or "boost"
+                            end
+                            local spd = hsPhase == "boost" and HSHighSpeed.Value or HSLowSpeed.Value
+                            root.AssemblyLinearVelocity = (moveDirection * spd) + Vector3.new(0, root.AssemblyLinearVelocity.Y, 0)
                         end
 
                         if not Fly.Enabled and AutoJump.Enabled and data.Attacking and hum.FloorMaterial ~= Enum.Material.Air then
@@ -760,9 +793,45 @@ runcode(function()
     })
     Mode = Speed.CreateDropdown({
         Name = "Mode",
-        List = {"CFrame", "Velocity"},
+        List = {"CFrame", "Velocity", "HeatSeeker"},
         Default = "Velocity",
     })
+    local HSBoostSpeedSlider = Speed.CreateSlider({
+        Name = "BoostSpeed",
+        Min = 0,
+        Max = 200,
+        Default = 60,
+        Round = 1,
+        Function = function(v) HSHighSpeed.Value = v end,
+    })
+    local HSBaseSpeedSlider = Speed.CreateSlider({
+        Name = "BaseSpeed",
+        Min = 0,
+        Max = 100,
+        Default = 32,
+        Round = 1,
+        Function = function(v) HSLowSpeed.Value = v end,
+    })
+    local HSBoostDurSlider = Speed.CreateSlider({
+        Name = "BoostDur",
+        Min = 0.1,
+        Max = 5,
+        Default = 0.1,
+        Round = 1,
+        Function = function(v) HSHighDur.Value = v end,
+    })
+    local HSBaseDurSlider = Speed.CreateSlider({
+        Name = "BaseDur",
+        Min = 0.1,
+        Max = 5,
+        Default = 1.2,
+        Round = 1,
+        Function = function(v) HSLowDur.Value = v end,
+    })
+    Mode:ShowWhen("HeatSeeker", HSBoostSpeedSlider)
+    Mode:ShowWhen("HeatSeeker", HSBaseSpeedSlider)
+    Mode:ShowWhen("HeatSeeker", HSBoostDurSlider)
+    Mode:ShowWhen("HeatSeeker", HSBaseDurSlider)
     AutoJump = Speed.CreateToggle({
         Name = "AutoJump",
         Default = true,
@@ -1464,10 +1533,7 @@ runcode(function()
         local latency    = 0
         pcall(function() latency = math.clamp(lplr:GetNetworkPing(), 0, 0.15) end)
 
-        local exclusions = {myChar, targetChar}
-        for _, child in ipairs(workspace:GetChildren()) do
-            if child:IsA("Folder") then table.insert(exclusions, child) end
-        end
+        local exclusions = {myChar, targetChar, table.unpack(wsScriptChildren)}
         wallParams.FilterDescendantsInstances = exclusions
 
         local aimPoint, flightTime = Prediction.SolveTrajectory(
@@ -1546,6 +1612,48 @@ runcode(function()
 end)
 
 runcode(function()
+    local reach = {}
+    local origReach = {}
+    local ReachSlider = {}
+    for name, data in pairs(bedfight.modules.SwordsData) do
+        if type(data) == "table" and data.Range then
+            origReach[name] = { Range = data.Range, HitboxSize = data.HitboxSize }
+        end
+    end
+    local ReachVal = {Value = 20}
+    Reach = GuiLibrary.Registry.combatPanel.API.CreateOptionsButton({
+        Name = "Reach",
+        Function = function(v)
+            for name, orig in pairs(origReach) do
+                local d = bedfight.modules.SwordsData[name]
+                if d then
+                    d.Range = v and ReachVal.Value or orig.Range
+                    d.HitboxSize = v and Vector3.new(ReachVal.Value, ReachVal.Value, ReachVal.Value * 2) or orig.HitboxSize
+                end
+            end
+        end
+    })
+    ReachSlider = Reach.CreateSlider({
+        Name = "Range",
+        Min = 5, 
+        Max = 25, 
+        Default = 25,
+        Round = 1,
+        Function = function(v)
+            ReachVal.Value = v
+            if Reach.Enabled then
+                for name, d in pairs(SwordsData) do
+                    if type(d) == "table" and d.Range then
+                        d.Range = v
+                        d.HitboxSize = Vector3.new(v, v, v * 2)
+                    end
+                end
+            end
+        end
+    })
+end)
+
+runcode(function()
     local range = {Value = 120}
     local teamCheck = {Enabled = false}
     local targetPart = {Value = "HumanoidRootPart"}
@@ -1611,10 +1719,7 @@ runcode(function()
         local tracker = targetTrackers[targetChar]
         Prediction.PushSample(tracker, aimPart.Position, aimPart.AssemblyLinearVelocity, tick())
 
-        local exclusions = {lplr.Character, targetChar}
-        for _, child in ipairs(workspace:GetChildren()) do
-            if child:IsA("Folder") then table.insert(exclusions, child) end
-        end
+        local exclusions = {lplr.Character, targetChar, table.unpack(wsScriptChildren)}
         aimbotWallParams.FilterDescendantsInstances = exclusions
 
         local aimPoint, flightTime = Prediction.SolveTrajectory(
@@ -2255,6 +2360,43 @@ runcode(function()
 end)
 
 runcode(function()
+    local fpConn = nil
+    local FirstPerson = {}
+
+    local UpdateChar = function()
+        local char = lplr.Character
+        if not char then return end
+        for _, desc in ipairs(char:GetDescendants()) do
+            if desc:IsA("BasePart") then
+                desc.LocalTransparencyModifier = 0
+            end
+        end
+    end
+
+    FirstPerson = GuiLibrary.Registry.renderPanel.API.CreateOptionsButton({
+        Name = "FirstPerson",
+        Function = function(callback)
+            if callback then
+                bedfight.modules.PlayerConfig.InFirstPerson.Value = true
+                RunService:BindToRenderStep("PhantomForceFP", Enum.RenderPriority.Last.Value + 200, resetCharTransparency)
+                fpConn = bedfight.modules.PlayerConfig.InFirstPerson.Changed:Connect(function(val)
+                    if not val then
+                        task.defer(function()
+                            bedfight.modules.PlayerConfig.InFirstPerson.Value = true
+                        end)
+                    end
+                end)
+            else
+                RunService:UnbindFromRenderStep("PhantomForceFP")
+                if fpConn then fpConn:Disconnect(); fpConn = nil end
+                bedfight.modules.PlayerConfig.InFirstPerson.Value = false
+                UpdateChar()
+            end
+        end
+    })
+end)
+
+runcode(function()
     local ThemeDropdown = {}
     local GameThemes = {}
     local LIGHT_TAG = "NightTheme_Light"
@@ -2681,7 +2823,7 @@ runcode(function()
         end,
     }
 
-    GameThemes = GuiLibrary.Registry.utillityPanel.API.CreateOptionsButton({
+    GameThemes = GuiLibrary.Registry.renderPanel.API.CreateOptionsButton({
         Name = "GameThemes",
         Function = function(callback)
             if callback then themes[ThemeDropdown.Value]()
@@ -2694,6 +2836,76 @@ runcode(function()
         Default = "Default",
         Function = function(selected)
             if GameThemes.Enabled and themes[selected] then themes[selected]() end
+        end
+    })
+end)
+
+runcode(function()
+    local BlockRange = {}
+    local BlockRangeSlider = {}
+    local rangeVal  = {Value = 50}
+    local infRange = false
+    local origRange = bedfight.modules.BlocksData.Default.Range
+    BlockRange = GuiLibrary.Registry.utillityPanel.API.CreateOptionsButton({
+        Name = "Block Range",
+        Function = function(callback)
+            bedfight.modules.BlocksData.Default.Range = callback and (infRange and math.huge or rangeVal.Value) or origRange
+        end
+    })
+    BlockRangeSlider = BlockRange.CreateSlider({
+        Name = "Range",
+        Min = 18, 
+        Max = 200, 
+        Default = 50, 
+        Round = 1,
+        Function = function(callback)
+            rangeVal.Value = callback
+            if BlockRange.Enabled and not infRange then bedfight.modules.BlocksData.Default.Range = v end
+        end
+    })
+    BlockRange.CreateToggle({
+        Name = "Inf Range",
+        Function = function(callback)
+            infRange = callback
+            if BlockRange.Enabled then
+                bedfight.modules.BlocksData.Default.Range = callback and math.huge or rangeVal.Value
+            end
+        end
+    })
+end)
+
+runcode(function()
+    local MiningData = require(game:GetService("ReplicatedStorage").Modules.DataModules.MiningData)
+    local origMining = {}
+    for name, d in pairs(MiningData) do
+        if type(d) == "table" and d.Cooldown ~= nil then
+            origMining[name] = d.Cooldown
+        end
+    end
+    GuiLibrary.Registry.utillityPanel.API.CreateOptionsButton({
+        Name = "Instant Mine",
+        Function = function(v)
+            for name, orig in pairs(origMining) do
+                local d = MiningData[name]
+                if d then d.Cooldown = v and 0.05 or orig end
+            end
+        end
+    })
+end)
+
+runcode(function()
+    local Jetpack = {}
+    local infJetpackLoop = nil
+    Jetpack = GuiLibrary.Registry.utillityPanel.API.CreateOptionsButton({
+        Name = "Inf Jetpack",
+        Function = function(callback)
+            if callback then
+                infJetpackLoop = RunService.Heartbeat:Connect(function()
+                    bedfight.modules.JetpackState.Fuel = 1
+                end)
+            else
+                if infJetpackLoop then infJetpackLoop:Disconnect(); infJetpackLoop = nil end
+            end
         end
     })
 end)
@@ -3129,4 +3341,151 @@ runcode(function()
             end
         end)
     end)
+end)
+
+runcode(function()
+    local CFspeed = 50
+    local CFloop  = nil
+
+    local function findMapPosition()
+        local char = lplr.Character
+        local params = RaycastParams.new()
+        params.FilterType = Enum.RaycastFilterType.Exclude
+        params.FilterDescendantsInstances = char and {char} or {}
+
+        local function safeY(pos)
+            local hit = workspace:Raycast(Vector3.new(pos.X, pos.Y + 60, pos.Z), Vector3.new(0, -120, 0), params)
+            if hit and hit.Position.Y > -20 then return hit.Position + Vector3.new(0, 5, 0) end
+            return nil
+        end
+
+        local bedsContainer = workspace:FindFirstChild("BedsContainer")
+        if bedsContainer then
+            for _, bed in ipairs(bedsContainer:GetChildren()) do
+                for _, part in ipairs(bed:GetDescendants()) do
+                    if part:IsA("BasePart") and part.Position.Y > -10 then
+                        local p = safeY(part.Position)
+                        if p then return p end
+                    end
+                end
+            end
+        end
+
+        local pbContainer = workspace:FindFirstChild("PlayersBlocksContainer")
+        if pbContainer then
+            for _, team in ipairs(pbContainer:GetChildren()) do
+                for _, part in ipairs(team:GetDescendants()) do
+                    if part:IsA("BasePart") and part.Position.Y > -10 then
+                        local p = safeY(part.Position)
+                        if p then return p end
+                    end
+                end
+            end
+        end
+
+        for _, p in ipairs(Players:GetPlayers()) do
+            if p ~= lplr and p.Character then
+                local hrp = p.Character:FindFirstChild("HumanoidRootPart")
+                if hrp and hrp.Position.Y > -10 then return hrp.Position + Vector3.new(0, 4, 0) end
+            end
+        end
+
+        return nil
+    end
+
+    GuiLibrary.Registry.blatantPanel.API.CreateOptionsButton({
+        Name = "Creative(PVP area)",
+        New  = true,
+        Function = function(callback)
+            local char = lplr.Character
+            if not char then return end
+            local hum  = char:FindFirstChildOfClass("Humanoid")
+            local Head = char:FindFirstChild("Head")
+            if not hum or not Head then return end
+
+            if callback then
+                local pos = findMapPosition()
+                if pos then
+                    local hrp = char:FindFirstChild("HumanoidRootPart")
+                    if hrp then hrp.CFrame = CFrame.new(pos) end
+                else
+                    createNotification("CreativeMode", "No map position found — place yourself manually", 3)
+                end
+
+                hum.PlatformStand = true
+                Head.Anchored = true
+
+                if CFloop then CFloop:Disconnect() end
+                CFloop = RunService.Heartbeat:Connect(function(dt)
+                    local moveDir   = hum.MoveDirection * (CFspeed * dt)
+                    local hCF       = Head.CFrame
+                    local cam       = Camera.CFrame
+                    local offset    = hCF:ToObjectSpace(cam).Position
+                    local flatCam   = cam * CFrame.new(-offset.X, -offset.Y, -offset.Z + 1)
+                    local vel = CFrame.new(flatCam.Position, Vector3.new(hCF.Position.X, flatCam.Position.Y, hCF.Position.Z))
+                                    :VectorToObjectSpace(moveDir)
+                    Head.CFrame = CFrame.new(hCF.Position) * (flatCam - flatCam.Position) * CFrame.new(vel)
+                end)
+            else
+                if CFloop then CFloop:Disconnect(); CFloop = nil end
+                hum.PlatformStand = false
+                Head.Anchored = false
+            end
+        end
+    })
+end)
+
+runcode(function()
+    local VelocityUtils = require(ReplicatedStorage.Modules.VelocityUtils)
+    local Knockback = {}
+
+    local KBPower    = {Value = 80}
+    local KBDuration = {Value = 0.15}
+    local KBMode     = {Value = "Backward"}
+
+    Knockback = GuiLibrary.Registry.utillityPanel.API.CreateOptionsButton({
+        Name = "Knockback",
+        New  = true,
+        Function = function(callback)
+            if not callback then return end
+            local char = lplr.Character
+            if not char then return end
+            local hrp = char:FindFirstChild("HumanoidRootPart")
+            if not hrp then return end
+            local look = Camera.CFrame.LookVector
+            local flat = Vector3.new(look.X, 0, look.Z)
+            flat = flat.Magnitude > 0.001 and flat.Unit or hrp.CFrame.LookVector
+            local dir
+            if KBMode.Value == "Forward" then
+                dir = (flat + Vector3.new(0, 0.3, 0)).Unit
+            elseif KBMode.Value == "Up" then
+                dir = Vector3.new(0, 1, 0)
+            else
+                dir = (-flat + Vector3.new(0, 0.35, 0)).Unit
+            end
+            VelocityUtils.Create(hrp, dir * KBPower.Value, KBDuration.Value)
+            task.wait(KBDuration.Value)
+            hrp.AssemblyLinearVelocity = Vector3.zero
+            Knockback.Toggle()
+        end
+    })
+
+    KBPower = Knockback.CreateSlider({
+        Name = "Power",
+        Min = 10, Max = 300, Default = 80,
+        Function = function(v) KBPower.Value = v end
+    })
+
+    KBDuration = Knockback.CreateSlider({
+        Name = "Duration",
+        Min = 0.05, Max = 1, Default = 0.15,
+        Function = function(v) KBDuration.Value = v end
+    })
+
+    KBMode = Knockback.CreateDropdown({
+        Name = "Direction",
+        List = {"Backward", "Forward", "Up"},
+        Default = "Backward",
+        Function = function(v) KBMode.Value = v end
+    })
 end)
