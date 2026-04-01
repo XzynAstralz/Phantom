@@ -2372,7 +2372,7 @@ runcode(function()
         end
     end
 
-    FirstPerson = GuiLibrary.Registry.utillityPanel.API.CreateOptionsButton({
+    FirstPerson = GuiLibrary.Registry.renderPanel.API.CreateOptionsButton({
         Name = "FirstPerson",
         Function = function(callback)
             if callback then
@@ -3394,7 +3394,7 @@ runcode(function()
     end
 
     GuiLibrary.Registry.blatantPanel.API.CreateOptionsButton({
-        Name = "Creative(PVP area)",
+        Name = "Creative (blocks)",
         New  = true,
         Function = function(callback)
             local char = lplr.Character
