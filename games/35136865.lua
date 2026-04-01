@@ -30,9 +30,10 @@ local createNotification = GuiLibrary.toast
 
 local LongFly = {}
 local projFireAt = nil
-local PlayerUtility = loadstring(readfile("Phantom/lib/Utility.lua"))()
-local Prediction    = loadstring(readfile("Phantom/lib/Prediction.lua"))()
-local DrawLibrary = loadstring(readfile("Phantom/lib/fly.lua"))()
+
+local PlayerUtility = phantom.module:Load("utility") or loadstring(readfile("Phantom/lib/Utility.lua"))()
+local Prediction    = phantom.module:Load("prediction") or loadstring(readfile("Phantom/lib/Prediction.lua"))()
+local DrawLibrary = phantom.module:Load("fly") or loadstring(readfile("Phantom/lib/fly.lua"))()
 
 local data = {
     hooked = {},
