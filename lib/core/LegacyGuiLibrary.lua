@@ -2422,7 +2422,7 @@ function Spectrum.CreateHudConfig(cfg)
     AutoLbl.TextColor3 = P.INK_LOW; AutoLbl.TextSize = 8
     AutoLbl.TextXAlignment = Enum.TextXAlignment.Left
 
-    local autoEnabled = persisted["__preload"] or false
+    local autoEnabled = persisted["__preload"] == true
     local AutoTrack = Instance.new("Frame"); AutoTrack.Parent = PresetPane
     AutoTrack.BackgroundColor3 = P.BASE1; AutoTrack.BorderSizePixel = 0
     AutoTrack.Position = UDim2.new(1, -36, 0, 274); AutoTrack.Size = UDim2.new(0, 28, 0, 14)
@@ -2550,7 +2550,8 @@ function Spectrum.CreateHudConfig(cfg)
     end
 
     function ovl.AddToggleRow(label, default, cb)
-        local initVal  = persisted[label] ~= nil and persisted[label] or (default or false)
+        local persistedValue = persisted[label]
+        local initVal  = type(persistedValue) == "boolean" and persistedValue or (default == true)
         local togState = false
 
         local TogRow = Instance.new("TextButton"); TogRow.Parent = SettingsList
@@ -2596,7 +2597,8 @@ function Spectrum.CreateHudConfig(cfg)
     end
 
     function ovl.AddSliderRow(label, mn, mx, def, rnd, cb)
-        local initVal = persisted[label] ~= nil and persisted[label] or (def or mn)
+        local persistedValue = persisted[label]
+        local initVal = type(persistedValue) == "number" and persistedValue or (def or mn)
         local cur     = initVal
         local r       = rnd or 0
         local function fmt(v)
