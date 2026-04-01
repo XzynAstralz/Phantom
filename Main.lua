@@ -298,7 +298,7 @@ if UI.CreateHudConfig then
 		hudEditor.AddSectionHeader("HUD")
 	end
 	if arrayListWidget and hudEditor.AddToggleRow then
-		hudEditor.AddToggleRow("show arraylist", true, function(on)
+		hudEditor.AddToggleRow("show arraylist", false, function(on)
 			if arrayListWidget.SetVisible then
 				arrayListWidget.SetVisible(on)
 			end
@@ -314,7 +314,7 @@ end
 if UI.CreateConfigBar and hudEditor then
 	configBar = UI.CreateConfigBar(hudEditor)
 	if hudEditor.AddToggleRow and configBar and configBar.Instance then
-		hudEditor.AddToggleRow("show preset bar", true, function(on)
+		hudEditor.AddToggleRow("show preset bar", false, function(on)
 			configBar.Instance.Visible = on
 		end)
 	end
@@ -520,10 +520,10 @@ if UI.CreateCustomWindow then
 	end
 
 	if hudEditor and hudEditor.AddToggleRow then
-		hudEditor.AddToggleRow("watermark", true, function(on)
+		hudEditor.AddToggleRow("watermark", false, function(on)
 			watermarkWindow.SetVisible(on)
 		end)
-		hudEditor.AddToggleRow("session info", true, function(on)
+		hudEditor.AddToggleRow("session info", false, function(on)
 			sessionInfoWindow.SetVisible(on)
 		end)
 	end
