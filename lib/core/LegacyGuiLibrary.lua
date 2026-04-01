@@ -57,6 +57,9 @@ local ROW_W    = 113
 local SUB_W    = 106
 local ROW_H    = 18
 local HDR_H    = 22
+local PANEL_TOP_MARGIN = 12
+local PRESET_BAR_GAP = 6
+local Scaler
 
 local function mkCorner(p, r)
     local c = Instance.new("UICorner"); c.CornerRadius = r or R_SM; c.Parent = p; return c
@@ -130,6 +133,7 @@ local UIS          = cloneref(game:GetService("UserInputService"))
 local Tween        = cloneref(game:GetService("TweenService"))
 local Runner       = cloneref(game:GetService("RunService"))
 local HttpService  = cloneref(game:GetService("HttpService"))
+local GuiService   = cloneref(game:GetService("GuiService"))
 
 local IS_MOBILE = UIS.TouchEnabled and not UIS.KeyboardEnabled
 
@@ -163,6 +167,7 @@ end
 local MobileUIState = readStoredJson(MOBILE_UI_FILE, {})
 MobileUIState.Buttons = type(MobileUIState.Buttons) == "table" and MobileUIState.Buttons or {}
 MobileUIState.Open = type(MobileUIState.Open) == "table" and MobileUIState.Open or {}
+MobileUIState.PresetBar = type(MobileUIState.PresetBar) == "table" and MobileUIState.PresetBar or {}
 
 local function saveMobileUIState()
     writeStoredJson(MOBILE_UI_FILE, MobileUIState)
@@ -174,6 +179,30 @@ local function getViewportSize()
         return camera.ViewportSize
     end
     return Vector2.new(1280, 720)
+end
+
+local function getTopInsetPixels()
+    local ok, topLeftInset = pcall(function()
+        return select(1, GuiService:GetGuiInset())
+    end)
+    if ok and typeof(topLeftInset) == "Vector2" then
+        return topLeftInset.Y
+    end
+    return 0
+end
+
+local function pixelsToUiOffset(pixels)
+    local s = (Scaler and Scaler.Scale and Scaler.Scale > 0) and Scaler.Scale or 1
+    return math.floor((pixels / s) + 0.5)
+end
+
+local function getPanelTopOffset()
+    return pixelsToUiOffset(getTopInsetPixels() + PANEL_TOP_MARGIN)
+end
+
+local function getPresetBarTopOffset(barHeight)
+    local heightOffset = pixelsToUiOffset((barHeight or 18) + PRESET_BAR_GAP)
+    return math.max(0, getPanelTopOffset() - heightOffset)
 end
 
 local function clampAnchorPosition(button, x, y)
@@ -226,7 +255,6 @@ local Spectrum = {
     RainbowSpeed = 1750,
 }
 local kit      = {}; Spectrum.kit = kit
-local Scaler   
 
 do 
     function kit:activeColor()
@@ -314,8 +342,9 @@ do
         local vp     = workspace.CurrentCamera.ViewportSize
         local totalW = #bars * COL_W + (#bars - 1) * 2
         local startX = math.floor((vp.X / s - totalW) / 2)
+        local topOffset = getPanelTopOffset()
         for i, bar in ipairs(bars) do
-            bar.Position = UDim2.new(0, startX + (i - 1) * (COL_W + 2), 0.055, 0)
+            bar.Position = UDim2.new(0, startX + (i - 1) * (COL_W + 2), 0, topOffset)
         end
     end
 
@@ -448,9 +477,54 @@ local function randomString()
     return table.concat(array)
 end
 
+local function isPhantomScreenGui(gui)
+    if not gui or not gui:IsA("ScreenGui") then return false end
+
+    local ok, tagged = pcall(function()
+        return gui:GetAttribute("PhantomUI") == true
+    end)
+    if ok and tagged then
+        return true
+    end
+
+    return gui.DisplayOrder == 2147483647
+        and gui.IgnoreGuiInset == true
+        and gui.ResetOnSpawn == false
+        and gui:FindFirstChild("Root") ~= nil
+        and gui:FindFirstChildWhichIsA("UIScale") ~= nil
+end
+
+local function cleanupPhantomScreens(parent)
+    if not parent then return end
+
+    for _, child in ipairs(parent:GetChildren()) do
+        if child ~= Screen and isPhantomScreenGui(child) then
+            pcall(function()
+                child:Destroy()
+            end)
+        end
+    end
+end
+
 Screen.Name = randomString()
 Screen.DisplayOrder = 2147483647
 Screen.ResetOnSpawn = false
+pcall(function()
+    Screen:SetAttribute("PhantomUI", true)
+end)
+
+local coreGui
+pcall(function()
+    coreGui = cloneref(game:GetService("CoreGui"))
+end)
+
+local playerGui
+pcall(function()
+    playerGui = cloneref(game:GetService("Players")).LocalPlayer.PlayerGui
+end)
+
+cleanupPhantomScreens(coreGui)
+cleanupPhantomScreens(playerGui)
 
 if setthreadidentity then
     setthreadidentity(8)
@@ -909,7 +983,7 @@ function Spectrum.window(cfg)
     Header.Name             = cfg.Name .. "Header"
     Header.BackgroundColor3 = P.BASE2
     Header.BorderSizePixel  = 0
-    Header.Position         = UDim2.new(0, 0, 0.055, 0)
+    Header.Position         = UDim2.new(0, 0, 0, getPanelTopOffset())
     Header.Size             = UDim2.new(0, COL_W, 0, HDR_H)
     Header.AutoButtonColor  = false
     Header.Font             = Enum.Font.GothamBold
@@ -1020,8 +1094,17 @@ function Spectrum.window(cfg)
     function panel.CreateOptionsButton(cfg2)
         local entry     = { Expanded = false, Enabled = false, Recording = false, Value = false }
         local entryId   = cfg2.Name .. "Module"
+        local allowMobileButton = IS_MOBILE and cfg2.NoMobileButton ~= true
         local defaultTouchX, defaultTouchY = nextMobileButtonSlot()
-        entry.MobileBindState = IS_MOBILE and ensureMobileButtonState(entryId, defaultTouchX, defaultTouchY) or nil
+        if IS_MOBILE and not allowMobileButton then
+            local storedButtonState = MobileUIState.Buttons[entryId]
+            if type(storedButtonState) == "table" and (storedButtonState.Enabled == true or storedButtonState.Manual == true) then
+                storedButtonState.Enabled = false
+                storedButtonState.Manual = false
+                saveMobileUIState()
+            end
+        end
+        entry.MobileBindState = allowMobileButton and ensureMobileButtonState(entryId, defaultTouchX, defaultTouchY) or nil
         entry.MobileButtonEnabled = entry.MobileBindState and entry.MobileBindState.Enabled or false
 
         local Row = Instance.new("TextButton")
@@ -1147,7 +1230,7 @@ function Spectrum.window(cfg)
         end
 
         local TouchBindRow, TouchBindLabel
-        if IS_MOBILE then
+        if allowMobileButton then
             TouchBindRow = Instance.new("TextButton")
             TouchBindRow.Name                   = "TouchBindRow"; TouchBindRow.Parent = SubHolder
             TouchBindRow.BackgroundColor3       = P.BASE2; TouchBindRow.BackgroundTransparency = 0
@@ -2589,12 +2672,16 @@ end
 
 function Spectrum.CreateConfigBar(editor)
     local BAR_H = 18
+    local mobileButton
+    local mobileButtonTheme
+    local mobileButtonHandle
+    local mobileButtonVisibleSync
 
     local Bar = Instance.new("Frame")
     Bar.Name                   = "PresetBar"; Bar.Parent = Root
     Bar.BackgroundColor3       = P.BASE1; Bar.BackgroundTransparency = 0
     Bar.BorderSizePixel        = 0; Bar.AnchorPoint = Vector2.new(0.5, 0)
-    Bar.Position               = UDim2.new(0.5, 0, 0.03, 0); Bar.Size = UDim2.new(0, 260, 0, BAR_H)
+    Bar.Position               = UDim2.new(0.5, 0, 0, getPresetBarTopOffset(BAR_H)); Bar.Size = UDim2.new(0, 260, 0, BAR_H)
     mkCorner(Bar, R_SM); mkBorder(Bar, P.EDGE, 1, 0.3)
 
     local BarTitle = Instance.new("TextLabel"); BarTitle.Parent = Bar
@@ -2618,26 +2705,95 @@ function Spectrum.CreateConfigBar(editor)
     OpenBtn.Text = ">"; OpenBtn.TextColor3 = P.INK_MID; OpenBtn.TextSize = 14; OpenBtn.AutoButtonColor = false
     OpenBtn.MouseEnter:Connect(function() OpenBtn.TextColor3 = P.INK_HI end)
     OpenBtn.MouseLeave:Connect(function() OpenBtn.TextColor3 = P.INK_MID end)
-    OpenBtn.MouseButton1Click:Connect(function()
+
+    local function syncMobileButtonText(name)
+        if not mobileButton then return end
+        mobileButton.Text = "preset " .. tostring(name or ActiveLbl.Text or "default")
+        if mobileButtonHandle and mobileButtonHandle.RefreshSize then
+            mobileButtonHandle.RefreshSize()
+        end
+    end
+
+    local function toggleEditor()
         if editor then
             editor.Toggle()
             local vis = editor.Instance.Visible
             OpenBtn.Text       = vis and "v" or ">"
             OpenBtn.TextColor3 = vis and P.STATE_OFF or P.INK_MID
+            if mobileButtonTheme and mobileButtonTheme.Refresh then
+                mobileButtonTheme.Refresh()
+            end
         end
-    end)
+    end
+    OpenBtn.MouseButton1Click:Connect(toggleEditor)
+
+    if IS_MOBILE then
+        local presetStore = MobileUIState.PresetBar
+        presetStore.X, presetStore.Y = readMobilePoint(presetStore, 0.54, 0.11)
+
+        mobileButton = Instance.new("TextButton")
+        mobileButton.Name = "PresetBarButton"
+        mobileButton.Parent = Screen
+        mobileButton.AnchorPoint = Vector2.new(0.5, 0.5)
+        mobileButton.AutoButtonColor = false
+        mobileButton.BorderSizePixel = 0
+        mobileButton.BackgroundColor3 = P.BASE1
+        mobileButton.Font = Enum.Font.GothamBold
+        mobileButton.Text = "preset " .. tostring(ActiveLbl.Text)
+        mobileButton.TextSize = 12
+        mobileButton.TextTruncate = Enum.TextTruncate.AtEnd
+        mobileButton.ZIndex = 29
+        mkCorner(mobileButton, UDim.new(0, 10))
+
+        mobileButtonTheme = styleFloatingButton(mobileButton, function()
+            local editorOpen = editor and editor.Instance and editor.Instance.Visible == true
+            return true, editorOpen and P.HUE or P.EDGE_HI
+        end)
+        mobileButtonHandle = attachFloatingButton(mobileButton, {
+            primary = true,
+            defaultX = presetStore.X,
+            defaultY = presetStore.Y,
+            getStore = function() return MobileUIState.PresetBar end,
+            onTap = toggleEditor,
+        })
+        if editor and editor.Instance then
+            mobileButtonVisibleSync = editor.Instance:GetPropertyChangedSignal("Visible"):Connect(function()
+                if mobileButtonTheme and mobileButtonTheme.Refresh then
+                    mobileButtonTheme.Refresh()
+                end
+            end)
+        end
+    end
 
     local function refit()
         local vp = workspace.CurrentCamera.ViewportSize
         local s  = Scaler.Scale > 0 and Scaler.Scale or 1
+        Bar.Position = UDim2.new(0.5, 0, 0, getPresetBarTopOffset(BAR_H))
         Bar.Size = UDim2.new(0, math.min(260, vp.X / s - 20), 0, BAR_H)
     end
     kit:track(workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(refit))
+    kit:track(Scaler:GetPropertyChangedSignal("Scale"):Connect(refit))
     refit()
 
     local barApi = {}
-    function barApi.SetName(name) ActiveLbl.Text = tostring(name) end
-    barApi.Instance = Bar; return barApi
+    function barApi.SetName(name)
+        ActiveLbl.Text = tostring(name)
+        syncMobileButtonText(name)
+    end
+    function barApi.SetVisible(on)
+        local visible = on == true
+        Bar.Visible = visible and not IS_MOBILE
+        if mobileButton then
+            mobileButton.Visible = visible
+        end
+    end
+    barApi.Instance = Bar
+    barApi.MobileButton = mobileButton
+    barApi.MobileButtonTheme = mobileButtonTheme
+    barApi.MobileButtonHandle = mobileButtonHandle
+    barApi.MobileButtonVisibleSync = mobileButtonVisibleSync
+    barApi.SetVisible(false)
+    return barApi
 end
 
 function Spectrum.CreateCustomWindow(cfg)
@@ -2707,6 +2863,21 @@ function Spectrum.CreateCustomWindow(cfg)
     mkPad(FOptionHolder, 3, 3, 0, 0)
 
     local _floatOn = false
+    local function normalizeFloatFramePosition()
+        local parent = FloatFrame.Parent
+        if not parent then return false end
+
+        local parentSize = parent.AbsoluteSize
+        if parentSize.X <= 0 or parentSize.Y <= 0 then return false end
+
+        local pos = FloatFrame.Position
+        FloatFrame.Position = UDim2.new(
+            0, math.floor(pos.X.Scale * parentSize.X + pos.X.Offset + 0.5),
+            0, math.floor(pos.Y.Scale * parentSize.Y + pos.Y.Offset + 0.5)
+        )
+        return true
+    end
+
     FBar.Visible = Spectrum.Root.Visible and _floatOn
     kit:track(Spectrum.Root:GetPropertyChangedSignal("Visible"):Connect(function()
         FBar.Visible = Spectrum.Root.Visible and _floatOn
@@ -2718,6 +2889,20 @@ function Spectrum.CreateCustomWindow(cfg)
         FloatFrame.Visible     = on
         FBar.Visible           = Spectrum.Root.Visible and on
     end
+
+    function fp.NormalizePosition()
+        return normalizeFloatFramePosition()
+    end
+
+    local floatCamera = workspace.CurrentCamera
+    if floatCamera then
+        kit:track(floatCamera:GetPropertyChangedSignal("ViewportSize"):Connect(function()
+            if FloatFrame.Position.X.Scale ~= 0 or FloatFrame.Position.Y.Scale ~= 0 then
+                normalizeFloatFramePosition()
+            end
+        end))
+    end
+    task.defer(normalizeFloatFramePosition)
 
     function fp.Update()
         local sz = FFlow.AbsoluteContentSize

@@ -60,13 +60,27 @@ local function loadRuntimeModule(path)
 end
 
 local env = executorGetEnv()
-local existing = env and env.phantom
+env.phantomInstances = type(env.phantomInstances) == "table" and env.phantomInstances or {}
 
-if existing then
-	if type(existing.Shutdown) == "function" then
-		pcall(existing.Shutdown, "hot-reload")
-	else
-		return warn("[phantom] already loaded.")
+do
+	local shutdownQueue = {}
+	local seen = {}
+
+	if type(env.phantom) == "table" then
+		shutdownQueue[#shutdownQueue + 1] = env.phantom
+	end
+
+	for _, instance in ipairs(env.phantomInstances) do
+		shutdownQueue[#shutdownQueue + 1] = instance
+	end
+
+	for _, instance in ipairs(shutdownQueue) do
+		if type(instance) == "table" and not seen[instance] then
+			seen[instance] = true
+			if type(instance.Shutdown) == "function" then
+				pcall(instance.Shutdown, "hot-reload")
+			end
+		end
 	end
 end
 
@@ -129,6 +143,19 @@ local configBar
 local arrayListWidget
 local watermarkWindow
 local sessionInfoWindow
+
+local function readOverlayToggleState(key, defaultValue)
+	if type(overlayState) ~= "table" then
+		return defaultValue == true
+	end
+
+	local value = overlayState[key]
+	if type(value) == "boolean" then
+		return value
+	end
+
+	return defaultValue == true
+end
 
 local function creatorScriptPath()
 	if creatorId == "" or creatorId == "0" then
@@ -258,7 +285,7 @@ if UI.CreateArrayListWidget then
 		Name = "array list",
 	})
 	if arrayListWidget.SetVisible then
-		arrayListWidget.SetVisible(true)
+		arrayListWidget.SetVisible(readOverlayToggleState("show arraylist", false))
 	end
 end
 
@@ -313,9 +340,18 @@ end
 
 if UI.CreateConfigBar and hudEditor then
 	configBar = UI.CreateConfigBar(hudEditor)
+	if configBar and configBar.SetVisible then
+		configBar.SetVisible(readOverlayToggleState("show preset bar", false))
+	elseif configBar and configBar.Instance then
+		configBar.Instance.Visible = readOverlayToggleState("show preset bar", false)
+	end
 	if hudEditor.AddToggleRow and configBar and configBar.Instance then
 		hudEditor.AddToggleRow("show preset bar", false, function(on)
-			configBar.Instance.Visible = on
+			if configBar.SetVisible then
+				configBar.SetVisible(on)
+			else
+				configBar.Instance.Visible = on
+			end
 		end)
 	end
 end
@@ -323,6 +359,8 @@ end
 if UI.CreateCustomWindow then
 	watermarkWindow = UI.CreateCustomWindow({ Name = "watermark" })
 	sessionInfoWindow = UI.CreateCustomWindow({ Name = "session info" })
+	watermarkWindow.SetVisible(readOverlayToggleState("watermark", false))
+	sessionInfoWindow.SetVisible(readOverlayToggleState("session info", false))
 
 	do
 		local frame = watermarkWindow.new("Frame")
@@ -874,6 +912,9 @@ local function loadProfile(slot, silent)
 					state.Position.Y.Scale,
 					state.Position.Y.Offset
 				)
+				if object.API and object.API.NormalizePosition then
+					object.API.NormalizePosition()
+				end
 			end
 		end
 	end
@@ -910,6 +951,8 @@ end
 phantom.ops = ops
 phantom.funcs = ops
 env.phantom = phantom
+env.phantomInstances = env.phantomInstances or {}
+table.insert(env.phantomInstances, phantom)
 env.configloaded = false
 
 fileApi:Write("cache/lastPlace", placeId, { force = true })
@@ -938,8 +981,15 @@ pcall(function()
 end)
 
 local shuttingDown = false
+local hotReloadQueued = false
+local relaunchNonce = 0
 
-local function shutdown(reason)
+local function shutdown(reason, options)
+	options = options or {}
+	if options.preserveRelaunch ~= true then
+		relaunchNonce = relaunchNonce + 1
+	end
+
 	if shuttingDown then
 		return
 	end
@@ -975,9 +1025,24 @@ local function shutdown(reason)
 		rootManager:Cleanup()
 	end)
 
+	local isCurrentInstance = env.phantom == phantom
+	local instances = env.phantomInstances
+	if type(instances) == "table" then
+		for index = #instances, 1, -1 do
+			if instances[index] == phantom then
+				table.remove(instances, index)
+			end
+		end
+		if #instances == 0 then
+			env.phantomInstances = nil
+		end
+	end
+
 	logger:Info("shutdown", reason or "manual")
-	env.phantom = nil
-	env.configloaded = nil
+	if isCurrentInstance then
+		env.phantom = nil
+		env.configloaded = nil
+	end
 end
 
 phantom.Shutdown = shutdown
@@ -1005,8 +1070,19 @@ local function relaunchMain()
 end
 
 phantom.HotReload = function()
-	shutdown("hot-reload")
-	task.defer(relaunchMain)
+	if shuttingDown or hotReloadQueued then
+		return false
+	end
+	hotReloadQueued = true
+	relaunchNonce = relaunchNonce + 1
+	local expectedRelaunchNonce = relaunchNonce
+	shutdown("hot-reload", { preserveRelaunch = true })
+	task.defer(function()
+		if relaunchNonce ~= expectedRelaunchNonce then
+			return
+		end
+		relaunchMain()
+	end)
 	return true
 end
 
@@ -1051,6 +1127,7 @@ do
 	tabs.other.AddNew({
 		Name = "gui",
 		NoSave = true,
+		NoMobileButton = true,
 		Bind = "RightShift",
 		Function = function()
 			if not UI.Root.Visible then
