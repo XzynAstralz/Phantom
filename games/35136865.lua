@@ -2887,7 +2887,7 @@ runcode(function()
         Function = function(v)
             for name, orig in pairs(origMining) do
                 local d = MiningData[name]
-                if d then d.Cooldown = v and 0.05 or orig end
+                if d then d.Cooldown = v and 0.15 or orig end
             end
         end
     })
