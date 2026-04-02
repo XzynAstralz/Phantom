@@ -3058,7 +3058,7 @@ runcode(function()
         Name = "Inf Jetpack",
         Function = function(callback)
             if callback then
-                infJetpackLoop = RunService.Heartbeat:Connect(function()
+                RunLoops:BindToHeartbeat("InfJetpackLoop", function()
                     bedfight.modules.JetpackState.Fuel = 1
                 end)
             else
@@ -3505,13 +3505,13 @@ runcode(function()
     local CFspeed = 50
     local CFloop  = nil
 
-    local function findMapPosition()
+    local _findPos = function()
         local char = lplr.Character
         local params = RaycastParams.new()
         params.FilterType = Enum.RaycastFilterType.Exclude
         params.FilterDescendantsInstances = char and {char} or {}
 
-        local function safeY(pos)
+        local safeY = function(pos)
             local hit = workspace:Raycast(Vector3.new(pos.X, pos.Y + 60, pos.Z), Vector3.new(0, -120, 0), params)
             if hit and hit.Position.Y > -20 then return hit.Position + Vector3.new(0, 5, 0) end
             return nil
@@ -3560,19 +3560,16 @@ runcode(function()
             local hum  = char:FindFirstChildOfClass("Humanoid")
             local Head = char:FindFirstChild("Head")
             if not hum or not Head then return end
-
             if callback then
-                local pos = findMapPosition()
+                local pos = _findPos()
                 if pos then
                     local hrp = char:FindFirstChild("HumanoidRootPart")
                     if hrp then hrp.CFrame = CFrame.new(pos) end
                 else
                     createNotification("CreativeMode", "No map position found — place yourself manually", 3)
                 end
-
                 hum.PlatformStand = true
                 Head.Anchored = true
-
                 if CFloop then CFloop:Disconnect() end
                 CFloop = RunService.Heartbeat:Connect(function(dt)
                     local moveDir   = hum.MoveDirection * (CFspeed * dt)
@@ -3580,8 +3577,7 @@ runcode(function()
                     local cam       = Camera.CFrame
                     local offset    = hCF:ToObjectSpace(cam).Position
                     local flatCam   = cam * CFrame.new(-offset.X, -offset.Y, -offset.Z + 1)
-                    local vel = CFrame.new(flatCam.Position, Vector3.new(hCF.Position.X, flatCam.Position.Y, hCF.Position.Z))
-                                    :VectorToObjectSpace(moveDir)
+                    local vel = CFrame.new(flatCam.Position, Vector3.new(hCF.Position.X, flatCam.Position.Y, hCF.Position.Z)):VectorToObjectSpace(moveDir)
                     Head.CFrame = CFrame.new(hCF.Position) * (flatCam - flatCam.Position) * CFrame.new(vel)
                 end)
             else
