@@ -2367,7 +2367,7 @@ end)
 runcode(function()
     local fpConn = nil
     local FirstPerson = {}
-    local function resetCharTransparency()
+    local resetChar = function()
         local char = lplr.Character
         if not char then return end
         for _, desc in ipairs(char:GetDescendants()) do
@@ -2394,7 +2394,7 @@ runcode(function()
                 RunService:UnbindFromRenderStep("PhantomForceFP")
                 if fpConn then fpConn:Disconnect(); fpConn = nil end
                 bedfight.modules.PlayerConfig.InFirstPerson.Value = false
-                resetCharTransparency()
+                resetChar()
             end
         end
     })
@@ -2846,7 +2846,7 @@ end)
 
 runcode(function()
     local pg  = lplr:WaitForChild("PlayerGui")
-    
+
     local HIDE_GUIS = {
         "KitPopupsGui",
         "AnnouncementGui",
