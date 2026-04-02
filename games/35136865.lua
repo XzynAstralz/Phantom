@@ -3053,7 +3053,6 @@ end)
 
 runcode(function()
     local Jetpack = {}
-    local infJetpackLoop = nil
     Jetpack = GuiLibrary.Registry.utillityPanel.API.CreateOptionsButton({
         Name = "Inf Jetpack",
         Function = function(callback)
@@ -3062,7 +3061,7 @@ runcode(function()
                     bedfight.modules.JetpackState.Fuel = 1
                 end)
             else
-                if infJetpackLoop then infJetpackLoop:Disconnect(); infJetpackLoop = nil end
+                RunService:UnbindFromHeartbeat("InfJetpackLoop")
             end
         end
     })
