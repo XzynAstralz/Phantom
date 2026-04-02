@@ -74,25 +74,30 @@ local bedfight = {
         BlocksData = require(ReplicatedStorage.Modules.DataModules.BlocksData),
         JetpackState = require(ReplicatedStorage.Modules.JetpackState),
         SwordsData = require(ReplicatedStorage.Modules.DataModules.SwordsData),
-        spawnFakeProjectile = function(origin, aimDir, launchVel, pName)
-            if not bedfight.modules.ProjectilesController or not bedfight.modules.ProjectilesData then return end
-            local pData = bedfight.modules.ProjectilesData[pName]
-            local container = workspace:FindFirstChild("ProjectilesContainer")
-            if not pData or not container then return end
-            pcall(function()
-                local proj = bedfight.modules.ProjectilesController.new(nil, launchVel, pData)
-                proj:AddProjectile(pData.Projectile or pName)
-                proj.ProjectileRoot.CFrame = CFrame.lookAlong(origin, aimDir)
-                proj.UpdatedVelocity = launchVel
-                proj.Projectile.Parent = container
-                proj:Play()
-            end)
-        end,
+        spawnFakeProjectile = nil,
     }
 }
 
 local rangedData  = bedfight.modules.RangedData
 local projData    = bedfight.modules.ProjectilesData
+do
+    local _PC = bedfight.modules.ProjectilesController
+    local _PD = bedfight.modules.ProjectilesData
+    bedfight.modules.spawnFakeProjectile = function(origin, aimDir, launchVel, pName)
+        if not _PC or not _PD then return end
+        local pData = _PD[pName]
+        local container = workspace:FindFirstChild("ProjectilesContainer")
+        if not pData or not container then return end
+        pcall(function()
+            local proj = _PC.new(nil, launchVel, pData)
+            proj:AddProjectile(pData.Projectile or pName)
+            proj.ProjectileRoot.CFrame = CFrame.lookAlong(origin, aimDir)
+            proj.UpdatedVelocity = launchVel
+            proj.Projectile.Parent = container
+            proj:Play()
+        end)
+    end
+end
 
 local wsScriptChildren = {}
 do
@@ -1562,7 +1567,7 @@ runcode(function()
         data.projLastFire = now
         switchitem(weaponName)
         bedfight.remotes.ShootProjectile:FireServer(0, weaponName, aimDir, launchVel, camCF)
-        task.spawn(bedfight.modules.spawnFakeProjectile, origin, aimDir, launchVel, pName)
+        if bedfight.modules.spawnFakeProjectile then task.spawn(bedfight.modules.spawnFakeProjectile, origin, aimDir, launchVel, pName) end
         task.defer(function()
             local sw = getsword()
             if sw then switchitem(sw) end
@@ -1615,12 +1620,12 @@ runcode(function()
     local reach = {}
     local origReach = {}
     local ReachSlider = {}
+    local ReachVal = {Value = 20}
     for name, data in pairs(bedfight.modules.SwordsData) do
         if type(data) == "table" and data.Range then
             origReach[name] = { Range = data.Range, HitboxSize = data.HitboxSize }
         end
     end
-    local ReachVal = {Value = 20}
     Reach = GuiLibrary.Registry.combatPanel.API.CreateOptionsButton({
         Name = "Reach",
         Function = function(v)
@@ -2835,6 +2840,159 @@ runcode(function()
         Default = "Default",
         Function = function(selected)
             if GameThemes.Enabled and themes[selected] then themes[selected]() end
+        end
+    })
+end)
+
+runcode(function()
+    local pg  = lplr:WaitForChild("PlayerGui")
+    
+    local HIDE_GUIS = {
+        "KitPopupsGui",
+        "AnnouncementGui",
+        "DamageScreenEffectGui",
+        "NotificationGui",
+        "AchievementGui",
+        "OfflineRewardsGui",
+        "UpdateLogGui",
+        "GiftedKitGui",
+        "PurchaseEffectGui",
+        "PurchasingEffectGui2",
+        "GroupVerificationGui",
+        "ShiftlockDisplayGui",
+        "DamageIndicatorGui",
+    }
+
+    local HIDE_TOPBAR = { "UpdateLog", "Codes" }
+
+    local origEnabled   = {}
+    local origTopbar    = {}
+    local origHealthBGT = nil
+    local origStatusBGT = nil
+    local origStroke    = nil
+    local cleanLoop     = nil
+    local snapshotDone  = false
+
+    local snapshot = function()
+        if snapshotDone then return end
+        snapshotDone = true
+        for _, name in ipairs(HIDE_GUIS) do
+            local gui = pg:FindFirstChild(name)
+            if gui then origEnabled[name] = gui.Enabled end
+        end
+
+        local topbar = pg:FindFirstChild("TopbarButtonsGui")
+        if topbar then
+            local bl = topbar:FindFirstChild("ButtonsList")
+            if bl then
+                for _, btnName in ipairs(HIDE_TOPBAR) do
+                    local btn = bl:FindFirstChild(btnName)
+                    if btn then origTopbar[btnName] = btn.Visible end
+                end
+            end
+        end
+
+        local healthGui = pg:FindFirstChild("HealthGui")
+        if healthGui then
+            local frame = healthGui:FindFirstChild("HealthFrame")
+            if frame then
+                local stroke = frame:FindFirstChild("UIStroke")
+                if stroke then origStroke = stroke.Thickness end
+                origHealthBGT = frame.BackgroundTransparency
+            end
+        end
+
+        local statusGui = pg:FindFirstChild("GameStatusGui")
+        if statusGui then
+            local lbl = statusGui:FindFirstChild("StatusLabel")
+            if lbl then origStatusBGT = lbl.BackgroundTransparency end
+        end
+    end
+
+    local enforce = function()
+        for _, name in ipairs(HIDE_GUIS) do
+            local gui = pg:FindFirstChild(name)
+            if gui and gui.Enabled then gui.Enabled = false end
+        end
+
+        local topbar = pg:FindFirstChild("TopbarButtonsGui")
+        if topbar then
+            local bl = topbar:FindFirstChild("ButtonsList")
+            if bl then
+                for _, btnName in ipairs(HIDE_TOPBAR) do
+                    local btn = bl:FindFirstChild(btnName)
+                    if btn and btn.Visible then btn.Visible = false end
+                end
+            end
+        end
+
+        local healthGui = pg:FindFirstChild("HealthGui")
+        if healthGui then
+            local frame = healthGui:FindFirstChild("HealthFrame")
+            if frame then
+                local stroke = frame:FindFirstChild("UIStroke")
+                if stroke and stroke.Thickness ~= 0 then stroke.Thickness = 0 end
+                if frame.BackgroundTransparency ~= 0.55 then frame.BackgroundTransparency = 0.55 end
+            end
+        end
+
+        local statusGui = pg:FindFirstChild("GameStatusGui")
+        if statusGui then
+            local lbl = statusGui:FindFirstChild("StatusLabel")
+            if lbl and lbl.BackgroundTransparency ~= 0.4 then lbl.BackgroundTransparency = 0.4 end
+        end
+
+        pcall(function()
+            local bc = game:GetService("CoreGui"):FindFirstChild("ExperienceChat"):FindFirstChild("bubbleChat")
+            if bc and bc.Enabled then bc.Enabled = false end
+        end)
+    end
+
+    GuiLibrary.Registry.utillityPanel.API.CreateOptionsButton({
+        Name = "UI Cleanup",
+        Function = function(callback)
+            if callback then
+                snapshot()
+                enforce()
+                cleanLoop = RunService.Heartbeat:Connect(enforce)
+            else
+                if cleanLoop then cleanLoop:Disconnect(); cleanLoop = nil end
+                for name, was in pairs(origEnabled) do
+                    local gui = pg:FindFirstChild(name)
+                    if gui then gui.Enabled = was end
+                end
+                origEnabled = {}
+                local topbar = pg:FindFirstChild("TopbarButtonsGui")
+                if topbar then
+                    local bl = topbar:FindFirstChild("ButtonsList")
+                    if bl then
+                        for btnName, was in pairs(origTopbar) do
+                            local btn = bl:FindFirstChild(btnName)
+                            if btn then btn.Visible = was end
+                        end
+                    end
+                end
+                origTopbar = {}
+                local healthGui = pg:FindFirstChild("HealthGui")
+                if healthGui then
+                    local frame = healthGui:FindFirstChild("HealthFrame")
+                    if frame then
+                        local stroke = frame:FindFirstChild("UIStroke")
+                        if stroke and origStroke ~= nil then stroke.Thickness = origStroke end
+                        if origHealthBGT ~= nil then frame.BackgroundTransparency = origHealthBGT end
+                    end
+                end
+                local statusGui = pg:FindFirstChild("GameStatusGui")
+                if statusGui then
+                    local lbl = statusGui:FindFirstChild("StatusLabel")
+                    if lbl and origStatusBGT ~= nil then lbl.BackgroundTransparency = origStatusBGT end
+                end
+                pcall(function()
+                    local bc = game:GetService("CoreGui"):FindFirstChild("ExperienceChat"):FindFirstChild("bubbleChat")
+                    if bc then bc.Enabled = true end
+                end)
+                snapshotDone = false
+            end
         end
     })
 end)
