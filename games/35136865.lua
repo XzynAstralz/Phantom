@@ -242,13 +242,22 @@ local hookAnims = function()
     local swingFPAnimation = Instance.new("Animation")
     swingFPAnimation.AnimationId = "rbxassetid://80138703077151"
 
-    data.swingAnims = {
+    data.swingAnims = data.swingAnims or {
         third = nil,
         first = nil
     }
 
+    local alive = true
+
     local function load()
+        if not alive then return end
         if not lplr.Character then return end
+        if not data.swingAnims then
+            data.swingAnims = {
+                third = nil,
+                first = nil
+            }
+        end
 
         local humanoid = lplr.Character:FindFirstChild("Humanoid")
         local animator = humanoid and humanoid:FindFirstChildOfClass("Animator")
@@ -257,7 +266,8 @@ local hookAnims = function()
             data.swingAnims.third = animator:LoadAnimation(swingAnimation)
         end
 
-        local vm = workspace.CurrentCamera:FindFirstChild("ViewModel")
+        local cam = workspace.CurrentCamera
+        local vm = cam and cam:FindFirstChild("ViewModel")
         local vmAnimator = vm and vm:FindFirstChild("AnimationController") and vm.AnimationController:FindFirstChildOfClass("Animator")
 
         if vmAnimator then
@@ -267,17 +277,27 @@ local hookAnims = function()
 
     task.spawn(function()
         task.wait(0.2)
-        load()
+        if alive then
+            load()
+        end
     end)
 
     local charConn = lplr.CharacterAdded:Connect(function()
+        if not alive then return end
+        data.swingAnims = data.swingAnims or {
+            third = nil,
+            first = nil
+        }
         data.swingAnims.third = nil
         data.swingAnims.first = nil
         task.wait(0.2)
-        load()
+        if alive then
+            load()
+        end
     end)
 
     funcs:onExit("anims", function()
+        alive = false
         if charConn then
             charConn:Disconnect()
         end
@@ -1508,35 +1528,47 @@ runcode(function()
     local wallParams = RaycastParams.new()
     wallParams.FilterType = Enum.RaycastFilterType.Exclude
 
-    local projLastFire   = 0
-    local projSwitching  = false
-    local ProjRange      = {Value = 100}
-    local ProjWall       = {Enabled = true}
-    local targetTrackers = {}
+    local projLastFire    = 0
+    local projFakeLast    = 0
+    local projSwitching   = false
+    local projPendingShot = false
+    local targetTrackers  = {}
+    local ProjRange       = {Value = 100}
+    local ProjWall        = {Enabled = true}
 
     projFireAt = function(targetRoot, targetChar, tracker)
+        if projPendingShot then return end
+
         local weaponName = getRanged()
         if not weaponName then return end
+
         local wData = rangedData[weaponName]
         if not wData then return end
+
         local pName, pData = getBestProjectile(weaponName)
         if not pName or not pData then return end
 
         local now = tick()
-        if (now - projLastFire) < (wData.Cooldown or 0.8) then return end
+        local cooldown = wData.Cooldown or 0.8
+        if (now - projLastFire) < cooldown then return end
 
         local myChar = lplr.Character
-        local hrp    = myChar and myChar:FindFirstChild("HumanoidRootPart")
+        local hrp = myChar and myChar:FindFirstChild("HumanoidRootPart")
         if not hrp then return end
+
+        local targetHum = targetChar and targetChar:FindFirstChildOfClass("Humanoid")
+        if not targetRoot or not targetHum or targetHum.Health <= 0 then return end
 
         local offset = wData.Offset or Vector3.new(1.5, 1, 0)
         local origin = hrp.Position + Camera.CFrame:VectorToWorldSpace(offset)
 
-        local projSpeed  = pData.Speed and pData.Speed.Max or 100
-        local gravY      = pData.Gravity and math.abs(pData.Gravity.Y) or 70
+        local projSpeed = pData.Speed and pData.Speed.Max or 100
+        local gravY = pData.Gravity and math.abs(pData.Gravity.Y) or 70
         local shooterVel = hrp.AssemblyLinearVelocity
-        local latency    = 0
-        pcall(function() latency = math.clamp(lplr:GetNetworkPing(), 0, 0.15) end)
+        local latency = 0
+        pcall(function()
+            latency = math.clamp(lplr:GetNetworkPing(), 0, 0.15)
+        end)
 
         local exclusions = {myChar, targetChar, table.unpack(wsScriptChildren)}
         wallParams.FilterDescendantsInstances = exclusions
@@ -1546,50 +1578,82 @@ runcode(function()
             targetRoot.Position, targetRoot.AssemblyLinearVelocity,
             workspace.Gravity, 5, nil, nil,
             {
-                tracker         = tracker,
-                latency         = latency,
+                tracker = tracker,
+                latency = latency,
                 shooterVelocity = shooterVel,
-                geometryParams  = wallParams,
+                geometryParams = wallParams,
             }
         )
         if not aimPoint then return end
 
+        local launchVel = aimPoint - origin
+        if launchVel.Magnitude <= 0.001 then return end
+
+        local aimDir = launchVel.Unit
+        local camCF = CFrame.lookAt(Camera.CFrame.Position, aimPoint)
+
         if ProjWall.Enabled then
-            local wallHit = workspace:Raycast(origin, targetRoot.Position - origin, wallParams)
-            if wallHit then return end
+            local wallHit = workspace:Raycast(origin, launchVel, wallParams)
+            if wallHit and not wallHit.Instance:IsDescendantOf(targetChar) then
+                return
+            end
         end
 
-        local launchVel = aimPoint - origin
-        local aimDir    = launchVel.Unit
-        local camCF     = CFrame.lookAt(Camera.CFrame.Position, aimPoint)
-
+        projPendingShot = true
         projLastFire = now
         data.projLastFire = now
+
         switchitem(weaponName)
+
+        task.wait()
+        local equipped = getClientEquipped()
+        if equipped ~= weaponName then
+            projPendingShot = false
+            return
+        end
+
         bedfight.remotes.ShootProjectile:FireServer(0, weaponName, aimDir, launchVel, camCF)
-        if bedfight.modules.spawnFakeProjectile then task.spawn(bedfight.modules.spawnFakeProjectile, origin, aimDir, launchVel, pName) end
+
+        task.delay(0.06, function()
+            if tick() - projFakeLast > 0.08 then
+                projFakeLast = tick()
+                task.spawn(bedfight.modules.spawnFakeProjectile, origin, aimDir, launchVel, pName)
+            end
+        end)
+
         task.defer(function()
+            projPendingShot = false
             local sw = getsword()
-            if sw then switchitem(sw) end
+            if sw then
+                switchitem(sw)
+            else
+                revertitem()
+            end
         end)
     end
 
     local Projectile = GuiLibrary.Registry.combatPanel.API.CreateOptionsButton({
         Name = "ProjectileAura",
-        Function = function(on)
-            if on then
+        Function = function(callback)
+            if callback then
                 RunLoops:BindToHeartbeat("Projectile", function()
                     if not PlayerUtility.lplrIsAlive then return end
+                    if projPendingShot then return end
                     local nearest = PlayerUtility.GetNearestEntities(ProjRange.Value, true, false)
                     if not nearest or #nearest == 0 then return end
                     local targetChar = nearest[1].character
                     local targetRoot = targetChar and targetChar:FindFirstChild("HumanoidRootPart")
-                    local targetHum  = targetChar and targetChar:FindFirstChildOfClass("Humanoid")
+                    local targetHum = targetChar and targetChar:FindFirstChildOfClass("Humanoid")
                     if not targetRoot or not targetHum or targetHum.Health <= 0 then return end
                     if not targetTrackers[targetChar] then
                         targetTrackers[targetChar] = Prediction.NewTracker(10)
                     end
-                    Prediction.PushSample(targetTrackers[targetChar], targetRoot.Position, targetRoot.AssemblyLinearVelocity, tick())
+                    Prediction.PushSample(
+                        targetTrackers[targetChar],
+                        targetRoot.Position,
+                        targetRoot.AssemblyLinearVelocity,
+                        tick()
+                    )
                     projFireAt(targetRoot, targetChar, targetTrackers[targetChar])
                 end)
             else
@@ -1647,7 +1711,7 @@ runcode(function()
         Function = function(v)
             ReachVal.Value = v
             if Reach.Enabled then
-                for name, d in pairs(SwordsData) do
+                for name, d in pairs(bedfight.modules.SwordsData) do
                     if type(d) == "table" and d.Range then
                         d.Range = v
                         d.HitboxSize = Vector3.new(v, v, v * 2)
@@ -2083,7 +2147,7 @@ runcode(function()
     })
 
     KeepInv = CM.CreateToggle({
-        Name="KeepInv",
+        Name = "KeepInv",
         Function = function() end
     })
     SaveInLobby = CM.CreateToggle({
@@ -2119,7 +2183,7 @@ runcode(function()
         Name = "Cape",
         Function = function(enabled)
             if enabled then
-                equipCape(capeList.Value)
+                equipCape(currentCape or capeList[1])
                 connection = lplr.CharacterAdded:Connect(function()
                     if currentCape then
                         equipCape(currentCape)
@@ -3061,7 +3125,7 @@ runcode(function()
                     bedfight.modules.JetpackState.Fuel = 1
                 end)
             else
-                RunService:UnbindFromHeartbeat("InfJetpackLoop")
+                RunLoops:UnbindFromHeartbeat("InfJetpackLoop")
             end
         end
     })
