@@ -2446,7 +2446,7 @@ runcode(function()
         Function = function(callback)
             if callback then
                 bedfight.modules.PlayerConfig.InFirstPerson.Value = true
-                RunService:BindToRenderStep("PhantomForceFP", Enum.RenderPriority.Last.Value + 200, resetCharTransparency)
+                RunService:BindToRenderStep("ForceFP", Enum.RenderPriority.Last.Value + 200, resetCharTransparency)
                 fpConn = bedfight.modules.PlayerConfig.InFirstPerson.Changed:Connect(function(val)
                     if not val then
                         task.defer(function()
@@ -2455,7 +2455,7 @@ runcode(function()
                     end
                 end)
             else
-                RunService:UnbindFromRenderStep("PhantomForceFP")
+                RunService:UnbindFromRenderStep("ForceFP")
                 if fpConn then fpConn:Disconnect(); fpConn = nil end
                 bedfight.modules.PlayerConfig.InFirstPerson.Value = false
                 resetChar()
