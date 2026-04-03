@@ -17,7 +17,7 @@ local ReplicatedStorage = cloneref(game:GetService("ReplicatedStorage"))
 local Lighting = cloneref(game:GetService("Lighting"))
 local Teams = cloneref(game:GetService("Teams"))
 local UserInputService = cloneref(game:GetService("UserInputService"))
-
+local HttpService = game:GetService("HttpService")
 local lplr = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
 
@@ -39,6 +39,7 @@ local data = {
     matchState = 0,
     Attacking = false,
     attackingEntity = nil,
+    attackSwitchAt = 0,
     gamemode = {
         value = nil,
         current = nil,
@@ -53,6 +54,7 @@ end
 local bedfight = {
     remotes = {
         EquipTool = ReplicatedStorage.Remotes.ItemsRemotes.EquipTool,
+        MineBlock = ReplicatedStorage.Remotes.ItemsRemotes.MineBlock,
         SwordHit = ReplicatedStorage.Remotes.ItemsRemotes.SwordHit,
         ShootProjectile = ReplicatedStorage.Remotes.ItemsRemotes.ShootProjectile,
         PutItemInChest = ReplicatedStorage.Remotes.PutItemInChest,
@@ -497,7 +499,10 @@ do
         end
 
         if switchedTo == target.item.Name then
-            return
+            local equippedName = getClientEquipped()
+            if equippedName == target.item.Name then
+                return
+            end
         end
 
         if not previousEquipped then
@@ -609,6 +614,8 @@ runcode(function()
     local Killaura = {}
     local FacePlayer = {}
     local TeamCheck = {}
+    local SwingOnly = {}
+    local ItemOnly = {}
 
     local swordtype = nil
     local currentTarget = nil
@@ -685,6 +692,10 @@ runcode(function()
                 RunLoops:BindToHeartbeat("Killaura", function()
                     if shieldActive then return end
 
+                    if SwingOnly.Enabled and not UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1) then
+                        return
+                    end
+
                     local nearest = PlayerUtility.GetNearestEntities(Distance.Value, TeamCheck.Enabled, false)
                     if not nearest or #nearest == 0 then
                         data.Attacking, data.attackingEntity, currentTarget = false, nil, nil
@@ -702,6 +713,9 @@ runcode(function()
 
                     swordtype = getsword()
                     if not swordtype then revertitem() return end
+
+                    if ItemOnly.Enabled and getClientEquipped() ~= swordtype then return end
+
                     local swordData = bedfight.modules.SwordsData[swordtype]
                     if not swordData then return end
                     local ping = getPing()
@@ -717,6 +731,7 @@ runcode(function()
 
                     if data.projLastFire and (tick() - data.projLastFire) < 0.05 then return end
 
+                    data.attackSwitchAt = tick()
                     data.Attacking = true
                     data.attackingEntity = target
 
@@ -770,6 +785,16 @@ runcode(function()
     })
     FacePlayer = Killaura.CreateToggle({
         Name = "FacePlayer",
+        Function = function() end
+    })
+    SwingOnly = Killaura.CreateToggle({
+        Name = "Swing Only",
+        Tooltip = "Only attacks while clicking",
+        Function = function() end
+    })
+    ItemOnly = Killaura.CreateToggle({
+        Name = "Item Only",
+        Tooltip = "Only attacks when sword is held",
         Function = function() end
     })
 end)
