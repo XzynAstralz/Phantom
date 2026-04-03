@@ -11,9 +11,10 @@ end
 local executorIsFile = environment.isfile
 local executorReadFile = environment.readfile
 local executorGetCustomAsset = environment.getcustomasset
-local executorQueueForTeleport = environment.queue_for_teleport
-local executorQueueOnTeleport = environment.queue_on_teleport
-local executorQueueOnTeleportLegacy = environment.queueonteleport
+local _genv = (executorGetEnv and executorGetEnv()) or {}
+local executorQueueForTeleport = environment.queue_for_teleport or _genv.queue_for_teleport
+local executorQueueOnTeleport = environment.queue_on_teleport or _genv.queue_on_teleport
+local executorQueueOnTeleportLegacy = environment.queueonteleport or _genv.queueonteleport
 
 if not executorGetEnv or not executorIsFile or not executorReadFile then
 	return warn("[phantom] unsupported executor.")
@@ -367,6 +368,22 @@ if UI.CreateCustomWindow then
 	sessionInfoWindow = UI.CreateCustomWindow({ Name = "session info" })
 	watermarkWindow.SetVisible(readOverlayToggleState("watermark", false))
 	sessionInfoWindow.SetVisible(readOverlayToggleState("session info", false))
+
+	task.defer(function()
+		local cam = workspace.CurrentCamera
+		local vp  = cam and cam.ViewportSize or Vector2.new(1920, 1080)
+		local padX = math.max(10, math.floor(vp.X * 0.012))
+		local padY = math.max(8,  math.floor(vp.Y * 0.012))
+		local gap  = math.max(20, math.floor(vp.Y * 0.1))
+		if watermarkWindow.Instance then
+			watermarkWindow.Instance.AnchorPoint = Vector2.new(0, 0)
+			watermarkWindow.Instance.Position    = UDim2.new(0, padX, 0, padY)
+		end
+		if sessionInfoWindow.Instance then
+			sessionInfoWindow.Instance.AnchorPoint = Vector2.new(0, 0)
+			sessionInfoWindow.Instance.Position    = UDim2.new(0, padX, 0, padY + gap)
+		end
+	end)
 
 	do
 		local frame = watermarkWindow.new("Frame")
@@ -962,7 +979,8 @@ table.insert(env.phantomInstances, phantom)
 env.configloaded = false
 
 fileApi:Write("cache/lastPlace", placeId, { force = true })
-if queueTeleport then
+if queueTeleport and not env.phantomTeleportQueued then
+	env.phantomTeleportQueued = true
 	pcall(queueTeleport, 'loadstring(readfile("Phantom/loader.lua"))()')
 end
 

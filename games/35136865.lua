@@ -2909,7 +2909,7 @@ runcode(function()
 end)
 
 runcode(function()
-    local pg  = lplr:WaitForChild("PlayerGui")
+    local pg  = lplr:FindFirstChild("PlayerGui")
 
     local HIDE_GUIS = {
         "KitPopupsGui",
@@ -3012,7 +3012,7 @@ runcode(function()
         end)
     end
 
-    GuiLibrary.Registry.utillityPanel.API.CreateOptionsButton({
+    GuiLibrary.Registry.renderPanel.API.CreateOptionsButton({
         Name = "UI Cleanup",
         Function = function(callback)
             if callback then
