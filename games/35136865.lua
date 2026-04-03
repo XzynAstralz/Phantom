@@ -2523,14 +2523,15 @@ runcode(function()
                             local root = char and char:FindFirstChild("HumanoidRootPart")
 
                             if char and hum and root and hum.Health > 0 then
+                                local head = char:FindFirstChild("Head")
                                 if not tags[plr] then
                                     local board = Instance.new("BillboardGui")
                                     board.Name = "NameTag"
                                     board.AlwaysOnTop = true
                                     board.MaxDistance = 9e9
                                     board.Size = UDim2.new(0, 160, 0, 52)
-                                    board.StudsOffset = Vector3.new(0, 3.1, 0)
-                                    board.Adornee = root
+                                    board.StudsOffsetWorldSpace = Vector3.new(0, 0.8, 0)
+                                    board.Adornee = head or root
                                     board.Parent = hidden and hidden() or game.CoreGui
 
                                     local bg = Instance.new("Frame")
@@ -2565,12 +2566,16 @@ runcode(function()
                                 end
 
                                 local entry = tags[plr]
-                                entry.board.Adornee = root
+                                entry.board.Adornee = head or root
 
                                 local tagW = math.floor(TagSize.Value * viewScale)
                                 local tagH = math.floor(TagSize.Value * 0.36 * viewScale)
                                 entry.board.Size = UDim2.new(0, tagW, 0, tagH)
-                                entry.board.StudsOffset = Vector3.new(0, 3.0 + (viewScale * 0.2), 0)
+                                local adornPos = (head or root).Position
+                                local camDist = math.max(1, (Camera.CFrame.Position - adornPos).Magnitude)
+                                local closeBoost = math.max(0, (12 - camDist) / 12) * 0.6
+                                entry.board.StudsOffsetWorldSpace = Vector3.new(0, 0.8 + closeBoost, 0)
+
                                 entry.label.TextSize = math.floor(10 * viewScale)
 
                                 local baseName
