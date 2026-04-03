@@ -2443,13 +2443,7 @@ runcode(function()
         local nameText = string.lower(tostring(itemName or ""))
         local invText = string.lower(tostring(invType or ""))
         local classText = string.lower(tostring(className or ""))
-        local meta = itemData and string.lower(
-            tostring(itemData.ItemType or "") .. " " ..
-            tostring(itemData.Class or "") .. " " ..
-            tostring(itemData.Category or "") .. " " ..
-            tostring(itemData.Type or "") .. " " ..
-            tostring(itemData.DisplayName or "")
-        ) or ""
+        local meta = itemData and string.lower(tostring(itemData.ItemType or "") .. " " .. tostring(itemData.Class or "") .. " " .. tostring(itemData.Category or "") .. " " .. tostring(itemData.Type or "") .. " " .. tostring(itemData.DisplayName or "")) or ""
 
         if classText ~= "" then
             meta = meta .. " " .. classText
@@ -2459,24 +2453,7 @@ runcode(function()
             return "armor", kinds.armor[classKey]
         end
 
-        local looksArmor = invKey == "armor"
-            or armorTypes[invKey]
-            or armorTypes[classKey]
-            or (itemData and itemData.Armor ~= nil)
-            or string.find(invText, "armor", 1, true)
-            or string.find(classText, "armor", 1, true)
-            or string.find(nameText, "armor", 1, true)
-            or string.find(nameText, "helmet", 1, true)
-            or string.find(nameText, "chestplate", 1, true)
-            or string.find(nameText, "leggings", 1, true)
-            or string.find(nameText, "boots", 1, true)
-            or string.find(nameText, "pants", 1, true)
-            or string.find(meta, "armor", 1, true)
-            or string.find(meta, "helmet", 1, true)
-            or string.find(meta, "chestplate", 1, true)
-            or string.find(meta, "leggings", 1, true)
-            or string.find(meta, "boots", 1, true)
-            or string.find(meta, "pants", 1, true)
+        local looksArmor = invKey == "armor" or armorTypes[invKey] or armorTypes[classKey] or (itemData and itemData.Armor ~= nil) or string.find(invText, "armor", 1, true) or string.find(classText, "armor", 1, true) or string.find(nameText, "armor", 1, true) or string.find(nameText, "helmet", 1, true) or string.find(nameText, "chestplate", 1, true) or string.find(nameText, "leggings", 1, true) or string.find(nameText, "boots", 1, true) or string.find(nameText, "pants", 1, true) or string.find(meta, "armor", 1, true) or string.find(meta, "helmet", 1, true) or string.find(meta, "chestplate", 1, true) or string.find(meta, "leggings", 1, true) or string.find(meta, "boots", 1, true) or string.find(meta, "pants", 1, true)
 
         if looksArmor then
             if key ~= "" then
@@ -2502,11 +2479,7 @@ runcode(function()
             return "armor", itemName
         end
 
-        if swords[itemName]
-            or string.find(invText, "sword", 1, true)
-            or string.find(classText, "sword", 1, true)
-            or string.find(nameText, "sword", 1, true)
-            or string.find(meta, "sword", 1, true)
+        if swords[itemName]or string.find(invText, "sword", 1, true) or string.find(classText, "sword", 1, true) or string.find(nameText, "sword", 1, true) or string.find(meta, "sword", 1, true)
         then
             return "sword", itemName
         end
