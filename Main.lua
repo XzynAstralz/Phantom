@@ -341,6 +341,25 @@ if UI.CreateHudConfig then
 	if hudEditor.AddSectionHeader then
 		hudEditor.AddSectionHeader("HUD")
 	end
+	if UI.IsMobile and hudEditor.AddSectionHeader then
+		hudEditor.AddSectionHeader("Mobile Buttons")
+	end
+	if UI.IsMobile and hudEditor.AddToggleRow then
+		local mobileButtonStyle = UI.GetMobileButtonStyle and UI.GetMobileButtonStyle() or {
+			Circle = false,
+			Outline = true,
+		}
+		hudEditor.AddToggleRow("mobile button circle", mobileButtonStyle.Circle == true, function(on)
+			if UI.SetMobileButtonStyle then
+				UI.SetMobileButtonStyle({ Circle = on })
+			end
+		end)
+		hudEditor.AddToggleRow("mobile button outline", mobileButtonStyle.Outline ~= false, function(on)
+			if UI.SetMobileButtonStyle then
+				UI.SetMobileButtonStyle({ Outline = on })
+			end
+		end)
+	end
 	if arrayListWidget and hudEditor.AddToggleRow then
 		hudEditor.AddToggleRow("show arraylist", false, function(on)
 			if arrayListWidget.SetVisible then

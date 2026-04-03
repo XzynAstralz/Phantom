@@ -140,7 +140,7 @@ local Runner       = cloneref(game:GetService("RunService"))
 local HttpService  = cloneref(game:GetService("HttpService"))
 local GuiService   = cloneref(game:GetService("GuiService"))
 
-local IS_MOBILE = UIS.TouchEnabled and not UIS.KeyboardEnabled
+local IS_MOBILE =  UIS.TouchEnabled and not UIS.MouseEnabled
 
 local TEXT_SIZE_SM = 10
 local TEXT_SIZE_MD = 11
@@ -196,6 +196,22 @@ local MobileUIState = readStoredJson(MOBILE_UI_FILE, {})
 MobileUIState.Buttons = type(MobileUIState.Buttons) == "table" and MobileUIState.Buttons or {}
 MobileUIState.Open = type(MobileUIState.Open) == "table" and MobileUIState.Open or {}
 MobileUIState.PresetBar = type(MobileUIState.PresetBar) == "table" and MobileUIState.PresetBar or {}
+MobileUIState.Style = type(MobileUIState.Style) == "table" and MobileUIState.Style or {}
+
+local function readMobileButtonStyle()
+    local style = MobileUIState.Style
+    if type(style) ~= "table" then
+        style = {}
+        MobileUIState.Style = style
+    end
+    if style.Circle == nil then
+        style.Circle = false
+    end
+    if style.Outline == nil then
+        style.Outline = true
+    end
+    return style
+end
 
 local function saveMobileUIState()
     writeStoredJson(MOBILE_UI_FILE, MobileUIState)
@@ -403,26 +419,44 @@ do
         if not bars or #bars == 0 then return end
         local s      = scale or 1
         local vp     = workspace.CurrentCamera.ViewportSize
+        if vp.X < 1 or vp.Y < 1 then return end
         local topOffset = getPanelTopOffset()
-        local autoBars = {}
+        local totalW = #bars * COL_W + (#bars - 1) * PANEL_GAP
+        local startX = math.max(6, math.floor((vp.X / s - totalW) / 2))
 
-        for _, bar in ipairs(bars) do
+        for i, bar in ipairs(bars) do
             if not getPanelManual(bar) then
-                autoBars[#autoBars + 1] = bar
+                local x = startX + (i - 1) * (COL_W + PANEL_GAP)
+                bar.Position = UDim2.new(0, x, 0, topOffset)
             end
         end
 
-        if #autoBars > 0 then
-            local totalW = #autoBars * COL_W + (#autoBars - 1) * PANEL_GAP
-            local startX = math.floor((vp.X / s - totalW) / 2)
-            for i, bar in ipairs(autoBars) do
-                applyPanelOffset(bar, startX + (i - 1) * (COL_W + PANEL_GAP), topOffset, s)
-            end
-        end
-
-        for _, bar in ipairs(bars) do
+        for i, bar in ipairs(bars) do
             if getPanelManual(bar) then
-                applyPanelOffset(bar, bar.Position.X.Offset, bar.Position.Y.Offset, s)
+                local rawX = bar.Position.X.Offset
+                local clampedX = select(1, clampPanelOffset(bar, rawX, topOffset, s))
+                if clampedX ~= rawX then
+                    setPanelManual(bar, false)
+                    local x = startX + (i - 1) * (COL_W + PANEL_GAP)
+                    bar.Position = UDim2.new(0, x, 0, topOffset)
+                else
+                    bar.Position = UDim2.new(0, clampedX, 0, topOffset)
+                end
+            end
+        end
+
+        for i = 1, #bars do
+            local bar = bars[i]
+            for j = 1, i - 1 do
+                local other = bars[j]
+                local overlapX = math.abs(bar.Position.X.Offset - other.Position.X.Offset) < (COL_W - 2)
+                local overlapY = math.abs(bar.Position.Y.Offset - other.Position.Y.Offset) < (HDR_H + 2)
+                if overlapX and overlapY then
+                    setPanelManual(bar, false)
+                    local x = startX + (i - 1) * (COL_W + PANEL_GAP)
+                    bar.Position = UDim2.new(0, x, 0, topOffset)
+                    break
+                end
             end
         end
     end
@@ -463,6 +497,7 @@ do
 
     function kit:rescale(scaler)
         local vp      = workspace.CurrentCamera.ViewportSize
+        if vp.X < 1 or vp.Y < 1 then return end
         local total   = math.max(Spectrum.PanelCount or 1, 1)
         local needed  = total * COL_W + math.max(total - 1, 0) * PANEL_GAP + 24
         local minScale = IS_MOBILE and 0.45 or 0.25
@@ -473,6 +508,12 @@ do
         local s       = Spectrum.canScale == false and 1 or natural
         scaler.Scale  = s
         kit:repositionPanels(s)
+    end
+
+    function kit:refreshPanelBodies()
+        for _, updater in ipairs(Spectrum.PanelUpdaters or {}) do
+            updater(false)
+        end
     end
 end
 
@@ -648,9 +689,21 @@ else
 end
 
 kit:rescale(Scaler)
-kit:track(workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(function()
-    kit:rescale(Scaler)
-end))
+do
+    local _vpDebounce = 0
+    kit:track(workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(function()
+        kit:rescale(Scaler)
+        kit:refreshPanelBodies()
+        _vpDebounce = _vpDebounce + 1
+        local tag = _vpDebounce
+        task.delay(0.15, function()
+            if tag == _vpDebounce then
+                kit:rescale(Scaler)
+                kit:refreshPanelBodies()
+            end
+        end)
+    end))
+end
 
 Spectrum.rescale  = function() kit:rescale(Scaler) end
 Spectrum.Scaler   = Scaler
@@ -662,6 +715,37 @@ Spectrum.ClickGUI  = Root
 Spectrum.ScreenGui = Screen
 Spectrum.toggleGui = Spectrum.toggle
 Spectrum.IsMobile  = IS_MOBILE
+
+local MobileButtonStyleSync = Hook.new()
+
+function Spectrum.GetMobileButtonStyle()
+    local style = readMobileButtonStyle()
+    return {
+        Circle = style.Circle == true,
+        Outline = style.Outline ~= false,
+    }
+end
+
+function Spectrum.SetMobileButtonStyle(style)
+    if type(style) ~= "table" then
+        return Spectrum.GetMobileButtonStyle()
+    end
+
+    local current = readMobileButtonStyle()
+    if style.Circle ~= nil then
+        current.Circle = style.Circle == true
+    end
+    if style.Outline ~= nil then
+        current.Outline = style.Outline == true
+    end
+
+    saveMobileUIState()
+    MobileButtonStyleSync:Emit()
+    if Spectrum.PaletteSync then
+        Spectrum.PaletteSync:Emit()
+    end
+    return Spectrum.GetMobileButtonStyle()
+end
 
 local function updateMobileGradient(button, gradient, stroke, accent)
     local y = 0
@@ -694,8 +778,13 @@ end
 
 local function getMobileButtonSize(text, primary)
     text = tostring(text or "")
+    local style = readMobileButtonStyle()
     local vp = getViewportSize()
     local height = math.clamp(math.floor(vp.Y * 0.065), primary and 42 or 48, primary and 52 or 62)
+    if style.Circle then
+        local diameter = math.clamp(math.floor(height + (#text * (primary and 1.8 or 2.2))), primary and 54 or 58, primary and 108 or 124)
+        return UDim2.new(0, diameter, 0, diameter)
+    end
     local width = math.clamp(math.floor(#text * (height * 0.45) + (primary and 48 or 60)), primary and 96 or 120, primary and 150 or 185)
     return UDim2.new(0, width, 0, height)
 end
@@ -711,19 +800,21 @@ local function styleFloatingButton(button, stateResolver)
     button.TextStrokeTransparency = 0.85
 
     local stroke = mkBorder(button, P.EDGE, 1, 0.08)
+    local corner = button:FindFirstChildWhichIsA("UICorner") or mkCorner(button, UDim.new(0, 10))
     local gradient = Instance.new("UIGradient")
     gradient.Parent = button
 
     local function apply()
         local enabled, accent = true, nil
+        local style = readMobileButtonStyle()
         if stateResolver then
             enabled, accent = stateResolver()
         end
-
+        corner.CornerRadius = style.Circle and UDim.new(1, 0) or UDim.new(0, 10)
         button.BackgroundTransparency = enabled == false and 0.28 or 0.08
         button.TextColor3 = enabled == false and P.INK_MID or P.INK_HI
         updateMobileGradient(button, gradient, stroke, accent or kit:activeColor())
-        stroke.Transparency = enabled == false and 0.18 or 0.04
+        stroke.Transparency = style.Outline == false and 1 or (enabled == false and 0.18 or 0.04)
     end
 
     apply()
@@ -742,6 +833,10 @@ local function attachFloatingButton(button, options)
     local origin
     local startScale
     local moved = false
+    local defaultTextSize = button.TextSize
+    local defaultTextScaled = button.TextScaled
+    local defaultTextWrapped = button.TextWrapped
+    local defaultTextTruncate = button.TextTruncate
 
     local function connect(signal, callback)
         local conn = signal:Connect(callback)
@@ -763,7 +858,22 @@ local function attachFloatingButton(button, options)
     end
 
     local function refreshSize()
-        button.Size = getMobileButtonSize(options and options.text or button.Text, options and options.primary == true)
+        local label = tostring((options and options.text) or button.Text or "")
+        local style = readMobileButtonStyle()
+
+        button.Text = label
+        if style.Circle then
+            button.TextScaled = true
+            button.TextWrapped = true
+            button.TextTruncate = Enum.TextTruncate.None
+        else
+            button.TextSize = defaultTextSize
+            button.TextScaled = defaultTextScaled
+            button.TextWrapped = defaultTextWrapped
+            button.TextTruncate = defaultTextTruncate
+        end
+
+        button.Size = getMobileButtonSize(label, options and options.primary == true)
         setFloatingButtonPosition(button, button.Position.X.Scale, button.Position.Y.Scale)
     end
 
@@ -825,6 +935,7 @@ local function attachFloatingButton(button, options)
     if camera then
         connect(camera:GetPropertyChangedSignal("ViewportSize"), refreshSize)
     end
+    table.insert(connections, MobileButtonStyleSync:Bind(refreshSize))
 
     return {
         RefreshSize = refreshSize,
@@ -1074,15 +1185,17 @@ Spectrum.saveTabPositions   = writeLayout
 Spectrum.TabPositions       = Spectrum.Layout
 
 local function makeBarDraggable(bar)
-    local dragging, origin, startOff = false
+    local dragging, moved, origin, startOff = false, false
     local activeType
+    local wasManual = false
     bar.InputBegan:Connect(function(input)
         if not isPrimaryPress(input.UserInputType) then return end
         dragging  = true
+        moved = false
         activeType = input.UserInputType
         origin    = Vector2.new(input.Position.X, input.Position.Y)
         startOff  = Vector2.new(bar.Position.X.Offset, bar.Position.Y.Offset)
-        setPanelManual(bar, true)
+        wasManual = getPanelManual(bar)
         playTween(bar, hoverTI, { BackgroundColor3 = P.BASE_HOV })
     end)
     UIS.InputEnded:Connect(function(input)
@@ -1094,8 +1207,12 @@ local function makeBarDraggable(bar)
         end
         dragging = false
         playTween(bar, hoverTI, { BackgroundColor3 = P.BASE2 })
-        applyPanelOffset(bar, bar.Position.X.Offset, bar.Position.Y.Offset)
-        writeLayout()
+        if moved then
+            applyPanelOffset(bar, bar.Position.X.Offset, getPanelTopOffset())
+            writeLayout()
+        else
+            setPanelManual(bar, wasManual)
+        end
     end)
     UIS.InputChanged:Connect(function(input)
         if not dragging then return end
@@ -1106,7 +1223,13 @@ local function makeBarDraggable(bar)
         end
         local s     = Scaler.Scale > 0 and Scaler.Scale or 1
         local delta = Vector2.new(input.Position.X, input.Position.Y) - origin
-        applyPanelOffset(bar, startOff.X + delta.X / s, startOff.Y + delta.Y / s, s)
+        if not moved and delta.Magnitude > 2 then
+            moved = true
+            setPanelManual(bar, true)
+        end
+        if moved then
+            applyPanelOffset(bar, startOff.X + delta.X / s, getPanelTopOffset(), s)
+        end
     end)
 end
 
@@ -1114,8 +1237,9 @@ function Spectrum.window(cfg)
     local panel  = { Open = true }
     local panelId = cfg.Name .. "Panel"
 
-    Spectrum.PanelCount = (Spectrum.PanelCount or 0) + 1
-    Spectrum.PanelBars  = Spectrum.PanelBars or {}
+    Spectrum.PanelCount    = (Spectrum.PanelCount or 0) + 1
+    Spectrum.PanelBars     = Spectrum.PanelBars or {}
+    Spectrum.PanelUpdaters = Spectrum.PanelUpdaters or {}
     kit:nextSlot()
 
     local Header = Instance.new("TextButton", Root)
@@ -1136,7 +1260,7 @@ function Spectrum.window(cfg)
     local saved = Spectrum.Layout[cfg.Name .. "Header"]
     setPanelManual(Header, saved and saved.Manual == true)
     if saved and getPanelManual(Header) then
-        applyPanelOffset(Header, saved.X, saved.Y, (Scaler.Scale > 0 and Scaler.Scale or 1))
+        applyPanelOffset(Header, saved.X, getPanelTopOffset(), (Scaler.Scale > 0 and Scaler.Scale or 1))
     else
         setPanelManual(Header, false)
         kit:rescale(Scaler)
@@ -1238,6 +1362,7 @@ function Spectrum.window(cfg)
     kit:track(Flow:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
         panel.Update(false)
     end))
+    table.insert(Spectrum.PanelUpdaters, panel.Update)
 
     function panel.SetOpen(open, instant)
         panel.Open = open == true
