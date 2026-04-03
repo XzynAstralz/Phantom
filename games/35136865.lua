@@ -2918,13 +2918,16 @@ runcode(function()
         "NotificationGui",
         "AchievementGui",
         "OfflineRewardsGui",
-        "UpdateLogGui",
         "GiftedKitGui",
         "PurchaseEffectGui",
         "PurchasingEffectGui2",
         "GroupVerificationGui",
         "ShiftlockDisplayGui",
         "DamageIndicatorGui",
+    }
+
+    local ALWAYS_HIDE_GUIS = {
+        "UpdateLogGui",
     }
 
     local HIDE_TOPBAR = { "UpdateLog", "Codes" }
@@ -2978,6 +2981,10 @@ runcode(function()
             local gui = pg:FindFirstChild(name)
             if gui and gui.Enabled then gui.Enabled = false end
         end
+        for _, name in ipairs(ALWAYS_HIDE_GUIS) do
+            local gui = pg:FindFirstChild(name)
+            if gui and gui.Enabled then gui.Enabled = false end
+        end
 
         local topbar = pg:FindFirstChild("TopbarButtonsGui")
         if topbar then
@@ -3024,6 +3031,10 @@ runcode(function()
                 for name, was in pairs(origEnabled) do
                     local gui = pg:FindFirstChild(name)
                     if gui then gui.Enabled = was end
+                end
+                for _, name in ipairs(ALWAYS_HIDE_GUIS) do
+                    local gui = pg:FindFirstChild(name)
+                    if gui then gui.Enabled = false end
                 end
                 origEnabled = {}
                 local topbar = pg:FindFirstChild("TopbarButtonsGui")
