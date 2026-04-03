@@ -54,7 +54,6 @@ end
 local bedfight = {
     remotes = {
         EquipTool = ReplicatedStorage.Remotes.ItemsRemotes.EquipTool,
-        MineBlock = ReplicatedStorage.Remotes.ItemsRemotes.MineBlock,
         SwordHit = ReplicatedStorage.Remotes.ItemsRemotes.SwordHit,
         ShootProjectile = ReplicatedStorage.Remotes.ItemsRemotes.ShootProjectile,
         PutItemInChest = ReplicatedStorage.Remotes.PutItemInChest,
