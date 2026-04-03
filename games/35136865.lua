@@ -2408,6 +2408,7 @@ runcode(function()
     local fallback = "rbxassetid://130674868309232"
     local swords = bedfight.modules.SwordsData or {}
     local NameTagGui
+    local textBoundsCache = {}
 
     local iconMap = {}
     local kinds = {armor = {}, sword = {}}
@@ -2508,11 +2509,9 @@ runcode(function()
                 if kinds.armor[key] then
                     return "armor", kinds.armor[key]
                 end
-
                 if classKey ~= "" and kinds.armor[classKey] then
                     return "armor", kinds.armor[classKey]
                 end
-
                 for matchKey, realName in pairs(kinds.armor) do
                     if string.find(matchKey, key, 1, true) or string.find(key, matchKey, 1, true) then
                         return "armor", realName
@@ -2522,7 +2521,6 @@ runcode(function()
                     end
                 end
             end
-
             return "armor", itemName
         end
 
@@ -2587,7 +2585,14 @@ runcode(function()
     end
 
     local function getTextBounds(text, textSize, font)
-        return TextService:GetTextSize(text, textSize, font, Vector2.new(100000, 100000))
+        local key = text .. "|" .. tostring(textSize) .. "|" .. tostring(font)
+        local cached = textBoundsCache[key]
+        if cached then
+            return cached
+        end
+        local bounds = TextService:GetTextSize(text, textSize, font, Vector2.new(100000, 100000))
+        textBoundsCache[key] = bounds
+        return bounds
     end
 
     local function applyTextLayout(entry, text, textSize, font, baseTagW, baseTagH, hasIcons)
@@ -2596,25 +2601,28 @@ runcode(function()
         local iconBandH = hasIcons and math.max(16, math.floor(baseTagH * 0.42)) or 0
         local totalH = math.max(baseTagH, bounds.Y + iconBandH + 10)
 
-        entry.board.Size = UDim2.new(0, width, 0, totalH)
-        entry.bg.Size = UDim2.new(1, 0, 1, 0)
-
-        if hasIcons then
-            entry.icons.Visible = true
-            entry.icons.Size = UDim2.new(1, 0, 0, iconBandH)
-            entry.icons.Position = UDim2.new(0, 0, 0, 0)
-
-            entry.label.Position = UDim2.new(0, 4, 0, iconBandH - 1)
-            entry.label.Size = UDim2.new(1, -8, 1, -(iconBandH + 2))
-        else
-            entry.icons.Visible = false
-            entry.label.Position = UDim2.new(0, 4, 0, 0)
-            entry.label.Size = UDim2.new(1, -8, 1, 0)
+        if entry.cBoardW ~= width or entry.cBoardH ~= totalH then
+            entry.board.Size = UDim2.new(0, width, 0, totalH)
+            entry.bg.Size = UDim2.new(1, 0, 1, 0)
+            entry.cBoardW = width
+            entry.cBoardH = totalH
         end
 
-        entry.cBoardW = width
-        entry.cBoardH = totalH
-        entry.cIconBandH = iconBandH
+        if entry.cIconBandH ~= iconBandH then
+            if hasIcons then
+                entry.icons.Visible = true
+                entry.icons.Size = UDim2.new(1, 0, 0, iconBandH)
+                entry.icons.Position = UDim2.new(0, 0, 0, 0)
+
+                entry.label.Position = UDim2.new(0, 4, 0, iconBandH - 1)
+                entry.label.Size = UDim2.new(1, -8, 1, -(iconBandH + 2))
+            else
+                entry.icons.Visible = false
+                entry.label.Position = UDim2.new(0, 4, 0, 0)
+                entry.label.Size = UDim2.new(1, -8, 1, 0)
+            end
+            entry.cIconBandH = iconBandH
+        end
     end
 
     NameTags = GuiLibrary.Registry.renderPanel.API.CreateOptionsButton({
@@ -2728,20 +2736,10 @@ runcode(function()
                     end
                 end
 
-                table.insert(cleanupConns, Players.PlayerAdded:Connect(function(plr)
-                    if plr == lplr then return end
-                    table.insert(cleanupConns, plr.CharacterRemoving:Connect(function()
-                        clearTag(plr)
-                    end))
-                    table.insert(cleanupConns, plr.CharacterAdded:Connect(function()
-                        clearTag(plr)
-                    end))
-                end))
+                local infoTick = 0
 
-                local ntFrame = 0
-
-                RunLoops:BindToHeartbeat("NameTags", function()
-                    ntFrame = (ntFrame + 1) % 2
+                RunLoops:BindToHeartbeat("NameTags", function(dt)
+                    infoTick = infoTick + dt
 
                     local vp = Camera.ViewportSize
                     local viewScale = math.clamp((vp.Y / 1080), 0.82, 1.4)
@@ -2750,6 +2748,11 @@ runcode(function()
                     local textSz = math.max(7, math.floor(TextSize.Value * viewScale))
                     local targetFont = BoldText.Enabled and (weightFonts[FontWeight.Value] or Enum.Font.GothamBold) or Enum.Font.Gotham
                     local myRoot = lplr.Character and lplr.Character:FindFirstChild("HumanoidRootPart")
+                    local doInfoUpdate = infoTick >= 0.15
+
+                    if doInfoUpdate then
+                        infoTick = 0
+                    end
 
                     for _, plr in ipairs(Players:GetPlayers()) do
                         if plr ~= lplr then
@@ -2816,177 +2819,125 @@ runcode(function()
                                 tags[plr] = entry
                             end
 
-                            local hook = data.hooked[plr]
-                            if not hook then
-                                if not pending[plr] then
-                                    pending[plr] = true
-                                    task.spawn(function()
-                                        hookinv(plr)
-                                        pending[plr] = nil
-                                    end)
-                                end
-                            else
-                                pending[plr] = nil
-                            end
-
-                            local armorItems = {}
-                            local swordRef = {}
-
-                            if hook and hook.items then
-                                for _, itemEntry in ipairs(hook.items) do
-                                    local itemObj = itemEntry.item
-                                    _addItem(itemObj and itemObj.Name, itemEntry.inventory or itemEntry.class, itemEntry.class, armorItems, swordRef)
-                                end
-                            end
-
-                            local invFolder = (hook and hook.inv) or plr:FindFirstChild("Inventory")
-                            if invFolder then
-                                for _, child in ipairs(invFolder:GetChildren()) do
-                                    _addItem(child.Name, "Inventory", child:GetAttribute("Class"), armorItems, swordRef)
-                                end
-                            end
-
-                            for _, child in ipairs(char:GetChildren()) do
-                                local classAttr = child.GetAttribute and child:GetAttribute("Class")
-                                if classAttr then
-                                    _addItem(child.Name, tostring(classAttr), classAttr, armorItems, swordRef)
-                                end
-                                if child:IsA("Tool") then
-                                    _addItem(child.Name, "Equipped", nil, armorItems, swordRef)
-                                end
-                                if child:IsA("Accessory") or child:IsA("Model") then
-                                    _addItem(child.Name, "CharacterWorn", child.GetAttribute and child:GetAttribute("Class"), armorItems, swordRef)
-                                end
-                            end
-
-                            local items = {}
-                            for _, slotName in ipairs({"helmet", "chestplate", "leggings", "boots"}) do
-                                local info = armorItems[slotName]
-                                if info then
-                                    table.insert(items, {name = info.name, image = info.image})
-                                end
-                            end
-
-                            local extras = {}
-                            for _, info in pairs(armorItems) do
-                                if not info.slot then
-                                    table.insert(extras, info)
-                                end
-                            end
-                            table.sort(extras, function(a, b)
-                                return a.name < b.name
-                            end)
-                            for _, info in ipairs(extras) do
-                                if #items >= 4 then break end
-                                table.insert(items, {name = info.name, image = info.image})
-                            end
-                            if swordRef[1] then
-                                table.insert(items, {name = swordRef[1].name, image = swordRef[1].image})
-                            end
-
-                            local baseName
-                            if ShowUsername.Enabled and not ShowDisplayName.Enabled then
-                                baseName = plr.Name
-                            else
-                                baseName = plr.DisplayName ~= "" and plr.DisplayName or plr.Name
-                            end
-
-                            local text = string.upper(baseName)
-
-                            if ShowDistance.Enabled and myRoot then
-                                local dist = math.floor((myRoot.Position - root.Position).Magnitude)
-                                if ShowBrackets.Enabled then
-                                    text = "[" .. dist .. "] " .. text
+                            if doInfoUpdate then
+                                local hook = data.hooked[plr]
+                                if not hook then
+                                    if not pending[plr] then
+                                        pending[plr] = true
+                                        task.spawn(function()
+                                            hookinv(plr)
+                                            pending[plr] = nil
+                                        end)
+                                    end
                                 else
-                                    text = dist .. " " .. text
+                                    pending[plr] = nil
                                 end
-                            end
 
-                            if ShowHealth.Enabled then
-                                local hp = math.floor(hum.Health)
-                                if ShowBrackets.Enabled then
-                                    text = text .. " [" .. hp .. "]"
+                                local armorItems = {}
+                                local swordRef = {}
+
+                                if hook and hook.items then
+                                    for _, itemEntry in ipairs(hook.items) do
+                                        local itemObj = itemEntry.item
+                                        _addItem(itemObj and itemObj.Name, itemEntry.inventory or itemEntry.class, itemEntry.class, armorItems, swordRef)
+                                    end
+                                end
+
+                                local baseName
+                                if ShowUsername.Enabled and not ShowDisplayName.Enabled then
+                                    baseName = plr.Name
                                 else
-                                    text = text .. " " .. hp
-                                end
-                            end
-
-                            local color = (TeamColor.Enabled and plr.Team and plr.Team.TeamColor.Color) or Color3.new(1, 1, 1)
-                            local hasIcons = #items > 0
-
-                            if entry.cText ~= text then
-                                entry.cText = text
-                                entry.label.Text = text
-                            end
-                            if entry.cFont ~= targetFont then
-                                entry.cFont = targetFont
-                                entry.label.Font = targetFont
-                            end
-                            if entry.cTextSz ~= textSz then
-                                entry.cTextSz = textSz
-                                entry.label.TextSize = textSz
-                            end
-                            if entry.cColor ~= color then
-                                entry.cColor = color
-                                entry.label.TextColor3 = color
-                            end
-
-                            local bgEnabled = IconBackground.Enabled
-                            local sepEnabled = SeparateBackground.Enabled
-                            local rndEnabled = RoundedCorners.Enabled
-
-                            local parts = {}
-                            for _, info in ipairs(items) do
-                                table.insert(parts, info.name)
-                            end
-
-                            local iconSig = table.concat(parts, "|")
-                                .. "|bg=" .. tostring(bgEnabled)
-                                .. "|sep=" .. tostring(sepEnabled)
-                                .. "|rnd=" .. tostring(rndEnabled)
-                                .. "|w=" .. tostring(baseTagW)
-                                .. "|h=" .. tostring(baseTagH)
-                                .. "|ts=" .. tostring(textSz)
-
-                            if entry.sig ~= iconSig then
-                                entry.sig = iconSig
-
-                                for _, iconChild in ipairs(entry.icons:GetChildren()) do
-                                    iconChild:Destroy()
+                                    baseName = plr.DisplayName ~= "" and plr.DisplayName or plr.Name
                                 end
 
-                                if hasIcons then
-                                    local iconBandH = math.max(16, math.floor(baseTagH * 0.42))
-                                    local iconPx = math.max(12, math.floor(iconBandH * 0.78))
-                                    local totalIconW = #items * iconPx + math.max(0, #items - 1) * 2
-                                    local startX = math.floor((math.max(baseTagW, 1) - totalIconW) / 2)
+                                local text = string.upper(baseName)
 
-                                    if bgEnabled and not sepEnabled then
-                                        local holder = Instance.new("Frame")
-                                        holder.Name = "SharedIconBG"
-                                        holder.AnchorPoint = Vector2.new(0.5, 0)
-                                        holder.Position = UDim2.new(0.5, 0, 0, 1)
-                                        holder.Size = UDim2.new(0, totalIconW + 8, 0, iconPx + 4)
-                                        holder.BackgroundColor3 = Color3.new(0, 0, 0)
-                                        holder.BackgroundTransparency = 0.35
-                                        holder.BorderSizePixel = 0
-                                        holder.Parent = entry.icons
+                                if ShowDistance.Enabled and myRoot then
+                                    local dist = math.floor((myRoot.Position - root.Position).Magnitude)
+                                    if ShowBrackets.Enabled then
+                                        text = "[" .. dist .. "] " .. text
+                                    else
+                                        text = dist .. " " .. text
+                                    end
+                                end
 
-                                        if rndEnabled then
-                                            local corner = Instance.new("UICorner")
-                                            corner.CornerRadius = UDim.new(0, 4)
-                                            corner.Parent = holder
-                                        end
+                                if ShowHealth.Enabled then
+                                    local hp = math.floor(hum.Health)
+                                    if ShowBrackets.Enabled then
+                                        text = text .. " [" .. hp .. "]"
+                                    else
+                                        text = text .. " " .. hp
+                                    end
+                                end
+
+                                local color = (TeamColor.Enabled and plr.Team and plr.Team.TeamColor.Color) or Color3.new(1, 1, 1)
+
+                                local items = {}
+                                for _, slotName in ipairs({"helmet", "chestplate", "leggings", "boots"}) do
+                                    local info = armorItems[slotName]
+                                    if info then
+                                        table.insert(items, {name = info.name, image = info.image})
+                                    end
+                                end
+                                if swordRef[1] then
+                                    table.insert(items, {name = swordRef[1].name, image = swordRef[1].image})
+                                end
+
+                                local hasIcons = #items > 0
+
+                                if entry.cText ~= text then
+                                    entry.cText = text
+                                    entry.label.Text = text
+                                end
+                                if entry.cFont ~= targetFont then
+                                    entry.cFont = targetFont
+                                    entry.label.Font = targetFont
+                                end
+                                if entry.cTextSz ~= textSz then
+                                    entry.cTextSz = textSz
+                                    entry.label.TextSize = textSz
+                                end
+                                if entry.cColor ~= color then
+                                    entry.cColor = color
+                                    entry.label.TextColor3 = color
+                                end
+
+                                local bgEnabled = IconBackground.Enabled
+                                local sepEnabled = SeparateBackground.Enabled
+                                local rndEnabled = RoundedCorners.Enabled
+
+                                local parts = {}
+                                for _, info in ipairs(items) do
+                                    table.insert(parts, info.name)
+                                end
+
+                                local iconSig = table.concat(parts, "|")
+                                    .. "|bg=" .. tostring(bgEnabled)
+                                    .. "|sep=" .. tostring(sepEnabled)
+                                    .. "|rnd=" .. tostring(rndEnabled)
+                                    .. "|w=" .. tostring(baseTagW)
+                                    .. "|h=" .. tostring(baseTagH)
+                                    .. "|ts=" .. tostring(textSz)
+
+                                if entry.sig ~= iconSig then
+                                    entry.sig = iconSig
+
+                                    for _, iconChild in ipairs(entry.icons:GetChildren()) do
+                                        iconChild:Destroy()
                                     end
 
-                                    for i, info in ipairs(items) do
-                                        local x = startX + ((i - 1) * (iconPx + 2))
+                                    if hasIcons then
+                                        local iconBandH = math.max(16, math.floor(baseTagH * 0.42))
+                                        local iconPx = math.max(12, math.floor(iconBandH * 0.78))
+                                        local totalIconW = #items * iconPx + math.max(0, #items - 1) * 2
+                                        local startX = math.floor((math.max(baseTagW, 1) - totalIconW) / 2)
 
-                                        if bgEnabled and sepEnabled then
+                                        if bgEnabled and not sepEnabled then
                                             local holder = Instance.new("Frame")
-                                            holder.Name = "IconBG_" .. i
-                                            holder.Position = UDim2.new(0, x - 2, 0, 1)
-                                            holder.Size = UDim2.new(0, iconPx + 4, 0, iconPx + 4)
+                                            holder.Name = "SharedIconBG"
+                                            holder.AnchorPoint = Vector2.new(0.5, 0)
+                                            holder.Position = UDim2.new(0.5, 0, 0, 1)
+                                            holder.Size = UDim2.new(0, totalIconW + 8, 0, iconPx + 4)
                                             holder.BackgroundColor3 = Color3.new(0, 0, 0)
                                             holder.BackgroundTransparency = 0.35
                                             holder.BorderSizePixel = 0
@@ -2999,23 +2950,43 @@ runcode(function()
                                             end
                                         end
 
-                                        local icon = Instance.new("ImageLabel")
-                                        icon.Name = "Icon_" .. i
-                                        icon.BackgroundTransparency = 1
-                                        icon.BorderSizePixel = 0
-                                        icon.Position = UDim2.new(0, x, 0, 3)
-                                        icon.Size = UDim2.new(0, iconPx, 0, iconPx)
-                                        icon.Image = info.image or fallback
-                                        icon.Parent = entry.icons
+                                        for i, info in ipairs(items) do
+                                            local x = startX + ((i - 1) * (iconPx + 2))
+
+                                            if bgEnabled and sepEnabled then
+                                                local holder = Instance.new("Frame")
+                                                holder.Name = "IconBG_" .. i
+                                                holder.Position = UDim2.new(0, x - 2, 0, 1)
+                                                holder.Size = UDim2.new(0, iconPx + 4, 0, iconPx + 4)
+                                                holder.BackgroundColor3 = Color3.new(0, 0, 0)
+                                                holder.BackgroundTransparency = 0.35
+                                                holder.BorderSizePixel = 0
+                                                holder.Parent = entry.icons
+
+                                                if rndEnabled then
+                                                    local corner = Instance.new("UICorner")
+                                                    corner.CornerRadius = UDim.new(0, 4)
+                                                    corner.Parent = holder
+                                                end
+                                            end
+
+                                            local icon = Instance.new("ImageLabel")
+                                            icon.Name = "Icon_" .. i
+                                            icon.BackgroundTransparency = 1
+                                            icon.BorderSizePixel = 0
+                                            icon.Position = UDim2.new(0, x, 0, 3)
+                                            icon.Size = UDim2.new(0, iconPx, 0, iconPx)
+                                            icon.Image = info.image or fallback
+                                            icon.Parent = entry.icons
+                                        end
                                     end
                                 end
-                            end
 
-                            applyTextLayout(entry, text, textSz, targetFont, baseTagW, baseTagH, hasIcons)
+                                applyTextLayout(entry, text, textSz, targetFont, baseTagW, baseTagH, hasIcons)
+                            end
 
                             local tagPos, onScreen = Camera:WorldToViewportPoint(root.Position + Vector3.new(0, hum.HipHeight + 1, 0))
                             entry.board.Visible = onScreen and tagPos.Z > 0
-
                             if entry.board.Visible then
                                 entry.board.Position = UDim2.fromOffset(tagPos.X, tagPos.Y)
                             end
