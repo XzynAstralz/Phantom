@@ -1478,7 +1478,7 @@ runcode(function()
         Name = "duration",
         Min = 0.1,
         Max = 2,
-        Default = 0.3,
+        Default = 0.23,
         Round = 1
     })
     LongFlySlopeAngle = LongFly.CreateSlider({
@@ -2387,6 +2387,12 @@ runcode(function()
     local TeamColor = {}
     local ShowDistance = {}
     local TagSize = {}
+    local TextSize = {}
+    local BoldText = {}
+    local FontWeight = {}
+    local IconBackground = {}
+    local RoundedCorners = {}
+    local SeparateBackground = {}
     local ShowDisplayName = {}
     local ShowUsername = {}
     local ShowArmorIcons = {}
@@ -2398,13 +2404,28 @@ runcode(function()
     local pending = {}
     local fallback = "rbxassetid://130674868309232"
     local swords = bedfight.modules.SwordsData or {}
+    local NameTagGui
 
     local iconMap = {}
-    local kinds = {armor = {},sword = {}}
+    local kinds = {armor = {}, sword = {}}
     local armorTypes = {}
 
     local function norm(value)
         return string.gsub(string.lower(tostring(value or "")), "[^%w]", "")
+    end
+
+    local function getNameTagGui()
+        if NameTagGui and NameTagGui.Parent then
+            return NameTagGui
+        end
+
+        NameTagGui = Instance.new("ScreenGui")
+        NameTagGui.Name = "PhantomNameTags"
+        NameTagGui.ResetOnSpawn = false
+        NameTagGui.IgnoreGuiInset = true
+        NameTagGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+        NameTagGui.Parent = hidden and hidden() or game.CoreGui
+        return NameTagGui
     end
 
     for itemName, itemData in pairs(bedfight.modules.ItemsData) do
@@ -2443,7 +2464,13 @@ runcode(function()
         local nameText = string.lower(tostring(itemName or ""))
         local invText = string.lower(tostring(invType or ""))
         local classText = string.lower(tostring(className or ""))
-        local meta = itemData and string.lower(tostring(itemData.ItemType or "") .. " " .. tostring(itemData.Class or "") .. " " .. tostring(itemData.Category or "") .. " " .. tostring(itemData.Type or "") .. " " .. tostring(itemData.DisplayName or "")) or ""
+        local meta = itemData and string.lower(
+            tostring(itemData.ItemType or "") .. " " ..
+            tostring(itemData.Class or "") .. " " ..
+            tostring(itemData.Category or "") .. " " ..
+            tostring(itemData.Type or "") .. " " ..
+            tostring(itemData.DisplayName or "")
+        ) or ""
 
         if classText ~= "" then
             meta = meta .. " " .. classText
@@ -2453,7 +2480,25 @@ runcode(function()
             return "armor", kinds.armor[classKey]
         end
 
-        local looksArmor = invKey == "armor" or armorTypes[invKey] or armorTypes[classKey] or (itemData and itemData.Armor ~= nil) or string.find(invText, "armor", 1, true) or string.find(classText, "armor", 1, true) or string.find(nameText, "armor", 1, true) or string.find(nameText, "helmet", 1, true) or string.find(nameText, "chestplate", 1, true) or string.find(nameText, "leggings", 1, true) or string.find(nameText, "boots", 1, true) or string.find(nameText, "pants", 1, true) or string.find(meta, "armor", 1, true) or string.find(meta, "helmet", 1, true) or string.find(meta, "chestplate", 1, true) or string.find(meta, "leggings", 1, true) or string.find(meta, "boots", 1, true) or string.find(meta, "pants", 1, true)
+        local looksArmor =
+            invKey == "armor"
+            or armorTypes[invKey]
+            or armorTypes[classKey]
+            or (itemData and itemData.Armor ~= nil)
+            or string.find(invText, "armor", 1, true)
+            or string.find(classText, "armor", 1, true)
+            or string.find(nameText, "armor", 1, true)
+            or string.find(nameText, "helmet", 1, true)
+            or string.find(nameText, "chestplate", 1, true)
+            or string.find(nameText, "leggings", 1, true)
+            or string.find(nameText, "boots", 1, true)
+            or string.find(nameText, "pants", 1, true)
+            or string.find(meta, "armor", 1, true)
+            or string.find(meta, "helmet", 1, true)
+            or string.find(meta, "chestplate", 1, true)
+            or string.find(meta, "leggings", 1, true)
+            or string.find(meta, "boots", 1, true)
+            or string.find(meta, "pants", 1, true)
 
         if looksArmor then
             if key ~= "" then
@@ -2469,7 +2514,6 @@ runcode(function()
                     if string.find(matchKey, key, 1, true) or string.find(key, matchKey, 1, true) then
                         return "armor", realName
                     end
-
                     if classKey ~= "" and (string.find(matchKey, classKey, 1, true) or string.find(classKey, matchKey, 1, true)) then
                         return "armor", realName
                     end
@@ -2479,7 +2523,11 @@ runcode(function()
             return "armor", itemName
         end
 
-        if swords[itemName]or string.find(invText, "sword", 1, true) or string.find(classText, "sword", 1, true) or string.find(nameText, "sword", 1, true) or string.find(meta, "sword", 1, true)
+        if swords[itemName]
+            or string.find(invText, "sword", 1, true)
+            or string.find(classText, "sword", 1, true)
+            or string.find(nameText, "sword", 1, true)
+            or string.find(meta, "sword", 1, true)
         then
             return "sword", itemName
         end
@@ -2500,21 +2548,131 @@ runcode(function()
     local function clearTag(plr)
         local tag = tags[plr]
         if not tag then return end
-
         if tag.board then
             tag.board:Destroy()
         end
-
         tags[plr] = nil
+    end
+
+    local function updateSubVis()
+        local showIcons = ShowArmorIcons.Enabled or ShowSwordIcons.Enabled
+        if RoundedCorners.Instance then
+            RoundedCorners.Instance.Visible = showIcons and IconBackground.Enabled
+        end
+        if SeparateBackground.Instance then
+            SeparateBackground.Instance.Visible = showIcons and IconBackground.Enabled
+        end
+        if IconBackground.Instance then
+            IconBackground.Instance.Visible = showIcons
+        end
     end
 
     NameTags = GuiLibrary.Registry.renderPanel.API.CreateOptionsButton({
         Name = "NameTags",
         Function = function(callback)
             if callback then
+                getNameTagGui()
+
+                local weightFonts = {
+                    Semibold = Enum.Font.GothamSemibold,
+                    Bold = Enum.Font.GothamBold,
+                    Black = Enum.Font.GothamBlack,
+                }
+
+                local function _getArmorSlot(itemName, itemData, className)
+                    local t = string.lower(
+                        tostring(itemName or "") .. " " ..
+                        tostring(className or "") .. " " ..
+                        tostring(itemData and itemData.Class or "") .. " " ..
+                        tostring(itemData and itemData.Category or "") .. " " ..
+                        tostring(itemData and itemData.Type or "") .. " " ..
+                        tostring(itemData and itemData.DisplayName or "")
+                    )
+                    if string.find(t, "helmet", 1, true) or string.find(t, "head", 1, true) then return "helmet" end
+                    if string.find(t, "chestplate", 1, true) or string.find(t, "chest", 1, true) or string.find(t, "body", 1, true) then return "chestplate" end
+                    if string.find(t, "leggings", 1, true) or string.find(t, "pants", 1, true) or string.find(t, "legs", 1, true) then return "leggings" end
+                    if string.find(t, "boots", 1, true) or string.find(t, "shoes", 1, true) or string.find(t, "feet", 1, true) then return "boots" end
+                end
+
+                local function _getPriority(invType, className)
+                    local invText = string.lower(tostring(invType or ""))
+                    local classKey = norm(className)
+                    if invText == "armor" then return 5 end
+                    if armorTypes[classKey] then return 4 end
+                    if invText == "characterworn" then return 3 end
+                    if invText == "equipped" then return 2 end
+                    return 1
+                end
+
+                local function _addItem(itemName, invType, className, armorItems, swordRef)
+                    if not itemName or itemName == "" then return end
+
+                    local classItem = tostring(className or "")
+                    local itemData = bedfight.modules.ItemsData[itemName] or bedfight.modules.ItemsData[classItem]
+                    local kind, realName = getKind(itemName, invType, itemData, className)
+                    if not kind then return end
+                    if (kind == "sword" and not ShowSwordIcons.Enabled) or (kind == "armor" and not ShowArmorIcons.Enabled) then return end
+
+                    local name = realName or itemName
+                    if kind == "armor" and not realName and classItem ~= "" and bedfight.modules.ItemsData[classItem] then
+                        name = classItem
+                    end
+
+                    local idata = bedfight.modules.ItemsData[name] or bedfight.modules.ItemsData[classItem] or itemData
+                    local image = fallback
+
+                    if idata and idata.Image then
+                        image = idata.Image
+                    else
+                        for _, searchName in ipairs({name, classItem}) do
+                            if searchName ~= "" then
+                                local lower = string.lower(searchName)
+                                if iconMap[lower] then
+                                    image = iconMap[lower]
+                                    break
+                                end
+                                local key = norm(searchName)
+                                for iconName, icon in pairs(iconMap) do
+                                    local iconKey = norm(iconName)
+                                    if iconKey == key or string.find(iconKey, key, 1, true) or string.find(key, iconKey, 1, true) then
+                                        image = icon
+                                        break
+                                    end
+                                end
+                                if image ~= fallback then break end
+                            end
+                        end
+                    end
+
+                    local priority = _getPriority(invType, className)
+
+                    if kind == "sword" then
+                        if not swordRef[1] or priority > swordRef[1].priority then
+                            swordRef[1] = {name = name, image = image, priority = priority}
+                        end
+                        return
+                    end
+
+                    local slot = _getArmorSlot(name, idata, className) or _getArmorSlot(itemName, itemData, className)
+                    local key = slot or name
+                    local current = armorItems[key]
+                    if not current or priority > current.priority then
+                        armorItems[key] = {slot = slot, name = name, image = image, priority = priority}
+                    end
+                end
+
+                local ntFrame = 0
+
                 RunLoops:BindToHeartbeat("NameTags", function()
+                    ntFrame = (ntFrame + 1) % 4
+
+                    local vp = Camera.ViewportSize
+                    local viewScale = math.clamp((vp.Y / 1080), 0.82, 1.4)
+                    local tagW = math.floor(TagSize.Value * viewScale)
+                    local tagH = math.floor(TagSize.Value * 0.46 * viewScale)
+                    local textSz = math.floor(TextSize.Value * viewScale)
+                    local targetFont = BoldText.Enabled and (weightFonts[FontWeight.Value] or Enum.Font.GothamBold) or Enum.Font.Gotham
                     local myRoot = lplr.Character and lplr.Character:FindFirstChild("HumanoidRootPart")
-                    local viewScale = math.clamp((Camera.ViewportSize.Y / 1080), 0.82, 1.4)
 
                     for _, plr in ipairs(Players:GetPlayers()) do
                         if plr ~= lplr then
@@ -2523,29 +2681,31 @@ runcode(function()
                             local root = char and char:FindFirstChild("HumanoidRootPart")
 
                             if char and hum and root and hum.Health > 0 then
-                                local head = char:FindFirstChild("Head")
-                                if not tags[plr] then
-                                    local board = Instance.new("BillboardGui")
+                                local entry = tags[plr]
+
+                                if not entry then
+                                    local board = Instance.new("Frame")
                                     board.Name = "NameTag"
-                                    board.AlwaysOnTop = true
-                                    board.MaxDistance = 9e9
-                                    board.Size = UDim2.new(0, 160, 0, 52)
-                                    board.StudsOffsetWorldSpace = Vector3.new(0, 0.8, 0)
-                                    board.Adornee = head or root
-                                    board.Parent = hidden and hidden() or game.CoreGui
+                                    board.AnchorPoint = Vector2.new(0.5, 1)
+                                    board.BackgroundTransparency = 1
+                                    board.BorderSizePixel = 0
+                                    board.Visible = false
+                                    board.Size = UDim2.new(0, tagW, 0, tagH)
+                                    board.Parent = getNameTagGui()
 
                                     local bg = Instance.new("Frame")
                                     bg.Name = "BG"
                                     bg.BackgroundColor3 = Color3.new(0, 0, 0)
                                     bg.BackgroundTransparency = 1
                                     bg.Size = UDim2.new(1, 0, 1, 0)
+                                    bg.BorderSizePixel = 0
                                     bg.Parent = board
 
                                     local label = Instance.new("TextLabel")
                                     label.Name = "Label"
                                     label.BackgroundTransparency = 1
-                                    label.Size = UDim2.new(1, -4, 0.52, 0)
-                                    label.Position = UDim2.new(0, 2, 0.48, 0)
+                                    label.Size = UDim2.new(1, -4, 0.64, 0)
+                                    label.Position = UDim2.new(0, 2, 0.36, 0)
                                     label.TextXAlignment = Enum.TextXAlignment.Center
                                     label.TextYAlignment = Enum.TextYAlignment.Center
                                     label.Font = Enum.Font.GothamSemibold
@@ -2558,54 +2718,92 @@ runcode(function()
                                     local iconFrame = Instance.new("Frame")
                                     iconFrame.Name = "ArmorIcons"
                                     iconFrame.BackgroundTransparency = 1
-                                    iconFrame.Size = UDim2.new(1, -6, 0.48, 0)
-                                    iconFrame.Position = UDim2.new(0, 3, 0, 0)
+                                    iconFrame.Size = UDim2.new(1, 0, 0.36, 0)
+                                    iconFrame.Position = UDim2.new(0, 0, 0, 0)
                                     iconFrame.Parent = bg
 
-                                    tags[plr] = {board = board,label = label,icons = iconFrame,sig = ""}
+                                    entry = {
+                                        board = board,
+                                        bg = bg,
+                                        label = label,
+                                        icons = iconFrame,
+                                        sig = "",
+                                        cChar = char,
+                                        cTagW = tagW,
+                                        cTagH = tagH,
+                                        cFont = nil,
+                                        cTextSz = nil,
+                                        cText = nil,
+                                        cColor = nil,
+                                    }
+                                    tags[plr] = entry
                                 end
 
-                                local entry = tags[plr]
-                                entry.board.Adornee = head or root
-
-                                local tagW = math.floor(TagSize.Value * viewScale)
-                                local tagH = math.floor(TagSize.Value * 0.36 * viewScale)
-                                entry.board.Size = UDim2.new(0, tagW, 0, tagH)
-                                local adornPos = (head or root).Position
-                                local camDist = math.max(1, (Camera.CFrame.Position - adornPos).Magnitude)
-                                local closeBoost = math.max(0, (12 - camDist) / 12) * 0.6
-                                entry.board.StudsOffsetWorldSpace = Vector3.new(0, 0.8 + closeBoost, 0)
-
-                                entry.label.TextSize = math.floor(10 * viewScale)
-
-                                local baseName
-                                if ShowUsername.Enabled and not ShowDisplayName.Enabled then
-                                    baseName = plr.Name
-                                else
-                                    baseName = plr.DisplayName ~= "" and plr.DisplayName or plr.Name
+                                if entry.cChar ~= char then
+                                    entry.cChar = char
+                                    entry.sig = ""
                                 end
 
-                                local text = string.upper(baseName)
-                                if ShowDistance.Enabled and myRoot then
-                                    local dist = math.floor((myRoot.Position - root.Position).Magnitude)
-                                    if ShowBrackets.Enabled then
-                                        text = "[" .. dist .. "] " .. text
+                                if entry.cTagW ~= tagW or entry.cTagH ~= tagH then
+                                    entry.cTagW = tagW
+                                    entry.cTagH = tagH
+                                    entry.board.Size = UDim2.new(0, tagW, 0, tagH)
+                                end
+
+                                local tagPos, onScreen = Camera:WorldToViewportPoint(root.Position + Vector3.new(0, hum.HipHeight + 1, 0))
+                                entry.board.Visible = onScreen and tagPos.Z > 0
+
+                                if entry.board.Visible then
+                                    entry.board.Position = UDim2.fromOffset(tagPos.X, tagPos.Y)
+                                end
+
+                                if ntFrame == 0 then
+                                    local baseName
+                                    if ShowUsername.Enabled and not ShowDisplayName.Enabled then
+                                        baseName = plr.Name
                                     else
-                                        text = dist .. " " .. text
+                                        baseName = plr.DisplayName ~= "" and plr.DisplayName or plr.Name
+                                    end
+
+                                    local text = string.upper(baseName)
+
+                                    if ShowDistance.Enabled and myRoot then
+                                        local dist = math.floor((myRoot.Position - root.Position).Magnitude)
+                                        if ShowBrackets.Enabled then
+                                            text = "[" .. dist .. "] " .. text
+                                        else
+                                            text = dist .. " " .. text
+                                        end
+                                    end
+
+                                    if ShowHealth.Enabled then
+                                        local hp = math.floor(hum.Health)
+                                        if ShowBrackets.Enabled then
+                                            text = text .. " [" .. hp .. "]"
+                                        else
+                                            text = text .. " " .. hp
+                                        end
+                                    end
+
+                                    local color = (TeamColor.Enabled and plr.Team and plr.Team.TeamColor.Color) or Color3.new(1, 1, 1)
+
+                                    if entry.cText ~= text then
+                                        entry.cText = text
+                                        entry.label.Text = text
+                                    end
+                                    if entry.cFont ~= targetFont then
+                                        entry.cFont = targetFont
+                                        entry.label.Font = targetFont
+                                    end
+                                    if entry.cTextSz ~= textSz then
+                                        entry.cTextSz = textSz
+                                        entry.label.TextSize = textSz
+                                    end
+                                    if entry.cColor ~= color then
+                                        entry.cColor = color
+                                        entry.label.TextColor3 = color
                                     end
                                 end
-
-                                if ShowHealth.Enabled then
-                                    local hp = math.floor(hum.Health)
-                                    if ShowBrackets.Enabled then
-                                        text = text .. " [" .. hp .. "]"
-                                    else
-                                        text = text .. " " .. hp
-                                    end
-                                end
-
-                                entry.label.Text = text
-                                entry.label.TextColor3 = (TeamColor.Enabled and plr.Team and plr.Team.TeamColor.Color) or Color3.new(1, 1, 1)
 
                                 local hook = data.hooked[plr]
                                 if not hook then
@@ -2620,269 +2818,171 @@ runcode(function()
                                     pending[plr] = nil
                                 end
 
-                                local armorItems = {}
-                                local swordItem
+                                if ntFrame == 2 then
+                                    local armorItems = {}
+                                    local swordRef = {}
 
-                                local function getArmorSlot(itemName, itemData, className)
-                                    local text = string.lower(tostring(itemName or "") .. " " .. tostring(className or "") .. " " .. tostring(itemData and itemData.Class or "") .. " " .. tostring(itemData and itemData.Category or "") .. " " .. tostring(itemData and itemData.Type or "") .. " " .. tostring(itemData and itemData.DisplayName or ""))
-
-                                    if string.find(text, "helmet", 1, true) or string.find(text, "head", 1, true) then
-                                        return "helmet"
-                                    end
-                                    if string.find(text, "chestplate", 1, true) or string.find(text, "chest", 1, true) or string.find(text, "body", 1, true) then
-                                        return "chestplate"
-                                    end
-                                    if string.find(text, "leggings", 1, true) or string.find(text, "pants", 1, true) or string.find(text, "legs", 1, true) then
-                                        return "leggings"
-                                    end
-                                    if string.find(text, "boots", 1, true) or string.find(text, "shoes", 1, true) or string.find(text, "feet", 1, true) then
-                                        return "boots"
-                                    end
-                                end
-
-                                local function getPriority(invType, className)
-                                    local invText = string.lower(tostring(invType or ""))
-                                    local classKey = norm(className)
-
-                                    if invText == "armor" then
-                                        return 5
-                                    end
-                                    if armorTypes[classKey] then
-                                        return 4
-                                    end
-                                    if invText == "characterworn" then
-                                        return 3
-                                    end
-                                    if invText == "equipped" then
-                                        return 2
+                                    if hook and hook.items then
+                                        for _, itemEntry in ipairs(hook.items) do
+                                            local itemObj = itemEntry.item
+                                            _addItem(itemObj and itemObj.Name, itemEntry.inventory or itemEntry.class, itemEntry.class, armorItems, swordRef)
+                                        end
                                     end
 
-                                    return 1
-                                end
-
-                                local function addItem(itemName, invType, className)
-                                    if not itemName or itemName == "" then
-                                        return
+                                    local invFolder = (hook and hook.inv) or plr:FindFirstChild("Inventory")
+                                    if invFolder then
+                                        for _, child in ipairs(invFolder:GetChildren()) do
+                                            _addItem(child.Name, "Inventory", child:GetAttribute("Class"), armorItems, swordRef)
+                                        end
                                     end
 
-                                    local classItem = tostring(className or "")
-                                    local itemData = bedfight.modules.ItemsData[itemName] or bedfight.modules.ItemsData[classItem]
-                                    local kind, realName = getKind(itemName, invType, itemData, className)
-                                    if not kind then
-                                        return
+                                    for _, child in ipairs(char:GetChildren()) do
+                                        local classAttr = child.GetAttribute and child:GetAttribute("Class")
+                                        if classAttr then
+                                            _addItem(child.Name, tostring(classAttr), classAttr, armorItems, swordRef)
+                                        end
+                                        if child:IsA("Tool") then
+                                            _addItem(child.Name, "Equipped", nil, armorItems, swordRef)
+                                        end
+                                        if child:IsA("Accessory") or child:IsA("Model") then
+                                            _addItem(child.Name, "CharacterWorn", child.GetAttribute and child:GetAttribute("Class"), armorItems, swordRef)
+                                        end
                                     end
 
-                                    if (kind == "sword" and not ShowSwordIcons.Enabled) or (kind == "armor" and not ShowArmorIcons.Enabled) then
-                                        return
+                                    local items = {}
+                                    for _, slotName in ipairs({"helmet", "chestplate", "leggings", "boots"}) do
+                                        local info = armorItems[slotName]
+                                        if info then
+                                            table.insert(items, {name = info.name, image = info.image})
+                                        end
                                     end
 
-                                    local name = realName or itemName
-                                    if kind == "armor" and not realName and classItem ~= "" and bedfight.modules.ItemsData[classItem] then
-                                        name = classItem
+                                    local extras = {}
+                                    for _, info in pairs(armorItems) do
+                                        if not info.slot then
+                                            table.insert(extras, info)
+                                        end
+                                    end
+                                    table.sort(extras, function(a, b)
+                                        return a.name < b.name
+                                    end)
+                                    for _, info in ipairs(extras) do
+                                        if #items >= 4 then break end
+                                        table.insert(items, {name = info.name, image = info.image})
                                     end
 
-                                    local data = bedfight.modules.ItemsData[name] or bedfight.modules.ItemsData[classItem] or itemData
+                                    if swordRef[1] then
+                                        table.insert(items, {name = swordRef[1].name, image = swordRef[1].image})
+                                    end
 
-                                    local image = fallback
-                                    if data and data.Image then
-                                        image = data.Image
-                                    else
-                                        for _, searchName in ipairs({name, classItem}) do
-                                            if searchName ~= "" then
-                                                local lower = string.lower(searchName)
-                                                if iconMap[lower] then
-                                                    image = iconMap[lower]
-                                                    break
+                                    local bgEnabled = IconBackground.Enabled
+                                    local sepEnabled = SeparateBackground.Enabled
+                                    local rndEnabled = RoundedCorners.Enabled
+
+                                    local parts = {}
+                                    for _, info in ipairs(items) do
+                                        table.insert(parts, info.name)
+                                    end
+
+                                    local sig = table.concat(parts, "|")
+                                        .. "|bg=" .. tostring(bgEnabled)
+                                        .. "|sep=" .. tostring(sepEnabled)
+                                        .. "|rnd=" .. tostring(rndEnabled)
+
+                                    if entry.sig ~= sig then
+                                        entry.sig = sig
+
+                                        for _, iconChild in ipairs(entry.icons:GetChildren()) do
+                                            iconChild:Destroy()
+                                        end
+
+                                        if #items > 0 then
+                                            entry.icons.Visible = true
+                                            entry.label.Position = UDim2.new(0, 2, 0.36, 0)
+                                            entry.label.Size = UDim2.new(1, -4, 0.64, 0)
+
+                                            local iconPx = math.max(10, math.floor(tagH * 0.36 * 0.80))
+                                            local totalIconW = #items * iconPx + math.max(0, #items - 1) * 2
+
+                                            if bgEnabled and not sepEnabled then
+                                                local frameW = totalIconW + 8
+                                                local holder = Instance.new("Frame")
+                                                holder.Name = "SharedIconBG"
+                                                holder.AnchorPoint = Vector2.new(0.5, 0.5)
+                                                holder.Position = UDim2.new(0.5, 0, 0.5, 0)
+                                                holder.Size = UDim2.new(0, frameW, 0, iconPx + 4)
+                                                holder.BackgroundColor3 = Color3.new(0, 0, 0)
+                                                holder.BackgroundTransparency = 0.35
+                                                holder.BorderSizePixel = 0
+                                                holder.Parent = entry.icons
+
+                                                if rndEnabled then
+                                                    local corner = Instance.new("UICorner")
+                                                    corner.CornerRadius = UDim.new(0, 4)
+                                                    corner.Parent = holder
                                                 end
+                                            end
 
-                                                local key = norm(searchName)
-                                                for iconName, icon in pairs(iconMap) do
-                                                    local iconKey = norm(iconName)
-                                                    if iconKey == key
-                                                        or string.find(iconKey, key, 1, true)
-                                                        or string.find(key, iconKey, 1, true)
-                                                    then
-                                                        image = icon
-                                                        break
+                                            local startX = math.floor((tagW - totalIconW) / 2)
+                                            for i, info in ipairs(items) do
+                                                local x = startX + ((i - 1) * (iconPx + 2))
+
+                                                if bgEnabled and sepEnabled then
+                                                    local holder = Instance.new("Frame")
+                                                    holder.Name = "IconBG_" .. i
+                                                    holder.Position = UDim2.new(0, x - 2, 0, 1)
+                                                    holder.Size = UDim2.new(0, iconPx + 4, 0, iconPx + 4)
+                                                    holder.BackgroundColor3 = Color3.new(0, 0, 0)
+                                                    holder.BackgroundTransparency = 0.35
+                                                    holder.BorderSizePixel = 0
+                                                    holder.Parent = entry.icons
+
+                                                    if rndEnabled then
+                                                        local corner = Instance.new("UICorner")
+                                                        corner.CornerRadius = UDim.new(0, 4)
+                                                        corner.Parent = holder
                                                     end
                                                 end
 
-                                                if image ~= fallback then
-                                                    break
-                                                end
+                                                local icon = Instance.new("ImageLabel")
+                                                icon.Name = "Icon_" .. i
+                                                icon.BackgroundTransparency = 1
+                                                icon.BorderSizePixel = 0
+                                                icon.Position = UDim2.new(0, x, 0, 3)
+                                                icon.Size = UDim2.new(0, iconPx, 0, iconPx)
+                                                icon.Image = info.image or fallback
+                                                icon.Parent = entry.icons
                                             end
+                                        else
+                                            entry.icons.Visible = false
+                                            entry.label.Position = UDim2.new(0, 2, 0, 0)
+                                            entry.label.Size = UDim2.new(1, -4, 1, 0)
                                         end
-                                    end
-
-                                    local priority = getPriority(invType, className)
-
-                                    if kind == "sword" then
-                                        if not swordItem or priority > swordItem.priority then
-                                            swordItem = {name = name,image = image,priority = priority}
-                                        end
-                                        return
-                                    end
-
-                                    local slot = getArmorSlot(name, data, className) or getArmorSlot(itemName, itemData, className)
-                                    local key = slot or name
-                                    local current = armorItems[key]
-
-                                    if not current or priority > current.priority then
-                                        armorItems[key] = {slot = slot,name = name,image = image,priority = priority}
-                                    end
-                                end
-
-                                if hook and hook.items then
-                                    for _, itemEntry in ipairs(hook.items) do
-                                        local itemObj = itemEntry.item
-                                        addItem(itemObj and itemObj.Name, itemEntry.inventory or itemEntry.class, itemEntry.class)
-                                    end
-                                end
-
-                                local invFolder = (hook and hook.inv) or plr:FindFirstChild("Inventory")
-                                if invFolder then
-                                    for _, child in ipairs(invFolder:GetChildren()) do
-                                        addItem(child.Name, "Inventory", child:GetAttribute("Class"))
-                                    end
-                                end
-
-                                for _, child in ipairs(char:GetChildren()) do
-                                    local classAttr = child.GetAttribute and child:GetAttribute("Class")
-                                    if classAttr then
-                                        addItem(child.Name, tostring(classAttr), classAttr)
-                                    end
-                                    if child:IsA("Tool") then
-                                        addItem(child.Name, "Equipped")
-                                    end
-                                    if child:IsA("Accessory") or child:IsA("Model") then
-                                        addItem(child.Name, "CharacterWorn", child.GetAttribute and child:GetAttribute("Class"))
-                                    end
-                                end
-
-                                local items = {}
-                                for _, slotName in ipairs({"helmet", "chestplate", "leggings", "boots"}) do
-                                    local info = armorItems[slotName]
-                                    if info then
-                                        table.insert(items, {name = info.name,image = info.image})
-                                    end
-                                end
-
-                                local extras = {}
-                                for _, info in pairs(armorItems) do
-                                    if not info.slot then
-                                        table.insert(extras, info)
-                                    end
-                                end
-
-                                table.sort(extras, function(a, b)
-                                    return a.name < b.name
-                                end)
-
-                                for _, info in ipairs(extras) do
-                                    if #items >= 4 then
-                                        break
-                                    end
-                                    table.insert(items, {name = info.name,image = info.image})
-                                end
-
-                                if swordItem then
-                                    table.insert(items, {name = swordItem.name,image = swordItem.image})
-                                end
-
-                                local parts = {}
-                                for _, info in ipairs(items) do
-                                    table.insert(parts, info.name)
-                                end
-                                local sig = table.concat(parts, "|")
-
-                                if entry.sig ~= sig then
-                                    entry.sig = sig
-                                    for _, iconChild in ipairs(entry.icons:GetChildren()) do
-                                        iconChild:Destroy()
-                                    end
-
-                                    if #items > 0 then
-                                        entry.icons.Visible = true
-                                        local iconWidth = 1 / #items
-                                        for i, info in ipairs(items) do
-                                            local image = Instance.new("ImageLabel")
-                                            image.Name = "Item_" .. tostring(i)
-                                            image.BackgroundTransparency = 1
-                                            image.Size = UDim2.new(iconWidth, -1, 1, 0)
-                                            image.Position = UDim2.new((i - 1) * iconWidth, 0, 0, 0)
-                                            image.Image = info.image
-                                            image.ScaleType = Enum.ScaleType.Fit
-                                            image.Parent = entry.icons
-
-                                            local aspect = Instance.new("UIAspectRatioConstraint")
-                                            aspect.AspectRatio = 1
-                                            aspect.DominantAxis = Enum.DominantAxis.Height
-                                            aspect.Parent = image
-                                        end
-                                    else
-                                        entry.icons.Visible = false
                                     end
                                 end
                             else
-                                pending[plr] = nil
                                 clearTag(plr)
                             end
-                        end
-                    end
-
-                    for plr in pairs(tags) do
-                        if not plr.Parent then
-                            pending[plr] = nil
-                            clearTag(plr)
                         end
                     end
                 end)
             else
                 RunLoops:UnbindFromHeartbeat("NameTags")
-
                 for plr in pairs(tags) do
                     clearTag(plr)
                 end
-
-                local hookedPlayers = {}
-                for plr in pairs(data.hooked) do
-                    if plr ~= lplr then
-                        table.insert(hookedPlayers, plr)
-                    end
+                if NameTagGui then
+                    NameTagGui:Destroy()
+                    NameTagGui = nil
                 end
-
-                for _, plr in ipairs(hookedPlayers) do
-                    funcs:offExit(getHookId(plr))
-                    cleanupHookinv(plr)
-                end
-
-                pending = {}
             end
         end
     })
 
     TeamColor = NameTags.CreateToggle({
         Name = "Team Color",
-        Default = false,
-        Function = function() end
-    })
-    ShowDisplayName = NameTags.CreateToggle({
-        Name = "Display Name",
         Default = true,
-        Function = function(enabled)
-            if enabled and ShowUsername.Enabled then
-                ShowUsername.Toggle()
-            end
-        end
-    })
-    ShowUsername = NameTags.CreateToggle({
-        Name = "Username",
-        Default = false,
-        Function = function(enabled)
-            if enabled and ShowDisplayName.Enabled then
-                ShowDisplayName.Toggle()
-            end
-        end
+        Function = function() end
     })
     ShowDistance = NameTags.CreateToggle({
         Name = "Distance",
@@ -2894,21 +2994,64 @@ runcode(function()
         Default = true,
         Function = function() end
     })
+    ShowDisplayName = NameTags.CreateToggle({
+        Name = "Display Name",
+        Default = true,
+        Function = function() end
+    })
+    ShowUsername = NameTags.CreateToggle({
+        Name = "Username",
+        Default = false,
+        Function = function() end
+    })
     ShowBrackets = NameTags.CreateToggle({
-        Name = "Brackets []",
+        Name = "Brackets",
         Default = true,
         Function = function() end
     })
     ShowArmorIcons = NameTags.CreateToggle({
         Name = "Armor Icons",
         Default = true,
-        Function = function() end
+        Function = function()
+            updateSubVis()
+        end
     })
     ShowSwordIcons = NameTags.CreateToggle({
-        Name = "Sword Icons",
+        Name = "Sword Icon",
+        Default = true,
+        Function = function()
+            updateSubVis()
+        end
+    })
+    IconBackground = NameTags.CreateToggle({
+        Name = "Icon Background",
+        Default = true,
+        Function = function()
+            updateSubVis()
+        end
+    })
+    RoundedCorners = NameTags.CreateToggle({
+        Name = "Rounded",
         Default = true,
         Function = function() end
     })
+    SeparateBackground = NameTags.CreateToggle({
+        Name = "Separate BG",
+        Default = false,
+        Function = function() end
+    })
+    BoldText = NameTags.CreateToggle({
+        Name = "Bold",
+        Default = false,
+        Function = function() end
+    })
+    FontWeight = NameTags.CreateDropdown({
+        Name = "Bold Weight",
+        List = {"Semibold", "Bold", "Black"},
+        Default = "Bold",
+        Function = function() end
+    })
+    BoldText:ShowWhen(FontWeight)
     TagSize = NameTags.CreateSlider({
         Name = "Tag Size",
         Min = 110,
@@ -2917,6 +3060,16 @@ runcode(function()
         Round = 1,
         Function = function() end
     })
+    TextSize = NameTags.CreateSlider({
+        Name = "Text Size",
+        Min = 7,
+        Max = 20,
+        Default = 10,
+        Round = 1,
+        Function = function() end
+    })
+
+    updateSubVis()
 end)
 
 runcode(function()
@@ -3591,7 +3744,7 @@ runcode(function()
         local statusGui = pg:FindFirstChild("GameStatusGui")
         if statusGui then
             local lbl = statusGui:FindFirstChild("StatusLabel")
-            if lbl and lbl.BackgroundTransparency ~= 0.4 then lbl.BackgroundTransparency = 0.4 end
+            if lbl and lbl.BackgroundTransparency ~= 0.2 then lbl.BackgroundTransparency = 0.2 end
         end
 
         pcall(function()
