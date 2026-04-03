@@ -2383,6 +2383,8 @@ runcode(function()
 end)
 
 runcode(function()
+    local TextService = game:GetService("TextService")
+
     local NameTags = {}
     local TeamColor = {}
     local ShowDistance = {}
@@ -2402,6 +2404,7 @@ runcode(function()
 
     local tags = {}
     local pending = {}
+    local cleanupConns = {}
     local fallback = "rbxassetid://130674868309232"
     local swords = bedfight.modules.SwordsData or {}
     local NameTagGui
@@ -2545,6 +2548,15 @@ runcode(function()
         return nil, nil
     end
 
+    local function disconnectCleanup()
+        for _, conn in ipairs(cleanupConns) do
+            if conn and conn.Disconnect then
+                conn:Disconnect()
+            end
+        end
+        table.clear(cleanupConns)
+    end
+
     local function clearTag(plr)
         local tag = tags[plr]
         if not tag then return end
@@ -2552,6 +2564,13 @@ runcode(function()
             tag.board:Destroy()
         end
         tags[plr] = nil
+        pending[plr] = nil
+    end
+
+    local function clearAllTags()
+        for plr in pairs(tags) do
+            clearTag(plr)
+        end
     end
 
     local function updateSubVis()
@@ -2565,6 +2584,37 @@ runcode(function()
         if IconBackground.Instance then
             IconBackground.Instance.Visible = showIcons
         end
+    end
+
+    local function getTextBounds(text, textSize, font)
+        return TextService:GetTextSize(text, textSize, font, Vector2.new(100000, 100000))
+    end
+
+    local function applyTextLayout(entry, text, textSize, font, baseTagW, baseTagH, hasIcons)
+        local bounds = getTextBounds(text, textSize, font)
+        local width = math.max(baseTagW, bounds.X + 12)
+        local iconBandH = hasIcons and math.max(16, math.floor(baseTagH * 0.42)) or 0
+        local totalH = math.max(baseTagH, bounds.Y + iconBandH + 10)
+
+        entry.board.Size = UDim2.new(0, width, 0, totalH)
+        entry.bg.Size = UDim2.new(1, 0, 1, 0)
+
+        if hasIcons then
+            entry.icons.Visible = true
+            entry.icons.Size = UDim2.new(1, 0, 0, iconBandH)
+            entry.icons.Position = UDim2.new(0, 0, 0, 0)
+
+            entry.label.Position = UDim2.new(0, 4, 0, iconBandH - 1)
+            entry.label.Size = UDim2.new(1, -8, 1, -(iconBandH + 2))
+        else
+            entry.icons.Visible = false
+            entry.label.Position = UDim2.new(0, 4, 0, 0)
+            entry.label.Size = UDim2.new(1, -8, 1, 0)
+        end
+
+        entry.cBoardW = width
+        entry.cBoardH = totalH
+        entry.cIconBandH = iconBandH
     end
 
     NameTags = GuiLibrary.Registry.renderPanel.API.CreateOptionsButton({
@@ -2661,16 +2711,43 @@ runcode(function()
                     end
                 end
 
+                disconnectCleanup()
+
+                table.insert(cleanupConns, Players.PlayerRemoving:Connect(function(plr)
+                    clearTag(plr)
+                end))
+
+                for _, plr in ipairs(Players:GetPlayers()) do
+                    if plr ~= lplr then
+                        table.insert(cleanupConns, plr.CharacterRemoving:Connect(function()
+                            clearTag(plr)
+                        end))
+                        table.insert(cleanupConns, plr.CharacterAdded:Connect(function()
+                            clearTag(plr)
+                        end))
+                    end
+                end
+
+                table.insert(cleanupConns, Players.PlayerAdded:Connect(function(plr)
+                    if plr == lplr then return end
+                    table.insert(cleanupConns, plr.CharacterRemoving:Connect(function()
+                        clearTag(plr)
+                    end))
+                    table.insert(cleanupConns, plr.CharacterAdded:Connect(function()
+                        clearTag(plr)
+                    end))
+                end))
+
                 local ntFrame = 0
 
                 RunLoops:BindToHeartbeat("NameTags", function()
-                    ntFrame = (ntFrame + 1) % 4
+                    ntFrame = (ntFrame + 1) % 2
 
                     local vp = Camera.ViewportSize
                     local viewScale = math.clamp((vp.Y / 1080), 0.82, 1.4)
-                    local tagW = math.floor(TagSize.Value * viewScale)
-                    local tagH = math.floor(TagSize.Value * 0.46 * viewScale)
-                    local textSz = math.floor(TextSize.Value * viewScale)
+                    local baseTagW = math.floor(TagSize.Value * viewScale)
+                    local baseTagH = math.floor(TagSize.Value * 0.40 * viewScale)
+                    local textSz = math.max(7, math.floor(TextSize.Value * viewScale))
                     local targetFont = BoldText.Enabled and (weightFonts[FontWeight.Value] or Enum.Font.GothamBold) or Enum.Font.Gotham
                     local myRoot = lplr.Character and lplr.Character:FindFirstChild("HumanoidRootPart")
 
@@ -2680,297 +2757,275 @@ runcode(function()
                             local hum = char and char:FindFirstChildOfClass("Humanoid")
                             local root = char and char:FindFirstChild("HumanoidRootPart")
 
-                            if char and hum and root and hum.Health > 0 then
-                                local entry = tags[plr]
+                            if not char or not hum or not root or hum.Health <= 0 or not root:IsDescendantOf(workspace) then
+                                clearTag(plr)
+                                continue
+                            end
 
-                                if not entry then
-                                    local board = Instance.new("Frame")
-                                    board.Name = "NameTag"
-                                    board.AnchorPoint = Vector2.new(0.5, 1)
-                                    board.BackgroundTransparency = 1
-                                    board.BorderSizePixel = 0
-                                    board.Visible = false
-                                    board.Size = UDim2.new(0, tagW, 0, tagH)
-                                    board.Parent = getNameTagGui()
+                            local entry = tags[plr]
+                            if not entry then
+                                local board = Instance.new("Frame")
+                                board.Name = "NameTag"
+                                board.AnchorPoint = Vector2.new(0.5, 1)
+                                board.BackgroundTransparency = 1
+                                board.BorderSizePixel = 0
+                                board.Visible = false
+                                board.Size = UDim2.new(0, baseTagW, 0, baseTagH)
+                                board.Parent = getNameTagGui()
 
-                                    local bg = Instance.new("Frame")
-                                    bg.Name = "BG"
-                                    bg.BackgroundColor3 = Color3.new(0, 0, 0)
-                                    bg.BackgroundTransparency = 1
-                                    bg.Size = UDim2.new(1, 0, 1, 0)
-                                    bg.BorderSizePixel = 0
-                                    bg.Parent = board
+                                local bg = Instance.new("Frame")
+                                bg.Name = "BG"
+                                bg.BackgroundColor3 = Color3.new(0, 0, 0)
+                                bg.BackgroundTransparency = 1
+                                bg.Size = UDim2.new(1, 0, 1, 0)
+                                bg.BorderSizePixel = 0
+                                bg.Parent = board
 
-                                    local label = Instance.new("TextLabel")
-                                    label.Name = "Label"
-                                    label.BackgroundTransparency = 1
-                                    label.Size = UDim2.new(1, -4, 0.64, 0)
-                                    label.Position = UDim2.new(0, 2, 0.36, 0)
-                                    label.TextXAlignment = Enum.TextXAlignment.Center
-                                    label.TextYAlignment = Enum.TextYAlignment.Center
-                                    label.Font = Enum.Font.GothamSemibold
-                                    label.TextScaled = false
-                                    label.TextStrokeTransparency = 0.3
-                                    label.TextStrokeColor3 = Color3.new(0, 0, 0)
-                                    label.TextColor3 = Color3.new(1, 1, 1)
-                                    label.Parent = bg
+                                local label = Instance.new("TextLabel")
+                                label.Name = "Label"
+                                label.BackgroundTransparency = 1
+                                label.TextWrapped = false
+                                label.TextXAlignment = Enum.TextXAlignment.Center
+                                label.TextYAlignment = Enum.TextYAlignment.Center
+                                label.Font = Enum.Font.GothamSemibold
+                                label.TextScaled = false
+                                label.TextStrokeTransparency = 0.3
+                                label.TextStrokeColor3 = Color3.new(0, 0, 0)
+                                label.TextColor3 = Color3.new(1, 1, 1)
+                                label.Parent = bg
 
-                                    local iconFrame = Instance.new("Frame")
-                                    iconFrame.Name = "ArmorIcons"
-                                    iconFrame.BackgroundTransparency = 1
-                                    iconFrame.Size = UDim2.new(1, 0, 0.36, 0)
-                                    iconFrame.Position = UDim2.new(0, 0, 0, 0)
-                                    iconFrame.Parent = bg
+                                local iconFrame = Instance.new("Frame")
+                                iconFrame.Name = "ArmorIcons"
+                                iconFrame.BackgroundTransparency = 1
+                                iconFrame.Parent = bg
 
-                                    entry = {
-                                        board = board,
-                                        bg = bg,
-                                        label = label,
-                                        icons = iconFrame,
-                                        sig = "",
-                                        cChar = char,
-                                        cTagW = tagW,
-                                        cTagH = tagH,
-                                        cFont = nil,
-                                        cTextSz = nil,
-                                        cText = nil,
-                                        cColor = nil,
-                                    }
-                                    tags[plr] = entry
-                                end
+                                entry = {
+                                    board = board,
+                                    bg = bg,
+                                    label = label,
+                                    icons = iconFrame,
+                                    sig = "",
+                                    cText = nil,
+                                    cFont = nil,
+                                    cTextSz = nil,
+                                    cColor = nil,
+                                    cBoardW = nil,
+                                    cBoardH = nil,
+                                    cIconBandH = nil,
+                                }
+                                tags[plr] = entry
+                            end
 
-                                if entry.cChar ~= char then
-                                    entry.cChar = char
-                                    entry.sig = ""
-                                end
-
-                                if entry.cTagW ~= tagW or entry.cTagH ~= tagH then
-                                    entry.cTagW = tagW
-                                    entry.cTagH = tagH
-                                    entry.board.Size = UDim2.new(0, tagW, 0, tagH)
-                                end
-
-                                local tagPos, onScreen = Camera:WorldToViewportPoint(root.Position + Vector3.new(0, hum.HipHeight + 1, 0))
-                                entry.board.Visible = onScreen and tagPos.Z > 0
-
-                                if entry.board.Visible then
-                                    entry.board.Position = UDim2.fromOffset(tagPos.X, tagPos.Y)
-                                end
-
-                                if ntFrame == 0 then
-                                    local baseName
-                                    if ShowUsername.Enabled and not ShowDisplayName.Enabled then
-                                        baseName = plr.Name
-                                    else
-                                        baseName = plr.DisplayName ~= "" and plr.DisplayName or plr.Name
-                                    end
-
-                                    local text = string.upper(baseName)
-
-                                    if ShowDistance.Enabled and myRoot then
-                                        local dist = math.floor((myRoot.Position - root.Position).Magnitude)
-                                        if ShowBrackets.Enabled then
-                                            text = "[" .. dist .. "] " .. text
-                                        else
-                                            text = dist .. " " .. text
-                                        end
-                                    end
-
-                                    if ShowHealth.Enabled then
-                                        local hp = math.floor(hum.Health)
-                                        if ShowBrackets.Enabled then
-                                            text = text .. " [" .. hp .. "]"
-                                        else
-                                            text = text .. " " .. hp
-                                        end
-                                    end
-
-                                    local color = (TeamColor.Enabled and plr.Team and plr.Team.TeamColor.Color) or Color3.new(1, 1, 1)
-
-                                    if entry.cText ~= text then
-                                        entry.cText = text
-                                        entry.label.Text = text
-                                    end
-                                    if entry.cFont ~= targetFont then
-                                        entry.cFont = targetFont
-                                        entry.label.Font = targetFont
-                                    end
-                                    if entry.cTextSz ~= textSz then
-                                        entry.cTextSz = textSz
-                                        entry.label.TextSize = textSz
-                                    end
-                                    if entry.cColor ~= color then
-                                        entry.cColor = color
-                                        entry.label.TextColor3 = color
-                                    end
-                                end
-
-                                local hook = data.hooked[plr]
-                                if not hook then
-                                    if not pending[plr] then
-                                        pending[plr] = true
-                                        task.spawn(function()
-                                            hookinv(plr)
-                                            pending[plr] = nil
-                                        end)
-                                    end
-                                else
-                                    pending[plr] = nil
-                                end
-
-                                if ntFrame == 2 then
-                                    local armorItems = {}
-                                    local swordRef = {}
-
-                                    if hook and hook.items then
-                                        for _, itemEntry in ipairs(hook.items) do
-                                            local itemObj = itemEntry.item
-                                            _addItem(itemObj and itemObj.Name, itemEntry.inventory or itemEntry.class, itemEntry.class, armorItems, swordRef)
-                                        end
-                                    end
-
-                                    local invFolder = (hook and hook.inv) or plr:FindFirstChild("Inventory")
-                                    if invFolder then
-                                        for _, child in ipairs(invFolder:GetChildren()) do
-                                            _addItem(child.Name, "Inventory", child:GetAttribute("Class"), armorItems, swordRef)
-                                        end
-                                    end
-
-                                    for _, child in ipairs(char:GetChildren()) do
-                                        local classAttr = child.GetAttribute and child:GetAttribute("Class")
-                                        if classAttr then
-                                            _addItem(child.Name, tostring(classAttr), classAttr, armorItems, swordRef)
-                                        end
-                                        if child:IsA("Tool") then
-                                            _addItem(child.Name, "Equipped", nil, armorItems, swordRef)
-                                        end
-                                        if child:IsA("Accessory") or child:IsA("Model") then
-                                            _addItem(child.Name, "CharacterWorn", child.GetAttribute and child:GetAttribute("Class"), armorItems, swordRef)
-                                        end
-                                    end
-
-                                    local items = {}
-                                    for _, slotName in ipairs({"helmet", "chestplate", "leggings", "boots"}) do
-                                        local info = armorItems[slotName]
-                                        if info then
-                                            table.insert(items, {name = info.name, image = info.image})
-                                        end
-                                    end
-
-                                    local extras = {}
-                                    for _, info in pairs(armorItems) do
-                                        if not info.slot then
-                                            table.insert(extras, info)
-                                        end
-                                    end
-                                    table.sort(extras, function(a, b)
-                                        return a.name < b.name
+                            local hook = data.hooked[plr]
+                            if not hook then
+                                if not pending[plr] then
+                                    pending[plr] = true
+                                    task.spawn(function()
+                                        hookinv(plr)
+                                        pending[plr] = nil
                                     end)
-                                    for _, info in ipairs(extras) do
-                                        if #items >= 4 then break end
-                                        table.insert(items, {name = info.name, image = info.image})
-                                    end
-
-                                    if swordRef[1] then
-                                        table.insert(items, {name = swordRef[1].name, image = swordRef[1].image})
-                                    end
-
-                                    local bgEnabled = IconBackground.Enabled
-                                    local sepEnabled = SeparateBackground.Enabled
-                                    local rndEnabled = RoundedCorners.Enabled
-
-                                    local parts = {}
-                                    for _, info in ipairs(items) do
-                                        table.insert(parts, info.name)
-                                    end
-
-                                    local sig = table.concat(parts, "|")
-                                        .. "|bg=" .. tostring(bgEnabled)
-                                        .. "|sep=" .. tostring(sepEnabled)
-                                        .. "|rnd=" .. tostring(rndEnabled)
-
-                                    if entry.sig ~= sig then
-                                        entry.sig = sig
-
-                                        for _, iconChild in ipairs(entry.icons:GetChildren()) do
-                                            iconChild:Destroy()
-                                        end
-
-                                        if #items > 0 then
-                                            entry.icons.Visible = true
-                                            entry.label.Position = UDim2.new(0, 2, 0.36, 0)
-                                            entry.label.Size = UDim2.new(1, -4, 0.64, 0)
-
-                                            local iconPx = math.max(10, math.floor(tagH * 0.36 * 0.80))
-                                            local totalIconW = #items * iconPx + math.max(0, #items - 1) * 2
-
-                                            if bgEnabled and not sepEnabled then
-                                                local frameW = totalIconW + 8
-                                                local holder = Instance.new("Frame")
-                                                holder.Name = "SharedIconBG"
-                                                holder.AnchorPoint = Vector2.new(0.5, 0.5)
-                                                holder.Position = UDim2.new(0.5, 0, 0.5, 0)
-                                                holder.Size = UDim2.new(0, frameW, 0, iconPx + 4)
-                                                holder.BackgroundColor3 = Color3.new(0, 0, 0)
-                                                holder.BackgroundTransparency = 0.35
-                                                holder.BorderSizePixel = 0
-                                                holder.Parent = entry.icons
-
-                                                if rndEnabled then
-                                                    local corner = Instance.new("UICorner")
-                                                    corner.CornerRadius = UDim.new(0, 4)
-                                                    corner.Parent = holder
-                                                end
-                                            end
-
-                                            local startX = math.floor((tagW - totalIconW) / 2)
-                                            for i, info in ipairs(items) do
-                                                local x = startX + ((i - 1) * (iconPx + 2))
-
-                                                if bgEnabled and sepEnabled then
-                                                    local holder = Instance.new("Frame")
-                                                    holder.Name = "IconBG_" .. i
-                                                    holder.Position = UDim2.new(0, x - 2, 0, 1)
-                                                    holder.Size = UDim2.new(0, iconPx + 4, 0, iconPx + 4)
-                                                    holder.BackgroundColor3 = Color3.new(0, 0, 0)
-                                                    holder.BackgroundTransparency = 0.35
-                                                    holder.BorderSizePixel = 0
-                                                    holder.Parent = entry.icons
-
-                                                    if rndEnabled then
-                                                        local corner = Instance.new("UICorner")
-                                                        corner.CornerRadius = UDim.new(0, 4)
-                                                        corner.Parent = holder
-                                                    end
-                                                end
-
-                                                local icon = Instance.new("ImageLabel")
-                                                icon.Name = "Icon_" .. i
-                                                icon.BackgroundTransparency = 1
-                                                icon.BorderSizePixel = 0
-                                                icon.Position = UDim2.new(0, x, 0, 3)
-                                                icon.Size = UDim2.new(0, iconPx, 0, iconPx)
-                                                icon.Image = info.image or fallback
-                                                icon.Parent = entry.icons
-                                            end
-                                        else
-                                            entry.icons.Visible = false
-                                            entry.label.Position = UDim2.new(0, 2, 0, 0)
-                                            entry.label.Size = UDim2.new(1, -4, 1, 0)
-                                        end
-                                    end
                                 end
                             else
-                                clearTag(plr)
+                                pending[plr] = nil
+                            end
+
+                            local armorItems = {}
+                            local swordRef = {}
+
+                            if hook and hook.items then
+                                for _, itemEntry in ipairs(hook.items) do
+                                    local itemObj = itemEntry.item
+                                    _addItem(itemObj and itemObj.Name, itemEntry.inventory or itemEntry.class, itemEntry.class, armorItems, swordRef)
+                                end
+                            end
+
+                            local invFolder = (hook and hook.inv) or plr:FindFirstChild("Inventory")
+                            if invFolder then
+                                for _, child in ipairs(invFolder:GetChildren()) do
+                                    _addItem(child.Name, "Inventory", child:GetAttribute("Class"), armorItems, swordRef)
+                                end
+                            end
+
+                            for _, child in ipairs(char:GetChildren()) do
+                                local classAttr = child.GetAttribute and child:GetAttribute("Class")
+                                if classAttr then
+                                    _addItem(child.Name, tostring(classAttr), classAttr, armorItems, swordRef)
+                                end
+                                if child:IsA("Tool") then
+                                    _addItem(child.Name, "Equipped", nil, armorItems, swordRef)
+                                end
+                                if child:IsA("Accessory") or child:IsA("Model") then
+                                    _addItem(child.Name, "CharacterWorn", child.GetAttribute and child:GetAttribute("Class"), armorItems, swordRef)
+                                end
+                            end
+
+                            local items = {}
+                            for _, slotName in ipairs({"helmet", "chestplate", "leggings", "boots"}) do
+                                local info = armorItems[slotName]
+                                if info then
+                                    table.insert(items, {name = info.name, image = info.image})
+                                end
+                            end
+
+                            local extras = {}
+                            for _, info in pairs(armorItems) do
+                                if not info.slot then
+                                    table.insert(extras, info)
+                                end
+                            end
+                            table.sort(extras, function(a, b)
+                                return a.name < b.name
+                            end)
+                            for _, info in ipairs(extras) do
+                                if #items >= 4 then break end
+                                table.insert(items, {name = info.name, image = info.image})
+                            end
+                            if swordRef[1] then
+                                table.insert(items, {name = swordRef[1].name, image = swordRef[1].image})
+                            end
+
+                            local baseName
+                            if ShowUsername.Enabled and not ShowDisplayName.Enabled then
+                                baseName = plr.Name
+                            else
+                                baseName = plr.DisplayName ~= "" and plr.DisplayName or plr.Name
+                            end
+
+                            local text = string.upper(baseName)
+
+                            if ShowDistance.Enabled and myRoot then
+                                local dist = math.floor((myRoot.Position - root.Position).Magnitude)
+                                if ShowBrackets.Enabled then
+                                    text = "[" .. dist .. "] " .. text
+                                else
+                                    text = dist .. " " .. text
+                                end
+                            end
+
+                            if ShowHealth.Enabled then
+                                local hp = math.floor(hum.Health)
+                                if ShowBrackets.Enabled then
+                                    text = text .. " [" .. hp .. "]"
+                                else
+                                    text = text .. " " .. hp
+                                end
+                            end
+
+                            local color = (TeamColor.Enabled and plr.Team and plr.Team.TeamColor.Color) or Color3.new(1, 1, 1)
+                            local hasIcons = #items > 0
+
+                            if entry.cText ~= text then
+                                entry.cText = text
+                                entry.label.Text = text
+                            end
+                            if entry.cFont ~= targetFont then
+                                entry.cFont = targetFont
+                                entry.label.Font = targetFont
+                            end
+                            if entry.cTextSz ~= textSz then
+                                entry.cTextSz = textSz
+                                entry.label.TextSize = textSz
+                            end
+                            if entry.cColor ~= color then
+                                entry.cColor = color
+                                entry.label.TextColor3 = color
+                            end
+
+                            local bgEnabled = IconBackground.Enabled
+                            local sepEnabled = SeparateBackground.Enabled
+                            local rndEnabled = RoundedCorners.Enabled
+
+                            local parts = {}
+                            for _, info in ipairs(items) do
+                                table.insert(parts, info.name)
+                            end
+
+                            local iconSig = table.concat(parts, "|")
+                                .. "|bg=" .. tostring(bgEnabled)
+                                .. "|sep=" .. tostring(sepEnabled)
+                                .. "|rnd=" .. tostring(rndEnabled)
+                                .. "|w=" .. tostring(baseTagW)
+                                .. "|h=" .. tostring(baseTagH)
+                                .. "|ts=" .. tostring(textSz)
+
+                            if entry.sig ~= iconSig then
+                                entry.sig = iconSig
+
+                                for _, iconChild in ipairs(entry.icons:GetChildren()) do
+                                    iconChild:Destroy()
+                                end
+
+                                if hasIcons then
+                                    local iconBandH = math.max(16, math.floor(baseTagH * 0.42))
+                                    local iconPx = math.max(12, math.floor(iconBandH * 0.78))
+                                    local totalIconW = #items * iconPx + math.max(0, #items - 1) * 2
+                                    local startX = math.floor((math.max(baseTagW, 1) - totalIconW) / 2)
+
+                                    if bgEnabled and not sepEnabled then
+                                        local holder = Instance.new("Frame")
+                                        holder.Name = "SharedIconBG"
+                                        holder.AnchorPoint = Vector2.new(0.5, 0)
+                                        holder.Position = UDim2.new(0.5, 0, 0, 1)
+                                        holder.Size = UDim2.new(0, totalIconW + 8, 0, iconPx + 4)
+                                        holder.BackgroundColor3 = Color3.new(0, 0, 0)
+                                        holder.BackgroundTransparency = 0.35
+                                        holder.BorderSizePixel = 0
+                                        holder.Parent = entry.icons
+
+                                        if rndEnabled then
+                                            local corner = Instance.new("UICorner")
+                                            corner.CornerRadius = UDim.new(0, 4)
+                                            corner.Parent = holder
+                                        end
+                                    end
+
+                                    for i, info in ipairs(items) do
+                                        local x = startX + ((i - 1) * (iconPx + 2))
+
+                                        if bgEnabled and sepEnabled then
+                                            local holder = Instance.new("Frame")
+                                            holder.Name = "IconBG_" .. i
+                                            holder.Position = UDim2.new(0, x - 2, 0, 1)
+                                            holder.Size = UDim2.new(0, iconPx + 4, 0, iconPx + 4)
+                                            holder.BackgroundColor3 = Color3.new(0, 0, 0)
+                                            holder.BackgroundTransparency = 0.35
+                                            holder.BorderSizePixel = 0
+                                            holder.Parent = entry.icons
+
+                                            if rndEnabled then
+                                                local corner = Instance.new("UICorner")
+                                                corner.CornerRadius = UDim.new(0, 4)
+                                                corner.Parent = holder
+                                            end
+                                        end
+
+                                        local icon = Instance.new("ImageLabel")
+                                        icon.Name = "Icon_" .. i
+                                        icon.BackgroundTransparency = 1
+                                        icon.BorderSizePixel = 0
+                                        icon.Position = UDim2.new(0, x, 0, 3)
+                                        icon.Size = UDim2.new(0, iconPx, 0, iconPx)
+                                        icon.Image = info.image or fallback
+                                        icon.Parent = entry.icons
+                                    end
+                                end
+                            end
+
+                            applyTextLayout(entry, text, textSz, targetFont, baseTagW, baseTagH, hasIcons)
+
+                            local tagPos, onScreen = Camera:WorldToViewportPoint(root.Position + Vector3.new(0, hum.HipHeight + 1, 0))
+                            entry.board.Visible = onScreen and tagPos.Z > 0
+
+                            if entry.board.Visible then
+                                entry.board.Position = UDim2.fromOffset(tagPos.X, tagPos.Y)
                             end
                         end
                     end
                 end)
             else
                 RunLoops:UnbindFromHeartbeat("NameTags")
-                for plr in pairs(tags) do
-                    clearTag(plr)
-                end
+                disconnectCleanup()
+                clearAllTags()
                 if NameTagGui then
                     NameTagGui:Destroy()
                     NameTagGui = nil
