@@ -934,7 +934,7 @@ runcode(function()
 	local extTimer = 0
 	local lastExtendTime = 0
 	local EXT_ASCEND_TIME = 0.9
-	local MIN_SAFE_ASCEND = 9
+	local MIN_SAFE_ASCEND = 10
 
 	Fly = GuiLibrary.Registry.blatantPanel.API.CreateOptionsButton({
 		Name = "Fly",
