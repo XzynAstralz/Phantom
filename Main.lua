@@ -91,6 +91,7 @@ local Http = loadRuntimeModule("lib/core/Http.lua")
 local Manager = loadRuntimeModule("lib/core/Manager.lua")
 local Runtime = loadRuntimeModule("lib/core/Runtime.lua")
 local Config = loadRuntimeModule("lib/core/Config.lua")
+local Discord = loadRuntimeModule("lib/core/Discord.lua")
 local Module = loadRuntimeModule("lib/core/Module.lua")
 local Version = loadRuntimeModule("lib/core/Version.lua")
 local Updater = loadRuntimeModule("lib/core/Updater.lua")
@@ -113,11 +114,20 @@ local updater = Updater.new({
 })
 local settings = updater:GetSettings()
 
+--for files api discord
 local logger = Logger.new("[phantom]", settings.debugLogs or settings.developerMode)
 fileApi.logger = logger
 http.logger = logger
 config.logger = logger
 updater.logger = logger
+
+local discord = Discord.new({
+	file = fileApi,
+	http = http,
+	logger = logger,
+	statePath = "configs/discord.json",
+	invite = "aqNUWGKpXu",
+})
 
 local versionData = Version.Read(fileApi)
 local rootManager = Manager.new("phantom")
@@ -706,6 +716,7 @@ local phantom = {
 	manager = rootManager,
 	module = moduleLoader,
 	config = config,
+	discord = discord,
 	updater = updater,
 	render = render,
 	runtime = runtime.runtime,
@@ -1350,6 +1361,15 @@ local placeLoaded = loadGameScript("game.place", "games/" .. placeId .. ".lua")
 
 setProfileSlot(profileSlot)
 loadProfile(profileSlot, true)
+
+task.defer(function()
+	local ok, err = pcall(function()
+		discord:EnsureInvite()
+	end)
+	if not ok then
+		logger:Warn("discord bootstrap failed", err)
+	end
+end)
 
 if not universalLoaded or not creatorLoaded or not placeLoaded then
 	render:Toast({
