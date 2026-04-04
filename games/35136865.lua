@@ -831,24 +831,10 @@ runcode(function()
                             newCFrame = root.CFrame
                         end
 
-                        if Mode.Value == "CFrame" then
-                            if not Fly.Enabled then
-                                local speedVelocity = moveDirection * SpeedSlider.Value
-                                speedVelocity = speedVelocity / (1 / dt)
-                                newCFrame = newCFrame + speedVelocity
-
-                                createBodyVel()
-                                if not infFlyVel then
-                                    bodyVel.MaxForce = Vector3.new(bodyVel.P, 0, bodyVel.P)
-                                end
-                            end
-
-                            root.CFrame = newCFrame
-
-                        elseif Mode.Value == "Velocity" then
+                        if Mode.Value == "Velocity" and not Fly.Enabled then
                             root.AssemblyLinearVelocity =(moveDirection * SpeedSlider.Value) + Vector3.new(0, root.AssemblyLinearVelocity.Y, 0)
 
-                        elseif Mode.Value == "HeatSeeker" then
+                        elseif Mode.Value == "HeatSeeker" and not Fly.Enabled then
                             hsTimer = hsTimer + dt
                             local phaseDur = hsPhase == "boost" and HSHighDur.Value or HSLowDur.Value
                             if hsTimer >= phaseDur then
@@ -886,7 +872,7 @@ runcode(function()
     })
     Mode = Speed.CreateDropdown({
         Name = "Mode",
-        List = {"CFrame", "Velocity", "HeatSeeker"},
+        List = {"Velocity", "HeatSeeker"},
         Default = "Velocity",
     })
     local HSBoostSpeedSlider = Speed.CreateSlider({
