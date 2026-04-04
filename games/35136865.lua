@@ -608,6 +608,30 @@ do
     matchState()
 end
 
+local touching = false
+do
+    touchConnStart = UserInputService.TouchStarted:Connect(function()
+        touching = true
+    end)
+
+    touchConnEnd = UserInputService.TouchEnded:Connect(function()
+        touching = false
+    end)
+    
+    funcs:onExit("bodyVelHook", function()
+        if touchConnStart then
+            touchConnStart:Disconnect()
+            touchConnStart = nil
+        end
+        if touchConnEnd then
+            touchConnEnd:Disconnect()
+            touchConnEnd = nil
+        end
+        touching = false
+    end)
+end
+
+
 local Distance = {Value = 21}
 runcode(function()
     local Killaura = {}
@@ -626,6 +650,7 @@ runcode(function()
     local origGetHitWithBox = nil
     local origSwordNew = nil
     local capturedControllers = {}
+    local lastSwing = 0
 
     local function getPing()
         local ok, value = pcall(function()
@@ -691,10 +716,6 @@ runcode(function()
                 RunLoops:BindToHeartbeat("Killaura", function()
                     if shieldActive then return end
 
-                    if SwingOnly.Enabled and not UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1) then
-                        return
-                    end
-
                     local nearest = PlayerUtility.GetNearestEntities(Distance.Value, TeamCheck.Enabled, false)
                     if not nearest or #nearest == 0 then
                         data.Attacking, data.attackingEntity, currentTarget = false, nil, nil
@@ -742,6 +763,9 @@ runcode(function()
                     if not ctrl then return end
                     ctrl.CanAttack = true
                     SwordController.GetHitWithBox = function() return currentTarget end
+                    if SwingOnly.Enabled and not (UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1) or touching) then
+                        return
+                    end
                     ctrl:Activate()
                     SwordController.GetHitWithBox = origGetHitWithBox
                     --if projFireAt then task.spawn(projFireAt, root, target) end
@@ -761,6 +785,15 @@ runcode(function()
                     SwordController.new = origSwordNew
                     origSwordNew = nil
                 end
+                if touchConnStart then
+                    touchConnStart:Disconnect()
+                    touchConnStart = nil
+                end
+                if touchConnEnd then
+                    touchConnEnd:Disconnect()
+                    touchConnEnd = nil
+                end
+                touching = false
                 capturedControllers = {}
                 currentTarget = nil
                 revertitem()
@@ -768,7 +801,6 @@ runcode(function()
             end
         end
     })
-
     Distance = Killaura.CreateSlider({
         Name = "Distance",
         Min = 0,
