@@ -25,7 +25,13 @@ end
 local getcustomasset = environment.getcustomasset or function()
     return ""
 end
+
+local sharedExecutorContext = getgenv()
 local isBad = false
+if type(sharedExecutorContext) == "table" then
+    local executorInfo = type(sharedExecutorContext.phantomExecutor) == "table" and sharedExecutorContext.phantomExecutor or nil
+    isBad = (executorInfo and executorInfo.isBad == true) or sharedExecutorContext.phantomIsBadExecutor == true
+end
 
 local P = {
     BASE0      = Color3.fromRGB(4,   4,   4),
@@ -1389,10 +1395,70 @@ function Spectrum.window(cfg)
     
     panel.Expand = panel.Collapse
 
+    local function shouldHideForBadExecutor(cfg2)
+        if type(cfg2) ~= "table" then
+            return false
+        end
+
+        if cfg2.HideInUI == true then
+            return true
+        end
+
+        local shared = getgenv()
+        if type(shared) ~= "table" then
+            return false
+        end
+
+        local executorInfo = type(shared.phantomExecutor) == "table" and shared.phantomExecutor or {}
+        local hideUnsupported = executorInfo.hideUnsupportedModules == true or shared.phantomHideBadExecutorModules == true
+        local badExecutor = executorInfo.isBad == true or shared.phantomIsBadExecutor == true
+        if not (hideUnsupported and badExecutor) then
+            return false
+        end
+
+        if cfg2.AllowBadExecutor == true or cfg2.AllowLowExecutor == true or cfg2.AllowBadExecutorFallback == true or cfg2.Bad == false then
+            return false
+        end
+
+        if cfg2.AllowBadExecutor == false or cfg2.AllowLowExecutor == false then
+            return true
+        end
+
+        if cfg2.Bad == true or cfg2.HideOnBadExecutor == true then
+            return true
+        end
+
+        local required = cfg2.RequireMainFunctions
+        if type(required) ~= "table" then
+            return false
+        end
+
+        local missingLookup = type(executorInfo.missingMainLookup) == "table" and executorInfo.missingMainLookup
+        if type(missingLookup) ~= "table" then
+            missingLookup = shared.phantomMissingMainFunctions
+        end
+        if type(missingLookup) ~= "table" then
+            return false
+        end
+
+        for _, fnName in ipairs(required) do
+            if missingLookup[fnName] == true then
+                return true
+            end
+        end
+
+        return false
+    end
+
     function panel.CreateOptionsButton(cfg2)
         local entry     = { Expanded = false, Enabled = false, Recording = false, Value = false }
+        local hiddenInUi = shouldHideForBadExecutor(cfg2)
+        if hiddenInUi then
+            cfg2.NoSave = true
+        end
+        entry.Hidden = hiddenInUi
         local entryId   = cfg2.Name .. "Module"
-        local allowMobileButton = IS_MOBILE and cfg2.NoMobileButton ~= true
+        local allowMobileButton = IS_MOBILE and cfg2.NoMobileButton ~= true and not hiddenInUi
         local defaultTouchX, defaultTouchY = nextMobileButtonSlot()
         if IS_MOBILE and not allowMobileButton then
             local storedButtonState = MobileUIState.Buttons[entryId]
@@ -1482,6 +1548,13 @@ function Spectrum.window(cfg)
         SubHolder.Visible                = false
         mkCorner(SubHolder, R_SM)
         local SubEdge = mkBorder(SubHolder, P.EDGE, 1, 0.8)
+
+        if hiddenInUi then
+            Row.Visible = false
+            Row.Size = UDim2.new(0, ROW_W, 0, 0)
+            SubHolder.Visible = false
+            SubHolder.Size = UDim2.new(0, ROW_W, 0, 0)
+        end
 
         local SubFlow = Instance.new("UIListLayout")
         SubFlow.Parent             = SubHolder
@@ -1788,6 +1861,61 @@ function Spectrum.window(cfg)
             renderEntryVisuals(false)
         end))
 
+        local function shouldHideSubOptionForBadExecutor(cfg3)
+            if type(cfg3) ~= "table" then
+                return false
+            end
+
+            if cfg3.HideInUI == true then
+                return true
+            end
+
+            local shared = getgenv()
+            if type(shared) ~= "table" then
+                return false
+            end
+
+            local executorInfo = type(shared.phantomExecutor) == "table" and shared.phantomExecutor or {}
+            local hideUnsupported = executorInfo.hideUnsupportedModules == true or shared.phantomHideBadExecutorModules == true
+            local badExecutor = executorInfo.isBad == true or shared.phantomIsBadExecutor == true
+            if not (hideUnsupported and badExecutor) then
+                return false
+            end
+
+            if cfg3.AllowBadExecutor == true or cfg3.AllowLowExecutor == true or cfg3.AllowBadExecutorFallback == true or cfg3.Bad == false then
+                return false
+            end
+
+            if cfg3.AllowBadExecutor == false or cfg3.AllowLowExecutor == false then
+                return true
+            end
+
+            if cfg3.Bad == true or cfg3.HideOnBadExecutor == true then
+                return true
+            end
+
+            local required = cfg3.RequireMainFunctions
+            if type(required) ~= "table" then
+                return false
+            end
+
+            local missingLookup = type(executorInfo.missingMainLookup) == "table" and executorInfo.missingMainLookup
+            if type(missingLookup) ~= "table" then
+                missingLookup = shared.phantomMissingMainFunctions
+            end
+            if type(missingLookup) ~= "table" then
+                return false
+            end
+
+            for _, fnName in ipairs(required) do
+                if missingLookup[fnName] == true then
+                    return true
+                end
+            end
+
+            return false
+        end
+
         local function applyEntryState(enabled, fromKey, skipCallback, skipToast)
             entry.Enabled = enabled == true
             entry.Value = entry.Enabled
@@ -1804,10 +1932,21 @@ function Spectrum.window(cfg)
         end
 
         function entry.Toggle(fromKey)
+            if entry.Hidden then
+                entry.Enabled = false
+                entry.Value = false
+                return false
+            end
             applyEntryState(not entry.Enabled, fromKey, false, false)
+            return entry.Enabled
         end
 
         function entry.SetEnabled(enabled, skipCallback, skipToast)
+            if entry.Hidden then
+                entry.Enabled = false
+                entry.Value = false
+                return false
+            end
             if entry.Enabled == (enabled == true) then
                 entry.Value = entry.Enabled
                 return entry.Enabled
@@ -1818,6 +1957,9 @@ function Spectrum.window(cfg)
         entry.Function = cfg2.Function
 
         function entry.Expand()
+            if entry.Hidden then
+                return false
+            end
             entry.Expanded = not entry.Expanded
             if entry.Expanded then
                 SubHolder.Visible = true
@@ -1825,6 +1967,7 @@ function Spectrum.window(cfg)
             renderEntryVisuals(false)
             entry.Update(false)
             panel.Update(false)
+            return entry.Expanded
         end
 
         kit:track(Row.MouseButton1Click:Connect(entry.Toggle))
@@ -1838,6 +1981,10 @@ function Spectrum.window(cfg)
         
         function entry.CreateToggle(cfg3)
             local sw = { Enabled = false, Value = false, Dependents = {}, _depSaved = {} }
+            sw.Hidden = shouldHideSubOptionForBadExecutor(cfg3)
+            if sw.Hidden then
+                cfg3.NoSave = true
+            end
 
             local SwitchRow = Instance.new("TextButton")
             SwitchRow.Name                   = "Switch"; SwitchRow.Parent = OptionHolder
@@ -1875,6 +2022,11 @@ function Spectrum.window(cfg)
             SwitchLabel.TextScaled         = false; SwitchLabel.TextTruncate = Enum.TextTruncate.AtEnd
             SwitchLabel.TextXAlignment     = Enum.TextXAlignment.Left
 
+            if sw.Hidden then
+                SwitchRow.Visible = false
+                SwitchRow.Size = UDim2.new(0, SUB_W, 0, 0)
+            end
+
             local switchHovered = false
 
             local function renderSwitch(instant)
@@ -1902,6 +2054,11 @@ function Spectrum.window(cfg)
             end))
 
             function sw.Toggle(skipAnim)
+                if sw.Hidden then
+                    sw.Enabled = false
+                    sw.Value = false
+                    return false
+                end
                 sw.Enabled = not sw.Enabled
                 sw.Value = sw.Enabled
                 renderSwitch(skipAnim == true)
@@ -1925,6 +2082,11 @@ function Spectrum.window(cfg)
             end
 
             function sw.SetEnabled(value, skipAnim)
+                if sw.Hidden then
+                    sw.Enabled = false
+                    sw.Value = false
+                    return false
+                end
                 local target = value == true
                 if sw.Enabled ~= target then
                     sw.Toggle(skipAnim)
@@ -1967,7 +2129,7 @@ function Spectrum.window(cfg)
                 renderSwitch(false)
             end))
 
-            if cfg3.Default and sw.Enabled ~= cfg3.Default then sw.Toggle(true) end
+            if not sw.Hidden and cfg3.Default and sw.Enabled ~= cfg3.Default then sw.Toggle(true) end
             renderSwitch(true)
 
             kit:register(cfg3.Name .. "Toggle_" .. entryId,

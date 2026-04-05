@@ -47,8 +47,24 @@ local data = {
     }
 }
 
+local isBadExecutor = false
+
 for _, v in ipairs({"Antideath", "Gravity", "ESP", "AntiFall", "TriggerBot", "AimAssist", "BreadCrumbs", "Speed", "Fly", "AntiAFK", "AntiFall", "Antideath", "AutoClicker"}) do
     UI.kit:deregister(v .. "Module")
+end
+
+do
+    local execEnv = getgenv and getgenv() or {}
+    local executorModules = type(execEnv.phantomExecutor) == "table" and execEnv.phantomExecutor or {}
+    isBadExecutor = executorModules.isBad == true or execEnv.phantomIsBadExecutor == true
+    local hideExecutorModules = executorModules.hideUnsupportedModules == true or execEnv.phantomHideBadExecutorModules == true
+end
+
+
+if isBadExecutor then
+    task.defer(function()
+        createNotification("Executor", "unsupported modules are hidden.", 60)
+    end)
 end
 
 local bedfight = {
@@ -153,29 +169,14 @@ local SpeedMultiplier = function()
     return baseMultiplier
 end
 
-local function getHookId(plr)
+local getHookId = function(plr)
     return "inv_" .. tostring((plr and plr.UserId) or "local")
 end
 
-local function cleanupHookinv(plr)
-    local hook = data.hooked[plr]
-    if not hook then return end
-
-    for _, conn in ipairs(hook.conns) do
-        if conn and conn.Disconnect then
-            conn:Disconnect()
-        end
-    end
-
-    data.hooked[plr] = nil
-end
-
-Players.PlayerRemoving:Connect(function(plr)
-    funcs:offExit(getHookId(plr))
-    cleanupHookinv(plr)
-end)
-
 local hookinv = function(plr)
+    if isBadExecutor then
+        return
+    end
     plr = plr or lplr
     local inv = plr:FindFirstChild("Inventory") or plr:WaitForChild("Inventory", 5)
     if not inv then
@@ -391,7 +392,13 @@ end
 local getitem = function(name, plr)
     plr = plr or lplr
     local hook = data.hooked[plr]
-    if not hook then return nil end
+
+    if not hook then
+        if isBadExecutor and plr == lplr then
+            return findItem(name, plr)
+        end
+        return nil
+    end
 
     name = name:lower()
 
@@ -443,7 +450,21 @@ local function getClientEquipped()
     local char = lplr.Character
     if not char then return nil end
     local hook = data.hooked[lplr]
-    if not hook then return nil end
+
+    if not hook then
+        if not isBadExecutor then
+            return nil
+        end
+
+        for _, child in ipairs(char:GetChildren()) do
+            if child:IsA("Tool") or child:GetAttribute("Class") then
+                return child.Name, getInvType(child, lplr)
+            end
+        end
+
+        return nil
+    end
+
     for _, child in ipairs(char:GetChildren()) do
         if child:GetAttribute("Class") then
             for _, v in ipairs(hook.items) do
@@ -464,7 +485,9 @@ local itmEquipped
 local matchState
 
 do
-    hookinv(lplr)
+    if not isBadExecutor then
+        hookinv(lplr)
+    end
     hookAnims()
     hookmode()
 
@@ -479,17 +502,24 @@ do
     switchitem = function(name, plr)
         plr = plr or lplr
         local hook = data.hooked[plr]
-        if not hook then
-            return
-        end
 
         name = name:lower()
 
         local target
-        for _, v in ipairs(hook.items) do
-            if v.item and v.item.Name:lower():find(name) then
-                target = v
-                break
+        if hook then
+            for _, v in ipairs(hook.items) do
+                if v.item and v.item.Name:lower():find(name) then
+                    target = v
+                    break
+                end
+            end
+        elseif isBadExecutor and plr == lplr then
+            local item, invType = findItem(name, plr)
+            if item then
+                target = {
+                    item = item,
+                    inventory = invType or "Hotbar"
+                }
             end
         end
 
@@ -631,7 +661,6 @@ do
     end)
 end
 
-
 local Distance = {Value = 21}
 runcode(function()
     local Killaura = {}
@@ -697,6 +726,7 @@ runcode(function()
     Killaura = GuiLibrary.Registry.combatPanel.API.CreateOptionsButton({
         Name = "Killaura",
         Beta = true,
+        Bad = true,
         Function = function(callback)
             if callback then
                 shieldConn = bedfight.modules.Signals.Shield:Connect(function()
@@ -1565,6 +1595,7 @@ runcode(function()
     local Strength = {}
     local Velocity = {}; Velocity = GuiLibrary.Registry.combatPanel.API.CreateOptionsButton({
         Name = "Velocity",
+        Bad = true,
         Function = function(callback)
             if callback then
                 local connection = getconnections(ReplicatedStorage.Remotes.Knockback.OnClientEvent)[1]
@@ -1720,6 +1751,7 @@ runcode(function()
 
     local Projectile = GuiLibrary.Registry.combatPanel.API.CreateOptionsButton({
         Name = "ProjectileAura",
+        Bad = true,
         Function = function(callback)
             if callback then
                 RunLoops:BindToHeartbeat("Projectile", function()
@@ -1778,6 +1810,7 @@ runcode(function()
     end
     Reach = GuiLibrary.Registry.combatPanel.API.CreateOptionsButton({
         Name = "Reach",
+        Bad = true,
         Function = function(v)
             for name, orig in pairs(origReach) do
                 local d = bedfight.modules.SwordsData[name]
@@ -1909,6 +1942,7 @@ runcode(function()
 
     Projectile = GuiLibrary.Registry.blatantPanel.API.CreateOptionsButton({
         Name = "ProjectileAimbot",
+        Bad = true,
         Function = function(callback)
             if callback then
                 oldUpdateBeam = rangedModule.UpdateBeam
@@ -2196,6 +2230,7 @@ runcode(function()
     local CM = GuiLibrary.Registry.inventoryPanel.API.CreateOptionsButton({
         Name = "ChestManager",
         New = true,
+        Bad = true,
         Function = function(callback)
             if data.gamemode.current ~= "Ranked 1v1" and data.gamemode.current ~= "Ranked 4v4" then
                 local loopState = {cycle = 1, index = 1, teams = {}}
@@ -2242,7 +2277,7 @@ runcode(function()
     })
 end)
 
-runcode(function()
+--[[runcode(function()
     local Cape = {}
     local Capedrop = {}
     local CapesFolder = ReplicatedStorage:WaitForChild("Capes")
@@ -2300,7 +2335,7 @@ runcode(function()
             equipCape(selected)
         end
     })
-end)
+end)--]]
 
 runcode(function()
     local Tracers = {}
@@ -3080,6 +3115,7 @@ runcode(function()
     ShowArmorIcons = NameTags.CreateToggle({
         Name = "Armor Icons",
         Default = true,
+        Bad = true,
         Function = function()
             updateSubVis()
         end
@@ -3087,6 +3123,7 @@ runcode(function()
     ShowSwordIcons = NameTags.CreateToggle({
         Name = "Sword Icon",
         Default = true,
+        Bad = true,
         Function = function()
             updateSubVis()
         end
@@ -3094,6 +3131,7 @@ runcode(function()
     IconBackground = NameTags.CreateToggle({
         Name = "Icon Background",
         Default = true,
+        Bad = true,
         Function = function()
             updateSubVis()
         end
@@ -3245,6 +3283,7 @@ runcode(function()
 
     FirstPerson = GuiLibrary.Registry.renderPanel.API.CreateOptionsButton({
         Name = "FirstPerson",
+        Bad = true,
         Function = function(callback)
             if callback then
                 bedfight.modules.PlayerConfig.InFirstPerson.Value = true
@@ -3877,11 +3916,17 @@ end)
 runcode(function()
     local BlockRange = {}
     local BlockRangeSlider = {}
-    local rangeVal  = {Value = 50}
+    local baseRange = tonumber(bedfight.modules.BlocksData.Default.Range)
+    if not baseRange then
+        baseRange = 50
+        bedfight.modules.BlocksData.Default.Range = baseRange
+    end
+    local rangeVal  = {Value = baseRange}
     local infRange = false
-    local origRange = bedfight.modules.BlocksData.Default.Range
+    local origRange = baseRange
     BlockRange = GuiLibrary.Registry.utillityPanel.API.CreateOptionsButton({
         Name = "Block Range",
+        Bad = true,
         Function = function(callback)
             bedfight.modules.BlocksData.Default.Range = callback and (infRange and math.huge or rangeVal.Value) or origRange
         end
@@ -3894,7 +3939,9 @@ runcode(function()
         Round = 1,
         Function = function(callback)
             rangeVal.Value = callback
-            if BlockRange.Enabled and not infRange then bedfight.modules.BlocksData.Default.Range = v end
+            if BlockRange.Enabled and not infRange then
+                bedfight.modules.BlocksData.Default.Range = callback
+            end
         end
     })
     BlockRange.CreateToggle({
@@ -3919,6 +3966,7 @@ runcode(function()
     end
     FastBreak = GuiLibrary.Registry.utillityPanel.API.CreateOptionsButton({
         Name = "FastBreak",
+        Bad = true,
         Function = function(v)
             for name, orig in pairs(origMining) do
                 local d = MiningData[name]
@@ -3932,6 +3980,7 @@ runcode(function()
     local Jetpack = {}
     Jetpack = GuiLibrary.Registry.utillityPanel.API.CreateOptionsButton({
         Name = "Inf Jetpack",
+        Bad = true,
         Function = function(callback)
             if callback then
                 RunLoops:BindToHeartbeat("InfJetpackLoop", function()
@@ -3975,6 +4024,7 @@ runcode(function()
 
     PlayEmote = GuiLibrary.Registry.miscPanel.API.CreateOptionsButton({
         Name = "PlayEmote",
+        Bad = true,
         Function = function(callback)
             if callback then
                 if AnimSpoof.Enabled then
@@ -4076,40 +4126,842 @@ end)
 runcode(function()
     local RemoteSpoof = {}
     local oldNamecall
-    local targets = {}
+    local rateLimits = {}
+    local remoteStats = {}
+    local LoggerToggle, LoggerEvery, AntiTeleport, BlockInvoke
+    local ArgSanitizer, DeepSanitize, RateLimiter, RateLimitSlider
+    local BlockKnockback, BlockSwordHit, BlockProjectile
+    local NumberSpoof, NumberJitter, NumberMode
+    local HidePlayer, StringSpoof, DeviceSpoof, DeviceProfile
+    local TargetRemote, TargetMethod, OnlyGameRemotes, SpoofBlockRemotes, SpoofSensitiveRemotes, StrictArgShape
+
+    local VALID_TYPES = {
+        Instance = true, Vector3 = true, CFrame = true,
+        number = true, string = true, boolean = true,
+        table = true, Vector2 = true, Color3 = true,
+        BrickColor = true, UDim2 = true, UDim = true,
+        EnumItem = true, NumberSequence = true, ColorSequence = true,
+        Ray = true, Rect = true
+    }
+
+    local packArgs = table.pack or function(...) return {n = select("#", ...), ...} end
+    local unpackArgs = table.unpack or unpack
+
+    local function argCount(args) return args.n or #args end
+
+    local function sendRemote(self, method, args)
+        local argc = args and argCount(args) or 0
+
+        if method == "FireServer" then
+            if argc > 0 then
+                return self.FireServer(self, unpackArgs(args, 1, argc))
+            end
+            return self.FireServer(self)
+        end
+
+        if argc > 0 then
+            return self.InvokeServer(self, unpackArgs(args, 1, argc))
+        end
+        return self.InvokeServer(self)
+    end
+
+    local function copyArgs(args)
+        local argc = argCount(args)
+        local copy = {n = argc}
+        for i = 1, argc do
+            copy[i] = args[i]
+        end
+        return copy
+    end
+
+    local function fmtArgs(args)
+        local parts = {}
+        for i = 1, argCount(args) do
+            parts[#parts + 1] = typeof(args[i]) .. ":" .. tostring(args[i])
+        end
+        return table.concat(parts, ", ")
+    end
+
+    local function isTele(name)
+        local lower = name:lower()
+        return lower:find("teleport") or lower:find("kick") or lower:find("ban") or lower:find("punish")
+    end
+
+    local function isBlock(remoteName, remotePath)
+        local lower = (remoteName .. " " .. remotePath):lower()
+        return lower:find("block", 1, true)
+            or lower:find("build", 1, true)
+            or lower:find("place", 1, true)
+            or lower:find("mine", 1, true)
+    end
+
+    local function isSensitive(remoteName, remotePath)
+        if remoteName == "SwordHit" or remoteName == "EquipTool" or remoteName == "GetRankedLeaderboard" then
+            return true
+        end
+
+        local lower = (remotePath ~= "" and remotePath or remoteName):lower()
+        return lower:find("leaderboard", 1, true)
+            or lower:find("ranked", 1, true)
+            or lower:find("itemsremotes.swordhit", 1, true)
+            or lower:find("itemsremotes.equiptool", 1, true)
+    end
+
+    local function isCoreCombat(remoteName, remotePath)
+        if remoteName == "SwordHit" or remoteName == "EquipTool" or remoteName == "ShootProjectile" then
+            return true
+        end
+
+        local lower = (remotePath ~= "" and remotePath or remoteName):lower()
+        return lower:find("itemsremotes.swordhit", 1, true)
+            or lower:find("itemsremotes.equiptool", 1, true)
+            or lower:find("itemsremotes.shootprojectile", 1, true)
+    end
+
+    local function isNeverSpoof(remoteName, remotePath)
+        if isCoreCombat(remoteName, remotePath) then
+            return true
+        end
+
+        if remoteName == "GetRankedLeaderboard" then
+            return true
+        end
+
+        local lower = (remotePath ~= "" and remotePath or remoteName):lower()
+        return lower:find("getrankedleaderboard", 1, true)
+            or lower:find("leaderboard", 1, true)
+            or lower:find("ranked", 1, true)
+    end
+
+    local function isStrictRemote(remoteName, remotePath)
+        if remoteName == "SwordHit" or remoteName == "EquipTool" or remoteName == "GetRankedLeaderboard" then
+            return true
+        end
+
+        local lower = (remotePath ~= "" and remotePath or remoteName):lower()
+        return lower:find("leaderboard", 1, true)
+            or lower:find("ranked", 1, true)
+            or lower:find("itemsremotes.swordhit", 1, true)
+            or lower:find("itemsremotes.equiptool", 1, true)
+    end
+
+    local function escPat(str)
+        return str:gsub("([^%w])", "%%%1")
+    end
+
+    local function shouldSpoof(method, remoteName, remotePath)
+        if TargetMethod and TargetMethod.Value ~= "Both" and TargetMethod.Value ~= method then return false end
+        if TargetRemote and TargetRemote.Value ~= "All" and TargetRemote.Value ~= remoteName then return false end
+        if OnlyGameRemotes and OnlyGameRemotes.Enabled then
+            return remotePath ~= "" and remotePath:find("ReplicatedStorage.Remotes", 1, true) ~= nil
+        end
+        return true
+    end
+
+    local function isLocalInst(obj)
+        local char = lplr.Character
+        return obj == lplr or (char and (obj == char or obj:IsDescendantOf(char)))
+    end
+
+    local function spoofNum(n)
+        local mode = NumberMode and NumberMode.Value or "Jitter"
+        local offset = NumberJitter and NumberJitter.Value or 2
+
+        if mode == "Clamp" then
+            return math.clamp(n, -offset, offset)
+        end
+        if mode == "Random" then
+            return math.random(-offset * 100, offset * 100) / 100
+        end
+
+        return n + (math.random(-offset * 100, offset * 100) / 100)
+    end
+
+    local function spoofStr(str)
+        local spoofed = str
+        local plrName = tostring(lplr.Name or "")
+        local userId = tostring(lplr.UserId or "")
+
+        if plrName ~= "" then
+            spoofed = spoofed:gsub(escPat(plrName), "Player")
+        end
+        if userId ~= "" then
+            spoofed = spoofed:gsub(escPat(userId), tostring(math.random(100000, 999999)))
+        end
+
+        return spoofed
+    end
+
+    local function getDevProfile()
+        local profile = DeviceProfile and DeviceProfile.Value or "PC"
+
+        if profile == "Mobile" then
+            return {
+                device = "Mobile",
+                platform = "Android",
+                input = "Touch",
+                userInput = Enum.UserInputType.Touch,
+                isMobile = true,
+                isConsole = false,
+                isDesktop = false
+            }
+        end
+
+        if profile == "Console" then
+            return {
+                device = "Console",
+                platform = "Xbox",
+                input = "Gamepad",
+                userInput = Enum.UserInputType.Gamepad1,
+                isMobile = false,
+                isConsole = true,
+                isDesktop = false
+            }
+        end
+
+        return {
+            device = "PC",
+            platform = "Windows",
+            input = "KeyboardMouse",
+            userInput = Enum.UserInputType.MouseButton1,
+            isMobile = false,
+            isConsole = false,
+            isDesktop = true
+        }
+    end
+
+    local function spoofDevStr(str)
+        local data = getDevProfile()
+        local lower = str:lower()
+
+        local exact = {
+            mobile = data.device,
+            phone = data.device,
+            tablet = data.device,
+            pc = data.device,
+            desktop = data.device,
+            computer = data.device,
+            console = data.device,
+            gamepad = data.input,
+            controller = data.input,
+            touch = data.input,
+            keyboardmouse = data.input,
+            keyboard = data.input,
+            mouse = data.input,
+            ios = data.platform,
+            android = data.platform,
+            windows = data.platform,
+            xbox = data.platform,
+            playstation = data.platform
+        }
+
+        if exact[lower] then
+            return exact[lower]
+        end
+
+        local spoofed = str
+        spoofed = spoofed:gsub("[Mm][Oo][Bb][Ii][Ll][Ee]", data.device)
+        spoofed = spoofed:gsub("[Pp][Cc]", data.device)
+        spoofed = spoofed:gsub("[Cc][Oo][Nn][Ss][Oo][Ll][Ee]", data.device)
+        spoofed = spoofed:gsub("[Tt][Oo][Uu][Cc][Hh]", data.input)
+        spoofed = spoofed:gsub("[Gg][Aa][Mm][Ee][Pp][Aa][Dd]", data.input)
+        spoofed = spoofed:gsub("[Kk][Ee][Yy][Bb][Oo][Aa][Rr][Dd]", data.input)
+        spoofed = spoofed:gsub("[Aa][Nn][Dd][Rr][Oo][Ii][Dd]", data.platform)
+        spoofed = spoofed:gsub("[Ii][Oo][Ss]", data.platform)
+        spoofed = spoofed:gsub("[Ww][Ii][Nn][Dd][Oo][Ww][Ss]", data.platform)
+        spoofed = spoofed:gsub("[Xx][Bb][Oo][Xx]", data.platform)
+
+        return spoofed
+    end
+
+    local function spoofDevEnum(item)
+        if not (DeviceSpoof and DeviceSpoof.Enabled) then
+            return item
+        end
+
+        local data = getDevProfile()
+        local enumString = tostring(item)
+
+        if enumString:find("UserInputType", 1, true) then
+            return data.userInput
+        end
+
+        return item
+    end
+
+    local function mapDevField(key, value)
+        if not (DeviceSpoof and DeviceSpoof.Enabled) then
+            return false, value
+        end
+        if type(key) ~= "string" then
+            return false, value
+        end
+
+        local data = getDevProfile()
+        local lower = key:lower()
+
+        if lower == "device" or lower == "devicetype" or lower == "clientdevice" then
+            return true, data.device
+        end
+        if lower == "platform" or lower == "os" or lower == "platformname" then
+            return true, data.platform
+        end
+        if lower == "input" or lower == "inputtype" or lower == "control" or lower == "controls" then
+            return true, data.input
+        end
+        if lower == "ismobile" or lower == "mobile" or lower == "istouch" or lower == "touchenabled" then
+            return true, data.isMobile
+        end
+        if lower == "isconsole" or lower == "console" or lower == "gamepadenabled" then
+            return true, data.isConsole
+        end
+        if lower == "isdesktop" or lower == "desktop" or lower == "keyboardenabled" then
+            return true, data.isDesktop
+        end
+
+        return false, value
+    end
+
+    local function neutVal(value, depth, seen)
+        local t = typeof(value)
+
+        if t == "number" then
+            return 0
+        end
+        if t == "string" then
+            return "0"
+        end
+        if t == "boolean" then
+            return false
+        end
+        if t == "Vector3" then
+            return Vector3.new(0, 0, 0)
+        end
+        if t == "CFrame" then
+            return CFrame.new()
+        end
+        if t == "Vector2" then
+            return Vector2.new(0, 0)
+        end
+        if t == "Color3" then
+            return Color3.new(0, 0, 0)
+        end
+        if t == "UDim2" then
+            return UDim2.new(0, 0, 0, 0)
+        end
+        if t == "UDim" then
+            return UDim.new(0, 0)
+        end
+        if t == "BrickColor" then
+            return BrickColor.new("Medium stone grey")
+        end
+        if t == "Instance" then
+            return workspace.Terrain
+        end
+        if t == "EnumItem" then
+            return spoofDevEnum(value)
+        end
+        if t == "table" then
+            if depth > 4 then
+                return value
+            end
+            if seen[value] then
+                return seen[value]
+            end
+
+            local newTable = {}
+            seen[value] = newTable
+            for k, v in pairs(value) do
+                -- Keep original keys so structured payloads (x/y/z, slot/id, etc.) stay valid.
+                newTable[k] = neutVal(v, depth + 1, seen)
+            end
+            return newTable
+        end
+
+        return value
+    end
+
+    local function cleanVal(value, depth, seen)
+        local t = typeof(value)
+        if VALID_TYPES[t] then
+            if t == "table" and DeepSanitize and DeepSanitize.Enabled then
+                if depth > 4 then
+                    return value
+                end
+                if seen[value] then
+                    return seen[value]
+                end
+
+                local cleaned = {}
+                seen[value] = cleaned
+                for k, v in pairs(value) do
+                    -- Preserve keys during sanitization to avoid dropping required fields.
+                    cleaned[k] = cleanVal(v, depth + 1, seen)
+                end
+                return cleaned
+            end
+
+            return value
+        end
+
+        return value
+    end
+
+    local function coerceVal(original, candidate, depth, seen, strictSchema)
+        if candidate == nil then
+            return original
+        end
+
+        local originalType = typeof(original)
+        local candidateType = typeof(candidate)
+        if originalType ~= candidateType then
+            return original
+        end
+
+        if strictSchema and (originalType == "Instance" or originalType == "string" or originalType == "EnumItem") then
+            return original
+        end
+
+        if originalType == "table" then
+            if depth > 5 then
+                return original
+            end
+            if seen[original] then
+                return seen[original]
+            end
+
+            local out = {}
+            seen[original] = out
+            for k, ov in pairs(original) do
+                out[k] = coerceVal(ov, candidate[k], depth + 1, seen, strictSchema)
+            end
+            return out
+        end
+
+        return candidate
+    end
+
+    local function fixArgsShape(remoteName, remotePath, originalArgs, candidateArgs)
+        local argc = argCount(originalArgs)
+        local strictSchema = isStrictRemote(remoteName, remotePath)
+        local out = {n = argc}
+        local seen = {}
+
+        for i = 1, argc do
+            out[i] = coerceVal(originalArgs[i], candidateArgs[i], 0, seen, strictSchema)
+        end
+
+        return out
+    end
+
+    local function hasRewrite()
+        return (HidePlayer and HidePlayer.Enabled)
+            or (NumberSpoof and NumberSpoof.Enabled)
+            or (StringSpoof and StringSpoof.Enabled)
+            or (DeviceSpoof and DeviceSpoof.Enabled)
+    end
+
+    local function isArgAllowed(value, depth, seen)
+        local t = typeof(value)
+        if not VALID_TYPES[t] then
+            return false
+        end
+
+        if t == "table" and DeepSanitize and DeepSanitize.Enabled then
+            if depth > 4 then
+                return true
+            end
+            if seen[value] then
+                return true
+            end
+            seen[value] = true
+
+            for k, v in pairs(value) do
+                if not isArgAllowed(k, depth + 1, seen) or not isArgAllowed(v, depth + 1, seen) then
+                    return false
+                end
+            end
+        end
+
+        return true
+    end
+
+    local function rewriteVal(value, depth, seen)
+        local t = typeof(value)
+
+        if t == "Instance" then
+            if HidePlayer and HidePlayer.Enabled and isLocalInst(value) then
+                return workspace.Terrain
+            end
+            return value
+        end
+
+        if t == "number" then
+            if NumberSpoof and NumberSpoof.Enabled then
+                return spoofNum(value)
+            end
+            return value
+        end
+
+        if t == "string" then
+            local rewritten = value
+            if StringSpoof and StringSpoof.Enabled then
+                rewritten = spoofStr(rewritten)
+            end
+            if DeviceSpoof and DeviceSpoof.Enabled then
+                rewritten = spoofDevStr(rewritten)
+            end
+            return rewritten
+        end
+
+        if t == "EnumItem" then
+            if DeviceSpoof and DeviceSpoof.Enabled then
+                return spoofDevEnum(value)
+            end
+            return value
+        end
+
+        if t == "table" then
+            if depth > 4 then
+                return value
+            end
+            if seen[value] then
+                return seen[value]
+            end
+
+            local newTable = {}
+            seen[value] = newTable
+            for k, v in pairs(value) do
+                local replaced, fieldValue = mapDevField(k, v)
+                if replaced then
+                    newTable[k] = fieldValue
+                else
+                    newTable[k] = rewriteVal(v, depth + 1, seen)
+                end
+            end
+            return newTable
+        end
+
+        return value
+    end
 
     RemoteSpoof = GuiLibrary.Registry.miscPanel.API.CreateOptionsButton({
         Name = "RemoteSpoof",
-        Function = function(callback)
-            if callback then
-                table.clear(targets)
-
-                for _, remote in pairs(bedfight.remotes) do
-                    targets[remote] = true
-                end
-
+        Bad = true,
+        Function = function(enabled)
+            if enabled then
                 if not oldNamecall then
                     oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
                         local method = getnamecallmethod()
-                        local args = { ... }
-                        if checkcaller() then
+                        if method ~= "FireServer" and method ~= "InvokeServer" then
                             return oldNamecall(self, ...)
                         end
 
-                        if RemoteSpoof.Enabled and targets[self] then
-                            if method == "FireServer" or method == "InvokeServer" then
-                                return oldNamecall(self, unpack(args))
+                        local originalArgs = packArgs(...)
+
+                        if not RemoteSpoof.Enabled then
+                            return sendRemote(self, method, originalArgs)
+                        end
+
+                        local remoteName = ""
+                        local ok = pcall(function() remoteName = self.Name end)
+                        if not ok then
+                            return sendRemote(self, method, originalArgs)
+                        end
+
+                        local remotePath = ""
+                        pcall(function()
+                            remotePath = self:GetFullName()
+                        end)
+
+                        local args = copyArgs(originalArgs)
+                        local key = method .. ":" .. (remotePath ~= "" and remotePath or remoteName)
+
+                        -- Hard safety: never spoof core combat/ranked remotes.
+                        if isNeverSpoof(remoteName, remotePath) then
+                            return sendRemote(self, method, originalArgs)
+                        end
+
+                        if LoggerToggle and LoggerToggle.Enabled then
+                            local count = (remoteStats[key] or 0) + 1
+                            remoteStats[key] = count
+                            local every = LoggerEvery and LoggerEvery.Value or 1
+                            if count % every == 0 then
+                                print("[RemoteSpoof]", method, remotePath, "|", fmtArgs(args))
                             end
                         end
 
-                        return oldNamecall(self, ...)
+                        if isSensitive(remoteName, remotePath) then
+                            local explicitSensitiveTarget = TargetRemote and TargetRemote.Value == remoteName
+                            if not (SpoofSensitiveRemotes and SpoofSensitiveRemotes.Enabled and explicitSensitiveTarget) then
+                                return sendRemote(self, method, originalArgs)
+                            end
+                        end
+
+                        if not (SpoofBlockRemotes and SpoofBlockRemotes.Enabled) and isBlock(remoteName, remotePath) then
+                            return sendRemote(self, method, originalArgs)
+                        end
+
+                        local forceSpoof = false
+
+                        if BlockInvoke and BlockInvoke.Enabled and method == "InvokeServer" then
+                            forceSpoof = true
+                        end
+
+                        if BlockKnockback and BlockKnockback.Enabled and remoteName == "Knockback" then
+                            forceSpoof = true
+                        end
+                        if BlockSwordHit and BlockSwordHit.Enabled and remoteName == "SwordHit" then
+                            forceSpoof = true
+                        end
+                        if BlockProjectile and BlockProjectile.Enabled and remoteName == "ShootProjectile" then
+                            forceSpoof = true
+                        end
+
+                        if AntiTeleport and AntiTeleport.Enabled and isTele(remoteName) then
+                            forceSpoof = true
+                            print("[RemoteSpoof] Spoofed:", remotePath)
+                        end
+
+                        if not forceSpoof and not shouldSpoof(method, remoteName, remotePath) then
+                            return sendRemote(self, method, originalArgs)
+                        end
+
+                        if ArgSanitizer and ArgSanitizer.Enabled then
+                            local argc = argCount(args)
+                            local sanitized = {n = argc}
+                            local seenSanitized = {}
+                            for i = 1, argc do
+                                if not isArgAllowed(args[i], 0, {}) then
+                                    print("[RemoteSpoof] Sanitized arg type:", typeof(args[i]), "in", remotePath)
+                                end
+                                sanitized[i] = cleanVal(args[i], 0, seenSanitized)
+                            end
+                            args = sanitized
+                        end
+
+                        if RateLimiter and RateLimiter.Enabled then
+                            local now = tick()
+                            local limit = RateLimitSlider and RateLimitSlider.Value or 0.1
+                            if rateLimits[key] and (now - rateLimits[key]) < limit then
+                                forceSpoof = true
+                            end
+                            rateLimits[key] = now
+                        end
+
+                        if forceSpoof then
+                            local argc = argCount(args)
+                            local spoofed = {n = argc}
+                            local seenSpoofed = {}
+                            for i = 1, argc do
+                                spoofed[i] = neutVal(args[i], 0, seenSpoofed)
+                            end
+                            args = spoofed
+                        end
+
+                        if hasRewrite() then
+                            local argc = argCount(args)
+                            local rewritten = {n = argc}
+                            local seen = {}
+                            for i = 1, argc do
+                                rewritten[i] = rewriteVal(args[i], 0, seen)
+                            end
+                            args = rewritten
+                        end
+
+                        if not StrictArgShape or StrictArgShape.Enabled then
+                            args = fixArgsShape(remoteName, remotePath, originalArgs, args)
+                        end
+
+                        return sendRemote(self, method, args)
                     end)
                 end
             else
-                table.clear(targets)
+                table.clear(rateLimits)
+                table.clear(remoteStats)
             end
         end
     })
+
+    LoggerToggle = RemoteSpoof.CreateToggle({
+        Name = "Remote Logger",
+        Default = false,
+        Tooltip = "Logs outgoing remote calls to dev console",
+        Function = function() end
+    })
+
+    LoggerEvery = RemoteSpoof.CreateSlider({
+        Name = "Log Every",
+        Min = 1,
+        Max = 20,
+        Default = 1,
+        Round = 0,
+        Function = function() end
+    })
+    LoggerToggle:ShowWhen(LoggerEvery)
+
+    TargetMethod = RemoteSpoof.CreateDropdown({
+        Name = "Method Filter",
+        List = {"Both", "FireServer", "InvokeServer"},
+        Default = "Both",
+        Function = function() end
+    })
+
+    TargetRemote = RemoteSpoof.CreateDropdown({
+        Name = "Target Remote",
+        List = {"All", "EquipTool", "SwordHit", "ShootProjectile", "PutItemInChest", "TakeItemFromChest", "Knockback"},
+        Default = "All",
+        Function = function() end
+    })
+
+    OnlyGameRemotes = RemoteSpoof.CreateToggle({
+        Name = "Only Bedfight Remotes",
+        Default = true,
+        Tooltip = "Only spoof remotes under ReplicatedStorage.Remotes",
+        Function = function() end
+    })
+
+    StrictArgShape = RemoteSpoof.CreateToggle({
+        Name = "Strict Arg Shape",
+        Default = true,
+        Tooltip = "Preserves original arg structure and value types",
+        Function = function() end
+    })
+
+    SpoofBlockRemotes = RemoteSpoof.CreateToggle({
+        Name = "Spoof Block Remotes",
+        Default = false,
+        Tooltip = "Off keeps block/build/mine remotes untouched for stability",
+        Function = function() end
+    })
+
+    SpoofSensitiveRemotes = RemoteSpoof.CreateToggle({
+        Name = "Spoof Sensitive Remotes",
+        Default = false,
+        Tooltip = "Off keeps ranked/leaderboard remotes untouched (combat remotes are always untouched)",
+        Function = function() end
+    })
+
+    AntiTeleport = RemoteSpoof.CreateToggle({
+        Name = "Anti Teleport",
+        Default = true,
+        Tooltip = "Spoofs teleport and kick remote payloads",
+        Function = function() end
+    })
+
+    BlockInvoke = RemoteSpoof.CreateToggle({
+        Name = "Spoof Invoke",
+        Default = false,
+        Tooltip = "Neutralizes InvokeServer payloads instead of dropping",
+        Function = function() end
+    })
+
+    ArgSanitizer = RemoteSpoof.CreateToggle({
+        Name = "Arg Sanitizer",
+        Default = true,
+        Tooltip = "Sanitizes suspicious argument types instead of dropping",
+        Function = function() end
+    })
+
+    DeepSanitize = RemoteSpoof.CreateToggle({
+        Name = "Deep Sanitize",
+        Default = false,
+        Tooltip = "Checks nested table keys and values for unsafe types",
+        Function = function() end
+    })
+    ArgSanitizer:ShowWhen(DeepSanitize)
+
+    RateLimiter = RemoteSpoof.CreateToggle({
+        Name = "Rate Limiter",
+        Default = false,
+        Tooltip = "Spoofs rapid repeat calls instead of dropping",
+        Function = function() end
+    })
+
+    RateLimitSlider = RemoteSpoof.CreateSlider({
+        Name = "Rate Limit",
+        Min = 0.01,
+        Max = 1,
+        Default = 0.1,
+        Round = 2,
+        Function = function() end
+    })
+    RateLimiter:ShowWhen(RateLimitSlider)
+
+    BlockKnockback = RemoteSpoof.CreateToggle({
+        Name = "Spoof Knockback",
+        Default = false,
+        Tooltip = "Neutralizes outgoing Knockback payload",
+        Function = function() end
+    })
+
+    BlockSwordHit = RemoteSpoof.CreateToggle({
+        Name = "Spoof SwordHit",
+        Default = false,
+        Tooltip = "Neutralizes outgoing SwordHit payload",
+        Function = function() end
+    })
+
+    BlockProjectile = RemoteSpoof.CreateToggle({
+        Name = "Spoof Projectile",
+        Default = false,
+        Tooltip = "Neutralizes outgoing ShootProjectile payload",
+        Function = function() end
+    })
+
+    NumberSpoof = RemoteSpoof.CreateToggle({
+        Name = "Number Spoof",
+        Default = false,
+        Tooltip = "Rewrites numeric arguments in outgoing remotes",
+        Function = function() end
+    })
+
+    NumberJitter = RemoteSpoof.CreateSlider({
+        Name = "Number Range",
+        Min = 1,
+        Max = 50,
+        Default = 2,
+        Round = 1,
+        Function = function() end
+    })
+
+    NumberMode = RemoteSpoof.CreateDropdown({
+        Name = "Number Mode",
+        List = {"Jitter", "Clamp", "Random"},
+        Default = "Jitter",
+        Function = function() end
+    })
+    NumberSpoof:ShowWhen(NumberJitter)
+    NumberSpoof:ShowWhen(NumberMode)
+
+    HidePlayer = RemoteSpoof.CreateToggle({
+        Name = "Hide Player",
+        Default = false,
+        Tooltip = "Replaces local player instances in args with terrain",
+        Function = function() end
+    })
+
+    StringSpoof = RemoteSpoof.CreateToggle({
+        Name = "String Spoof",
+        Default = false,
+        Tooltip = "Redacts your name and userId in string arguments",
+        Function = function() end
+    })
+
+    DeviceSpoof = RemoteSpoof.CreateToggle({
+        Name = "Device Spoof",
+        Default = false,
+        Tooltip = "Spoofs device/platform/input values in outgoing remotes",
+        Function = function() end
+    })
+
+    DeviceProfile = RemoteSpoof.CreateDropdown({
+        Name = "Device Profile",
+        List = {"PC", "Mobile", "Console"},
+        Default = "PC",
+        Function = function() end
+    })
+    DeviceSpoof:ShowWhen(DeviceProfile)
 end)
 
 runcode(function()
@@ -4430,6 +5282,7 @@ runcode(function()
     GuiLibrary.Registry.blatantPanel.API.CreateOptionsButton({
         Name = "Creative (blocks)",
         New  = true,
+        Bad = true,
         Function = function(callback)
             local char = lplr.Character
             if not char then return end
@@ -4475,6 +5328,7 @@ runcode(function()
 
     Knockback = GuiLibrary.Registry.utillityPanel.API.CreateOptionsButton({
         Name = "Knockback",
+        Bad = true,
         New  = true,
         Function = function(callback)
             if not callback then return end

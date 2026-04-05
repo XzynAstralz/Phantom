@@ -511,7 +511,17 @@ local patcherSource = readFile("lib/patcher.lua")
 if patcherSource then
 	local patcherChunk = loadstring(patcherSource, "@" .. resolve("lib/patcher.lua"))
 	if patcherChunk then
-		pcall(patcherChunk)
+		local ok, patcherResult = pcall(patcherChunk)
+		if ok and type(patcherResult) == "table" and type(getgenv) == "function" then
+			local env = getgenv()
+			env.phantomExecutorInfo = patcherResult
+			env.phantomMissingMainFunctions = patcherResult.missingMainLookup or {}
+			env.phantomIsBadExecutor = patcherResult.executorLevel ~= "HIGH"
+			env.phantomExecutor = type(env.phantomExecutor) == "table" and env.phantomExecutor or {}
+			env.phantomExecutor.info = patcherResult
+			env.phantomExecutor.missingMainLookup = env.phantomMissingMainFunctions
+			env.phantomExecutor.isBad = env.phantomIsBadExecutor
+		end
 	end
 end
 
