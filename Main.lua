@@ -169,6 +169,51 @@ local function readOverlayToggleState(key, defaultValue)
 	return defaultValue == true
 end
 
+local function setHideBadExecutorModules(enabled)
+	local state = enabled == true
+	env.phantomHideBadExecutorModules = state
+	env.phantomExecutor = type(env.phantomExecutor) == "table" and env.phantomExecutor or {}
+	env.phantomExecutor.hideUnsupportedModules = state
+end
+
+local function shouldAutoEnableHideBadExecutorModules()
+	if env.phantomIsBadExecutor ~= true then
+		return false
+	end
+
+	if type(env.phantomMissingMainFunctions) ~= "table" then
+		return true
+	end
+
+	return next(env.phantomMissingMainFunctions) ~= nil
+end
+
+local function syncExecutorContextFromEnv()
+	env.phantomExecutor = type(env.phantomExecutor) == "table" and env.phantomExecutor or {}
+
+	if type(env.phantomExecutorInfo) == "table" then
+		env.phantomExecutor.info = env.phantomExecutorInfo
+	end
+
+	if type(env.phantomMissingMainFunctions) == "table" then
+		env.phantomExecutor.missingMainLookup = env.phantomMissingMainFunctions
+	end
+
+	if env.phantomIsBadExecutor ~= nil then
+		env.phantomExecutor.isBad = env.phantomIsBadExecutor == true
+	end
+
+	if env.phantomExecutor.hideUnsupportedModules == nil then
+		env.phantomExecutor.hideUnsupportedModules = false
+	end
+end
+
+setHideBadExecutorModules(readOverlayToggleState("hide bad executor modules", false))
+if shouldAutoEnableHideBadExecutorModules() then
+	setHideBadExecutorModules(true)
+end
+syncExecutorContextFromEnv()
+
 local function creatorScriptPath()
 	if creatorId == "" or creatorId == "0" then
 		return nil
@@ -337,6 +382,12 @@ if UI.CreateHudConfig then
 	end
 	if hudEditor.AddSectionHeader then
 		hudEditor.AddSectionHeader("Visibility")
+	end
+	if hudEditor.AddToggleRow then
+		hudEditor.AddToggleRow("hide bad executor modules", env.phantomHideBadExecutorModules == true, function(on)
+			setHideBadExecutorModules(on)
+			syncExecutorContextFromEnv()
+		end)
 	end
 	if hudEditor.AddSectionHeader then
 		hudEditor.AddSectionHeader("HUD")
@@ -750,6 +801,7 @@ local phantom = {
 			return getIcon(name)
 		end,
 	},
+	executor = env.phantomExecutor,
 }
 
 local ops = { runtime = runtime.runtime }
@@ -1030,9 +1082,21 @@ if creatorScriptPath() then
 end
 moduleLoader:RegisterPath("game.place", "games/" .. placeId .. ".lua", { cache = false, hotReload = true })
 
+local patcherInfo
 pcall(function()
-	moduleLoader:Load("patcher")
+	patcherInfo = moduleLoader:Load("patcher")
 end)
+
+if type(patcherInfo) == "table" then
+	env.phantomExecutorInfo = patcherInfo
+	env.phantomMissingMainFunctions = patcherInfo.missingMainLookup or {}
+	env.phantomIsBadExecutor = patcherInfo.executorLevel ~= "HIGH"
+end
+
+if shouldAutoEnableHideBadExecutorModules() then
+	setHideBadExecutorModules(true)
+end
+syncExecutorContextFromEnv()
 
 local shuttingDown = false
 local hotReloadQueued = false
