@@ -17,7 +17,20 @@ local ReplicatedStorage = cloneref(game:GetService("ReplicatedStorage"))
 local Lighting = cloneref(game:GetService("Lighting"))
 local Teams = cloneref(game:GetService("Teams"))
 local UserInputService = cloneref(game:GetService("UserInputService"))
-local HttpService = game:GetService("HttpService")
+local _GTS = cloneref(game:GetService("TextService"))
+
+-- Shared text-width cache: key = text.."\0"..size, value = pixel width
+local _twCache = {}
+local function measureTextW(txt, sz, font)
+    local key = txt .. "\0" .. sz
+    local cached = _twCache[key]
+    if cached then return cached end
+    local ok, v = pcall(function() return _GTS:GetTextSize(txt, sz, font, Vector2.new(9999, 9999)) end)
+    local w = ok and v.X or #txt * sz * 0.55
+    _twCache[key] = w
+    return w
+end
+
 local lplr = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
 
@@ -39,7 +52,6 @@ local data = {
     matchState = 0,
     Attacking = false,
     attackingEntity = nil,
-    attackSwitchAt = 0,
     gamemode = {
         value = nil,
         current = nil,
@@ -142,15 +154,11 @@ local createBodyVel = function()
     end
 end
 
-local speedBoost
+local speedBoost = 0
 local speedTimer = tick()
 
 local SpeedMultiplier = function()
-    local baseMultiplier = 0
-    if tick() <= speedTimer then
-        baseMultiplier = baseMultiplier + speedBoost
-    end
-    return baseMultiplier
+    return tick() <= speedTimer and speedBoost or 0
 end
 
 local function getHookId(plr)
@@ -274,7 +282,7 @@ local hookinv = function(plr)
             for i, v in pairs(bedfight.modules.InventoryHandler.Inventories) do
                 if bedfight.modules.InventoryHandler.GetSlotByName(item.Name, i) then
                     inventoryType = i
-                    v.SlotsAmount = v.SlotsAmount + 1
+                    v.SlotsAmount = state.SlotsAmount + 1
                 end
             end
         end
@@ -457,10 +465,8 @@ local function getClientEquipped()
 end
 
 local getsword
-local itmEqu
 local switchitem
 local revertitem
-local itmEquipped
 local matchState
 
 do
@@ -498,10 +504,7 @@ do
         end
 
         if switchedTo == target.item.Name then
-            local equippedName = getClientEquipped()
-            if equippedName == target.item.Name then
-                return
-            end
+            return
         end
 
         if not previousEquipped then
@@ -513,14 +516,6 @@ do
 
         switchedTo = target.item.Name
         bedfight.remotes.EquipTool:FireServer(target.item.Name, target.inventory)
-    end
-
-    local getSignal = function()
-        local Signal = {}
-        for name in pairs(bedfight.modules.Signals) do
-            table.insert(Signal, name)
-        end
-        return Signal
     end
 
     revertitem = function(plr)
@@ -543,13 +538,6 @@ do
             if not ok or not result then return math.huge end
             local m, s = result:match("(%d+):(%d+)")
             return (m and s) and (tonumber(m) * 60 + tonumber(s)) or math.huge
-        end
-
-        local isSpectator = function() return lplr.Team and lplr.Team.Name == "Spectators" end
-
-        local hasPVP = function()
-            local ok, result = pcall(function() return lplr:GetAttribute("PVP") end)
-            return ok and result == true
         end
 
         local isInActiveGame = function()
@@ -575,9 +563,9 @@ do
 
             if statusText:find("more team") then
                 data.matchState = 0
-            elseif hasPVP() and not isSpectator() then
+            elseif lplr:GetAttribute("PVP") == true and not (lplr.Team and lplr.Team.Name == "Spectators") then
                 data.matchState = 2
-            elseif not isSpectator() and (statusText:find("status:") or statusText:find("started:")) then
+            elseif not (lplr.Team and lplr.Team.Name == "Spectators") and (statusText:find("status:") or statusText:find("started:")) then
                 data.matchState = 2
             elseif statusText:find("voting:") or statusText:find("intermission:") then
                 data.matchState = 1
@@ -613,8 +601,8 @@ runcode(function()
     local Killaura = {}
     local FacePlayer = {}
     local TeamCheck = {}
-    local SwingOnly = {}
-    local ItemOnly = {}
+    local VMAnimToggle = {Enabled = false}
+    local VMAnimStyle = {Value = "Butcher"}
 
     local swordtype = nil
     local currentTarget = nil
@@ -626,6 +614,12 @@ runcode(function()
     local origGetHitWithBox = nil
     local origSwordNew = nil
     local capturedControllers = {}
+
+    local vmAnimPlaying = false
+    local vmJointCache = nil
+    local vmOrigC0Cache = nil
+    local vmSuppressDefault = false
+    local origVMLoadAnim = nil
 
     local function getPing()
         local ok, value = pcall(function()
@@ -688,12 +682,32 @@ runcode(function()
                     return ctrl
                 end
 
+                local _kaCharConn = lplr.CharacterAdded:Connect(function()
+                    vmJointCache = nil; vmOrigC0Cache = nil
+                    task.delay(0.3, function()
+                        if Killaura.Enabled then hookAnims() end
+                    end)
+                end)
+                funcs:onExit("KA_CharConn", function()
+                    if _kaCharConn then _kaCharConn:Disconnect() end
+                end)
+
+                local _ok, _VMH = pcall(require, ReplicatedStorage.Modules.ViewModelHandler)
+                if _ok and _VMH and _VMH.LoadAnimation then
+                    origVMLoadAnim = _VMH.LoadAnimation
+                    local _fake = {
+                        Play = function() end, Stop = function() end,
+                        AdjustSpeed = function() end, AdjustWeight = function() end,
+                        Stopped = {Connect = function() return {Disconnect = function() end} end},
+                    }
+                    _VMH.LoadAnimation = function(...)
+                        if vmSuppressDefault then return _fake end
+                        return origVMLoadAnim(...)
+                    end
+                end
+
                 RunLoops:BindToHeartbeat("Killaura", function()
                     if shieldActive then return end
-
-                    if SwingOnly.Enabled and not UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1) then
-                        return
-                    end
 
                     local nearest = PlayerUtility.GetNearestEntities(Distance.Value, TeamCheck.Enabled, false)
                     if not nearest or #nearest == 0 then
@@ -712,9 +726,6 @@ runcode(function()
 
                     swordtype = getsword()
                     if not swordtype then revertitem() return end
-
-                    if ItemOnly.Enabled and getClientEquipped() ~= swordtype then return end
-
                     local swordData = bedfight.modules.SwordsData[swordtype]
                     if not swordData then return end
                     local ping = getPing()
@@ -730,7 +741,6 @@ runcode(function()
 
                     if data.projLastFire and (tick() - data.projLastFire) < 0.05 then return end
 
-                    data.attackSwitchAt = tick()
                     data.Attacking = true
                     data.attackingEntity = target
 
@@ -742,12 +752,16 @@ runcode(function()
                     if not ctrl then return end
                     ctrl.CanAttack = true
                     SwordController.GetHitWithBox = function() return currentTarget end
+                    vmSuppressDefault = VMAnimToggle.Enabled
                     ctrl:Activate()
+                    vmSuppressDefault = false
                     SwordController.GetHitWithBox = origGetHitWithBox
+                    task.spawn(playVMAnim)
                     --if projFireAt then task.spawn(projFireAt, root, target) end
                 end)
             else
                 if shieldConn then shieldConn:Disconnect(); shieldConn = nil end
+                funcs:offExit("KA_CharConn")
                 shieldActive = false
                 currentTarget = nil
                 data.Attacking = false
@@ -763,6 +777,14 @@ runcode(function()
                 end
                 capturedControllers = {}
                 currentTarget = nil
+                vmSuppressDefault = false
+                vmAnimPlaying = false
+                vmJointCache, vmOrigC0Cache = nil, nil
+                if origVMLoadAnim then
+                    local _ok, _VMH = pcall(require, ReplicatedStorage.Modules.ViewModelHandler)
+                    if _ok and _VMH then _VMH.LoadAnimation = origVMLoadAnim end
+                    origVMLoadAnim = nil
+                end
                 revertitem()
                 RunLoops:UnbindFromHeartbeat("Killaura")
             end
@@ -784,16 +806,6 @@ runcode(function()
     })
     FacePlayer = Killaura.CreateToggle({
         Name = "FacePlayer",
-        Function = function() end
-    })
-    SwingOnly = Killaura.CreateToggle({
-        Name = "Swing Only",
-        Tooltip = "Only attacks while clicking",
-        Function = function() end
-    })
-    ItemOnly = Killaura.CreateToggle({
-        Name = "Item Only",
-        Tooltip = "Only attacks when sword is held",
         Function = function() end
     })
 end)
@@ -895,7 +907,7 @@ runcode(function()
         Max = 200,
         Default = 60,
         Round = 1,
-        Function = function(v) HSHighSpeed.Value = v end,
+        Function = function(callback) HSHighSpeed.Value = callback end,
     })
     local HSBaseSpeedSlider = Speed.CreateSlider({
         Name = "BaseSpeed",
@@ -903,7 +915,7 @@ runcode(function()
         Max = 100,
         Default = 32,
         Round = 1,
-        Function = function(v) HSLowSpeed.Value = v end,
+        Function = function(callback) HSLowSpeed.Value = callback end,
     })
     local HSBoostDurSlider = Speed.CreateSlider({
         Name = "BoostDur",
@@ -911,7 +923,7 @@ runcode(function()
         Max = 5,
         Default = 0.1,
         Round = 1,
-        Function = function(v) HSHighDur.Value = v end,
+        Function = function(callback) HSHighDur.Value = callback end,
     })
     local HSBaseDurSlider = Speed.CreateSlider({
         Name = "BaseDur",
@@ -919,7 +931,7 @@ runcode(function()
         Max = 5,
         Default = 1.2,
         Round = 1,
-        Function = function(v) HSLowDur.Value = v end,
+        Function = function(callback) HSLowDur.Value = callback end,
     })
     Mode:ShowWhen("HeatSeeker", HSBoostSpeedSlider)
     Mode:ShowWhen("HeatSeeker", HSBaseSpeedSlider)
@@ -1508,8 +1520,8 @@ runcode(function()
     LongFlySlopeAngle = LongFly.CreateSlider({
         Name = "slope angle",
         Min = 0,
-        Max = 2,
-        Default = 1.3,
+        Max = 10,
+        Default = 5,
         Round = 1
     })
     overheadCheck = LongFly.CreateToggle({
@@ -1726,10 +1738,11 @@ runcode(function()
                 end)
             else
                 RunLoops:UnbindFromHeartbeat("Projectile")
-                projSwitching  = false
                 targetTrackers = {}
-                local sw = getsword()
-                if sw then switchitem(sw) else revertitem() end
+                task.defer(function()
+                    local sw = getsword()
+                    if sw then switchitem(sw) else revertitem() end
+                end)
             end
         end
     })
@@ -1749,9 +1762,7 @@ runcode(function()
 end)
 
 runcode(function()
-    local reach = {}
     local origReach = {}
-    local ReachSlider = {}
     local ReachVal = {Value = 20}
     for name, data in pairs(bedfight.modules.SwordsData) do
         if type(data) == "table" and data.Range then
@@ -1760,29 +1771,29 @@ runcode(function()
     end
     Reach = GuiLibrary.Registry.combatPanel.API.CreateOptionsButton({
         Name = "Reach",
-        Function = function(v)
+        Function = function(callback)
             for name, orig in pairs(origReach) do
                 local d = bedfight.modules.SwordsData[name]
                 if d then
-                    d.Range = v and ReachVal.Value or orig.Range
-                    d.HitboxSize = v and Vector3.new(ReachVal.Value, ReachVal.Value, ReachVal.Value * 2) or orig.HitboxSize
+                    d.Range = callback and ReachVal.Value or orig.Range
+                    d.HitboxSize = callback and Vector3.new(ReachVal.Value, ReachVal.Value, ReachVal.Value * 2) or orig.HitboxSize
                 end
             end
         end
     })
-    ReachSlider = Reach.CreateSlider({
+    Reach.CreateSlider({
         Name = "Range",
         Min = 5, 
         Max = 25, 
         Default = 25,
         Round = 1,
-        Function = function(v)
-            ReachVal.Value = v
+        Function = function(callback)
+            ReachVal.Value = callback
             if Reach.Enabled then
                 for name, d in pairs(bedfight.modules.SwordsData) do
                     if type(d) == "table" and d.Range then
-                        d.Range = v
-                        d.HitboxSize = Vector3.new(v, v, v * 2)
+                        d.Range = callback
+                        d.HitboxSize = Vector3.new(callback, callback, callback * 2)
                     end
                 end
             end
@@ -1864,10 +1875,10 @@ runcode(function()
             aimPart.Position, aimPart.AssemblyLinearVelocity,
             workspace.Gravity, 5, nil, nil,
             {
-                tracker         = tracker,
-                latency         = netPing,
+                tracker = tracker,
+                latency = netPing,
                 shooterVelocity = root.AssemblyLinearVelocity,
-                geometryParams  = aimbotWallParams,
+                geometryParams = aimbotWallParams,
             }
         )
         if not aimPoint then return nil,nil,nil end
@@ -2008,7 +2019,7 @@ runcode(function()
     local chestfuncs = {}
 
     chestfuncs.Loop = function(loop, cycle, index, teams)
-        if not PlayerUtility.IsAlive(lplr) then return end
+        if not PlayerUtility.IsAlivePlayerUtility.IsAlivePlayerUtility.IsAlive then return end
         local team = lplr.Team and lplr.Team.Name
         if not team or team == "Spectators" or not teams or #teams == 0 then
             return getTeams(), 1, 1
@@ -2249,8 +2260,8 @@ runcode(function()
 
     Cape = GuiLibrary.Registry.renderPanel.API.CreateOptionsButton({
         Name = "Cape",
-        Function = function(enabled)
-            if enabled then
+        Function = function(callback)
+            if callback then
                 equipCape(currentCape or capeList[1])
                 connection = lplr.CharacterAdded:Connect(function()
                     if currentCape then
@@ -2277,9 +2288,9 @@ runcode(function()
         Name = "Cape",
         List = capeList,
         Default = capeList[1] or "",
-        Function = function(selected)
+        Function = function(callback)
             if not Cape.Enabled then return end
-            equipCape(selected)
+            equipCape(callback)
         end
     })
 end)
@@ -2351,7 +2362,7 @@ runcode(function()
                                         lbl.BackgroundTransparency = 1
                                         lbl.TextColor3 = Color3.new(1, 1, 1)
                                         lbl.TextStrokeTransparency = 0.5
-                                        lbl.Font = Enum.Font.GothamBold
+                                        lbl.Font = Enum.Font.GothamSemibold
                                         lbl.TextSize = 11
                                         lbl.Size = UDim2.new(0, 40, 0, 14)
                                         lbl.AnchorPoint = Vector2.new(0.5, 0.5)
@@ -2420,11 +2431,14 @@ runcode(function()
     local RoundedCorners = {}
     local SeparateBackground = {}
     local ShowDisplayName = {}
-    local ShowUsername = {}
     local ShowArmorIcons = {}
     local ShowSwordIcons = {}
     local ShowBrackets = {}
     local ShowHealth = {}
+    local TagBg = {}
+    local TagBgCorner = {}
+    local FontChoice = {}
+    local IconSpacing = {}
 
     local tags = {}
     local pending = {}
@@ -2432,7 +2446,6 @@ runcode(function()
     local fallback = "rbxassetid://130674868309232"
     local swords = bedfight.modules.SwordsData or {}
     local NameTagGui
-    local textBoundsCache = {}
 
     local iconMap = {}
     local kinds = {armor = {}, sword = {}}
@@ -2441,6 +2454,30 @@ runcode(function()
     local function norm(value)
         return string.gsub(string.lower(tostring(value or "")), "[^%w]", "")
     end
+
+    local function removeTags(str)
+        return (str:gsub("<[^<>]->", ""))
+    end
+
+    local FONT_FAMILIES = {
+        ["Arial"]       = "rbxasset://fonts/families/Arial.json",
+        ["Gotham"]      = "rbxasset://fonts/families/GothamSSm.json",
+        ["Montserrat"]  = "rbxasset://fonts/families/Montserrat.json",
+        ["Nunito"]      = "rbxasset://fonts/families/Nunito.json",
+        ["Ubuntu"]      = "rbxasset://fonts/families/Ubuntu.json",
+        ["Roboto"]      = "rbxasset://fonts/families/Roboto.json",
+        ["Source Sans"] = "rbxasset://fonts/families/SourceSansPro.json",
+        ["Arimo"]       = "rbxasset://fonts/families/Arimo.json",
+    }
+    local FONT_WEIGHT_MAP = {
+        Semibold = Enum.FontWeight.SemiBold,
+        Bold = Enum.FontWeight.Bold,
+        Black = Enum.FontWeight.Heavy,
+    }
+    local FONT_REGULAR  = Font.new("rbxasset://fonts/families/GothamSSm.json", Enum.FontWeight.Regular)
+    local FONT_SEMIBOLD = Font.new("rbxasset://fonts/families/GothamSSm.json", Enum.FontWeight.SemiBold)
+    local FONT_BOLD     = Font.new("rbxasset://fonts/families/GothamSSm.json", Enum.FontWeight.Bold)
+    local FONT_BLACK    = Font.new("rbxasset://fonts/families/GothamSSm.json", Enum.FontWeight.Heavy)
 
     local function getNameTagGui()
         if NameTagGui and NameTagGui.Parent then
@@ -2596,54 +2633,49 @@ runcode(function()
     end
 
     local function updateSubVis()
-        local showIcons = ShowArmorIcons.Enabled or ShowSwordIcons.Enabled
-        if RoundedCorners.Instance then
-            RoundedCorners.Instance.Visible = showIcons and IconBackground.Enabled
-        end
-        if SeparateBackground.Instance then
-            SeparateBackground.Instance.Visible = showIcons and IconBackground.Enabled
-        end
-        if IconBackground.Instance then
-            IconBackground.Instance.Visible = showIcons
-        end
+        local showIcons  = (ShowArmorIcons and ShowArmorIcons.Enabled) or (ShowSwordIcons and ShowSwordIcons.Enabled)
+        local showIconBg = showIcons and (IconBackground and IconBackground.Enabled)
+        local showSepBg  = showIconBg and (SeparateBackground and SeparateBackground.Enabled)
+        if IconBackground     and IconBackground.Instance     then IconBackground.Instance.Visible     = showIcons  end
+        if RoundedCorners     and RoundedCorners.Instance     then RoundedCorners.Instance.Visible     = showIconBg end
+        if SeparateBackground and SeparateBackground.Instance then SeparateBackground.Instance.Visible = showIconBg end
+        if TagSize            and TagSize.Instance            then TagSize.Instance.Visible            = showIcons  end
+        if IconSpacing        and IconSpacing.Instance        then IconSpacing.Instance.Visible        = showSepBg  end
     end
 
-    local function getTextBounds(text, textSize, font)
-        local key = text .. "|" .. tostring(textSize) .. "|" .. tostring(font)
-        local cached = textBoundsCache[key]
-        if cached then
-            return cached
-        end
-        local bounds = TextService:GetTextSize(text, textSize, font, Vector2.new(100000, 100000))
-        textBoundsCache[key] = bounds
-        return bounds
-    end
 
-    local function applyTextLayout(entry, text, textSize, font, baseTagW, baseTagH, hasIcons)
-        local bounds = getTextBounds(text, textSize, font)
-        local width = math.max(baseTagW, bounds.X + 12)
+    local function applyTextLayout(entry, baseTagH, hasIcons)
+        local bounds    = entry.label.TextBounds
+        local bx        = math.max(1, bounds.X)
+        local by        = math.max(1, bounds.Y)
         local iconBandH = hasIcons and math.max(16, math.floor(baseTagH * 0.42)) or 0
-        local totalH = math.max(baseTagH, bounds.Y + iconBandH + 10)
+        local width     = bx + 10
+        local totalH    = by + iconBandH + 6
 
-        if entry.cBoardW ~= width or entry.cBoardH ~= totalH then
+        local boardChanged = entry.cBoardW ~= width or entry.cBoardH ~= totalH
+        if boardChanged then
             entry.board.Size = UDim2.new(0, width, 0, totalH)
-            entry.bg.Size = UDim2.new(1, 0, 1, 0)
-            entry.cBoardW = width
-            entry.cBoardH = totalH
+            entry.bg.Size    = UDim2.new(1, 0, 1, 0)
+            entry.cBoardW    = width
+            entry.cBoardH    = totalH
         end
 
-        if entry.cIconBandH ~= iconBandH then
+        local iconChanged = entry.cIconBandH ~= iconBandH
+        if boardChanged or iconChanged then
+            local lblW = bx + 6
+            local lblH = by + 4
             if hasIcons then
-                entry.icons.Visible = true
-                entry.icons.Size = UDim2.new(1, 0, 0, iconBandH)
+                entry.icons.Visible  = true
+                entry.icons.Size     = UDim2.new(1, 0, 0, iconBandH)
                 entry.icons.Position = UDim2.new(0, 0, 0, 0)
-
-                entry.label.Position = UDim2.new(0, 4, 0, iconBandH - 1)
-                entry.label.Size = UDim2.new(1, -8, 1, -(iconBandH + 2))
+                entry.label.AnchorPoint = Vector2.new(0.5, 0)
+                entry.label.Position    = UDim2.new(0.5, 0, 0, iconBandH + 1)
+                entry.label.Size        = UDim2.new(0, lblW, 0, lblH)
             else
-                entry.icons.Visible = false
-                entry.label.Position = UDim2.new(0, 4, 0, 0)
-                entry.label.Size = UDim2.new(1, -8, 1, 0)
+                entry.icons.Visible  = false
+                entry.label.AnchorPoint = Vector2.new(0.5, 0)
+                entry.label.Position    = UDim2.new(0.5, 0, 0, 1)
+                entry.label.Size        = UDim2.new(0, lblW, 0, lblH)
             end
             entry.cIconBandH = iconBandH
         end
@@ -2655,11 +2687,12 @@ runcode(function()
             if callback then
                 getNameTagGui()
 
-                local weightFonts = {
-                    Semibold = Enum.Font.GothamSemibold,
-                    Bold = Enum.Font.GothamBold,
-                    Black = Enum.Font.GothamBlack,
-                }
+                local function getTargetFont(bold, weight)
+                    local family = FONT_FAMILIES[FontChoice and FontChoice.Value or "Gotham"]
+                        or "rbxasset://fonts/families/GothamSSm.json"
+                    local w = bold and (FONT_WEIGHT_MAP[weight] or Enum.FontWeight.SemiBold) or Enum.FontWeight.Regular
+                    return Font.new(family, w)
+                end
 
                 local function _getArmorSlot(itemName, itemData, className)
                     local t = string.lower(
@@ -2767,10 +2800,11 @@ runcode(function()
 
                     local vp = Camera.ViewportSize
                     local viewScale = math.clamp((vp.Y / 1080), 0.82, 1.4)
-                    local baseTagW = math.floor(TagSize.Value * viewScale)
-                    local baseTagH = math.floor(TagSize.Value * 0.40 * viewScale)
-                    local textSz = math.max(7, math.floor(TextSize.Value * viewScale))
-                    local targetFont = BoldText.Enabled and (weightFonts[FontWeight.Value] or Enum.Font.GothamBold) or Enum.Font.Gotham
+                    local tagSizeV = (TagSize and TagSize.Value) or 160
+                    local baseTagW = math.floor(tagSizeV * viewScale)
+                    local baseTagH = math.floor(tagSizeV * 0.40 * viewScale)
+                    local textSz = math.max(7, math.floor(((TextSize and TextSize.Value) or 10) * viewScale))
+                    local targetFont = getTargetFont(BoldText and BoldText.Enabled, FontWeight and FontWeight.Value)
                     local myRoot = lplr.Character and lplr.Character:FindFirstChild("HumanoidRootPart")
                     local doInfoUpdate = infoTick >= 0.15
 
@@ -2810,6 +2844,8 @@ runcode(function()
 
                                 local label = Instance.new("TextLabel")
                                 label.Name = "Label"
+                                label.AnchorPoint = Vector2.new(0.5, 0)
+                                label.BackgroundColor3 = Color3.new(0, 0, 0)
                                 label.BackgroundTransparency = 1
                                 label.TextWrapped = false
                                 label.TextXAlignment = Enum.TextXAlignment.Center
@@ -2819,7 +2855,11 @@ runcode(function()
                                 label.TextStrokeTransparency = 0.3
                                 label.TextStrokeColor3 = Color3.new(0, 0, 0)
                                 label.TextColor3 = Color3.new(1, 1, 1)
+                                label.RichText = true
                                 label.Parent = bg
+                                local labelCorner = Instance.new("UICorner")
+                                labelCorner.CornerRadius = UDim.new(0, 5)
+                                labelCorner.Parent = label
 
                                 local iconFrame = Instance.new("Frame")
                                 iconFrame.Name = "ArmorIcons"
@@ -2829,11 +2869,13 @@ runcode(function()
                                 entry = {
                                     board = board,
                                     bg = bg,
+                                    labelCorner = labelCorner,
                                     label = label,
                                     icons = iconFrame,
                                     sig = "",
                                     cText = nil,
                                     cFont = nil,
+                                    cFontW = nil,
                                     cTextSz = nil,
                                     cColor = nil,
                                     cBoardW = nil,
@@ -2868,10 +2910,10 @@ runcode(function()
                                 end
 
                                 local baseName
-                                if ShowUsername.Enabled and not ShowDisplayName.Enabled then
-                                    baseName = plr.Name
-                                else
+                                if ShowDisplayName.Enabled then
                                     baseName = plr.DisplayName ~= "" and plr.DisplayName or plr.Name
+                                else
+                                    baseName = plr.Name
                                 end
 
                                 local text = string.upper(baseName)
@@ -2879,18 +2921,23 @@ runcode(function()
                                 if ShowDistance.Enabled and myRoot then
                                     local dist = math.floor((myRoot.Position - root.Position).Magnitude)
                                     if ShowBrackets.Enabled then
-                                        text = "[" .. dist .. "] " .. text
+                                        text = '<font color="rgb(85,255,85)">[</font>'
+                                            .. '<font color="rgb(255,255,255)">' .. dist .. '</font>'
+                                            .. '<font color="rgb(85,255,85)">]</font> ' .. text
                                     else
-                                        text = dist .. " " .. text
+                                        text = '<font color="rgb(85,255,85)">' .. dist .. '</font> ' .. text
                                     end
                                 end
 
                                 if ShowHealth.Enabled then
-                                    local hp = math.floor(hum.Health)
+                                    local hp    = math.floor(hum.Health)
+                                    local maxhp = math.max(hum.MaxHealth, 1)
+                                    local hc    = Color3.fromHSV(math.clamp(hp / maxhp, 0, 1) / 2.5, 0.89, 0.75)
+                                    local hStr  = 'rgb(' .. math.floor(hc.R*255) .. ',' .. math.floor(hc.G*255) .. ',' .. math.floor(hc.B*255) .. ')'
                                     if ShowBrackets.Enabled then
-                                        text = text .. " [" .. hp .. "]"
+                                        text = text .. ' <font color="' .. hStr .. '">[' .. hp .. ']</font>'
                                     else
-                                        text = text .. " " .. hp
+                                        text = text .. ' <font color="' .. hStr .. '">' .. hp .. '</font>'
                                     end
                                 end
 
@@ -2913,9 +2960,10 @@ runcode(function()
                                     entry.cText = text
                                     entry.label.Text = text
                                 end
-                                if entry.cFont ~= targetFont then
-                                    entry.cFont = targetFont
-                                    entry.label.Font = targetFont
+                                if entry.cFont ~= targetFont.Family or entry.cFontW ~= targetFont.Weight then
+                                    entry.cFont  = targetFont.Family
+                                    entry.cFontW = targetFont.Weight
+                                    entry.label.FontFace = targetFont
                                 end
                                 if entry.cTextSz ~= textSz then
                                     entry.cTextSz = textSz
@@ -2926,9 +2974,10 @@ runcode(function()
                                     entry.label.TextColor3 = color
                                 end
 
-                                local bgEnabled = IconBackground.Enabled
+                                local bgEnabled  = IconBackground.Enabled
                                 local sepEnabled = SeparateBackground.Enabled
                                 local rndEnabled = RoundedCorners.Enabled
+                                local iconGap    = sepEnabled and math.floor((IconSpacing and IconSpacing.Value) or 3) or 2
 
                                 local parts = {}
                                 for _, info in ipairs(items) do
@@ -2939,9 +2988,8 @@ runcode(function()
                                     .. "|bg=" .. tostring(bgEnabled)
                                     .. "|sep=" .. tostring(sepEnabled)
                                     .. "|rnd=" .. tostring(rndEnabled)
-                                    .. "|w=" .. tostring(baseTagW)
+                                    .. "|gap=" .. tostring(iconGap)
                                     .. "|h=" .. tostring(baseTagH)
-                                    .. "|ts=" .. tostring(textSz)
 
                                 if entry.sig ~= iconSig then
                                     entry.sig = iconSig
@@ -2951,62 +2999,87 @@ runcode(function()
                                     end
 
                                     if hasIcons then
-                                        local iconBandH = math.max(16, math.floor(baseTagH * 0.42))
-                                        local iconPx = math.max(12, math.floor(iconBandH * 0.78))
-                                        local totalIconW = #items * iconPx + math.max(0, #items - 1) * 2
-                                        local startX = math.floor((math.max(baseTagW, 1) - totalIconW) / 2)
+                                        local iconBandH  = math.max(16, math.floor(baseTagH * 0.42))
+                                        local iconPx     = math.max(12, math.floor(iconBandH * 0.78))
+                                        local totalIconW = #items * iconPx + math.max(0, #items - 1) * iconGap
+
+                                        local iconRow = Instance.new("Frame")
+                                        iconRow.Name = "IconRow"
+                                        iconRow.AnchorPoint = Vector2.new(0.5, 0.5)
+                                        iconRow.Position = UDim2.new(0.5, 0, 0.5, 0)
+                                        iconRow.Size = UDim2.new(0, totalIconW, 0, iconPx)
+                                        iconRow.AutomaticSize = Enum.AutomaticSize.X
+                                        iconRow.BackgroundTransparency = 1
+                                        iconRow.BorderSizePixel = 0
+                                        iconRow.Parent = entry.icons
+
+                                        local layout = Instance.new("UIListLayout")
+                                        layout.FillDirection = Enum.FillDirection.Horizontal
+                                        layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+                                        layout.VerticalAlignment = Enum.VerticalAlignment.Center
+                                        layout.Padding = UDim.new(0, iconGap)
+                                        layout.SortOrder = Enum.SortOrder.LayoutOrder
+                                        layout.Parent = iconRow
 
                                         if bgEnabled and not sepEnabled then
                                             local holder = Instance.new("Frame")
                                             holder.Name = "SharedIconBG"
-                                            holder.AnchorPoint = Vector2.new(0.5, 0)
-                                            holder.Position = UDim2.new(0.5, 0, 0, 1)
+                                            holder.AnchorPoint = Vector2.new(0.5, 0.5)
+                                            holder.Position = UDim2.new(0.5, 0, 0.5, 0)
                                             holder.Size = UDim2.new(0, totalIconW + 8, 0, iconPx + 4)
                                             holder.BackgroundColor3 = Color3.new(0, 0, 0)
                                             holder.BackgroundTransparency = 0.35
                                             holder.BorderSizePixel = 0
+                                            holder.ZIndex = iconRow.ZIndex - 1
                                             holder.Parent = entry.icons
-
                                             if rndEnabled then
-                                                local corner = Instance.new("UICorner")
-                                                corner.CornerRadius = UDim.new(0, 4)
-                                                corner.Parent = holder
+                                                Instance.new("UICorner", holder).CornerRadius = UDim.new(0, 4)
                                             end
                                         end
 
                                         for i, info in ipairs(items) do
-                                            local x = startX + ((i - 1) * (iconPx + 2))
-
                                             if bgEnabled and sepEnabled then
-                                                local holder = Instance.new("Frame")
-                                                holder.Name = "IconBG_" .. i
-                                                holder.Position = UDim2.new(0, x - 2, 0, 1)
-                                                holder.Size = UDim2.new(0, iconPx + 4, 0, iconPx + 4)
-                                                holder.BackgroundColor3 = Color3.new(0, 0, 0)
-                                                holder.BackgroundTransparency = 0.35
-                                                holder.BorderSizePixel = 0
-                                                holder.Parent = entry.icons
-
+                                                local cell = Instance.new("Frame")
+                                                cell.Name = "Cell_" .. i
+                                                cell.LayoutOrder = i
+                                                cell.Size = UDim2.new(0, iconPx + 4, 0, iconPx + 4)
+                                                cell.BackgroundColor3 = Color3.new(0, 0, 0)
+                                                cell.BackgroundTransparency = 0.35
+                                                cell.BorderSizePixel = 0
+                                                cell.Parent = iconRow
                                                 if rndEnabled then
-                                                    local corner = Instance.new("UICorner")
-                                                    corner.CornerRadius = UDim.new(0, 4)
-                                                    corner.Parent = holder
+                                                    Instance.new("UICorner", cell).CornerRadius = UDim.new(0, 4)
                                                 end
+                                                local icon = Instance.new("ImageLabel")
+                                                icon.Name = "Icon"
+                                                icon.AnchorPoint = Vector2.new(0.5, 0.5)
+                                                icon.Position = UDim2.new(0.5, 0, 0.5, 0)
+                                                icon.Size = UDim2.new(0, iconPx, 0, iconPx)
+                                                icon.BackgroundTransparency = 1
+                                                icon.BorderSizePixel = 0
+                                                icon.Image = info.image or fallback
+                                                icon.Parent = cell
+                                            else
+                                                local icon = Instance.new("ImageLabel")
+                                                icon.Name = "Icon_" .. i
+                                                icon.LayoutOrder = i
+                                                icon.Size = UDim2.new(0, iconPx, 0, iconPx)
+                                                icon.BackgroundTransparency = 1
+                                                icon.BorderSizePixel = 0
+                                                icon.Image = info.image or fallback
+                                                icon.Parent = iconRow
                                             end
-
-                                            local icon = Instance.new("ImageLabel")
-                                            icon.Name = "Icon_" .. i
-                                            icon.BackgroundTransparency = 1
-                                            icon.BorderSizePixel = 0
-                                            icon.Position = UDim2.new(0, x, 0, 3)
-                                            icon.Size = UDim2.new(0, iconPx, 0, iconPx)
-                                            icon.Image = info.image or fallback
-                                            icon.Parent = entry.icons
                                         end
                                     end
                                 end
 
-                                applyTextLayout(entry, text, textSz, targetFont, baseTagW, baseTagH, hasIcons)
+                                applyTextLayout(entry, baseTagH, hasIcons)
+                            end
+
+                            local tagBgOn = TagBg and TagBg.Enabled
+                            entry.label.BackgroundTransparency = tagBgOn and 0.35 or 1
+                            if entry.labelCorner then
+                                entry.labelCorner.CornerRadius = UDim.new(0, (TagBgCorner and TagBgCorner.Value == "Square") and 0 or 5)
                             end
 
                             local tagPos, onScreen = Camera:WorldToViewportPoint(root.Position + Vector3.new(0, hum.HipHeight + 1, 0))
@@ -3032,185 +3105,574 @@ runcode(function()
     TeamColor = NameTags.CreateToggle({
         Name = "Team Color",
         Default = true,
-        Function = function() end
-    })
-    ShowDistance = NameTags.CreateToggle({
-        Name = "Distance",
-        Default = true,
-        Function = function() end
-    })
-    ShowHealth = NameTags.CreateToggle({
-        Name = "Health",
-        Default = true,
-        Function = function() end
+        Function = function()end,
     })
     ShowDisplayName = NameTags.CreateToggle({
         Name = "Display Name",
         Default = true,
-        Function = function() end
+        Function = function()end,
     })
-    ShowUsername = NameTags.CreateToggle({
-        Name = "Username",
-        Default = false,
-        Function = function() end
+    ShowDistance = NameTags.CreateToggle({
+        Name = "Distance",
+        Default = true,
+        Function = function()end,
+    })
+    ShowHealth = NameTags.CreateToggle({
+        Name = "Health",
+        Default = true,
+        Function = function()end,
     })
     ShowBrackets = NameTags.CreateToggle({
         Name = "Brackets",
         Default = true,
-        Function = function() end
+        Function = function()end,
     })
     ShowArmorIcons = NameTags.CreateToggle({
         Name = "Armor Icons",
         Default = true,
-        Function = function()
-            updateSubVis()
-        end
+        Function = function() updateSubVis() end,
     })
     ShowSwordIcons = NameTags.CreateToggle({
         Name = "Sword Icon",
         Default = true,
-        Function = function()
-            updateSubVis()
-        end
+        Function = function() updateSubVis() end,
     })
     IconBackground = NameTags.CreateToggle({
         Name = "Icon Background",
         Default = true,
-        Function = function()
-            updateSubVis()
-        end
+        Function = function() updateSubVis() end,
     })
     RoundedCorners = NameTags.CreateToggle({
-        Name = "Rounded",
+        Name = "Icon Rounded",
         Default = true,
-        Function = function() end
+        Function = function() end,
     })
     SeparateBackground = NameTags.CreateToggle({
         Name = "Separate BG",
         Default = false,
+        Function = function() updateSubVis() end,
+    })
+    IconSpacing = NameTags.CreateSlider({
+        Name = "Icon Spacing",
+        Min = 1,
+        Max = 12,
+        Default = 3,
+        Round = 1,
+        Function = function()end,
+    })
+    TagSize = NameTags.CreateSlider({
+        Name = "Icon Size",
+        Min = 110,
+        Max = 220,
+        Default = 160,
+        Round = 1,
+        Function = function()end,
+    })
+    TagBg = NameTags.CreateToggle({
+        Name = "Background",
+        Default = false,
+        Function = function()end,
+    })
+    TagBgCorner = NameTags.CreateDropdown({
+        Name = "Corner Style",
+        List = {"Rounded", "Square"},
+        Default = "Rounded",
+        Function = function()end,
+    })
+    TagBgCorner:ShowWhen(TagBg)
+    TagBg:AddDependent(TagBgCorner)
+    FontChoice = NameTags.CreateDropdown({
+        Name = "Font",
+        List = {"Arial","Montserrat","Nunito","Ubuntu","Roboto","Source Sans","Arimo","Gotham"},
+        Default = "Arial",
         Function = function() end
     })
     BoldText = NameTags.CreateToggle({
         Name = "Bold",
         Default = false,
-        Function = function() end
+        Function = function()end,
     })
     FontWeight = NameTags.CreateDropdown({
         Name = "Bold Weight",
         List = {"Semibold", "Bold", "Black"},
         Default = "Bold",
-        Function = function() end
+        Function = function()end,
     })
-    BoldText:ShowWhen(FontWeight)
-    TagSize = NameTags.CreateSlider({
-        Name = "Tag Size",
-        Min = 110,
-        Max = 220,
-        Default = 160,
-        Round = 1,
-        Function = function() end
-    })
+    FontWeight:ShowWhen(BoldText)
+    BoldText:AddDependent(FontWeight)
     TextSize = NameTags.CreateSlider({
         Name = "Text Size",
         Min = 7,
         Max = 20,
         Default = 10,
         Round = 1,
-        Function = function() end
+        Function = function()end,
     })
 
     updateSubVis()
 end)
 
+local PHANTOM_COLORS = {
+    Theme = function() return GuiLibrary.kit:activeColor() end,
+    Red = function() return Color3.fromRGB(255,60,60) end,
+    Orange = function() return Color3.fromRGB(255,140,0) end,
+    Yellow = function() return Color3.fromRGB(255,220,0) end,
+    Green = function() return Color3.fromRGB(60,200,80) end,
+    Cyan = function() return Color3.fromRGB(0,200,220) end,
+    Blue = function() return Color3.fromRGB(50,100,255) end,
+    Purple = function() return Color3.fromRGB(160,50,220) end,
+    White = function() return Color3.fromRGB(255,255,255) end,
+    Pink = function() return Color3.fromRGB(255,100,180) end,
+    TeamColor = function() return lplr.Team and lplr.Team.TeamColor.Color or Color3.fromRGB(255,255,255) end,
+    Auto = function() return lplr.Team and lplr.Team.TeamColor.Color or Color3.fromRGB(255,255,255) end,
+}
+local PHANTOM_COL_LIST = {"Auto","Theme","Red","Orange","Yellow","Green","Cyan","Blue","Purple","White","Pink","Team Color"}
+local function pcol(dd)
+    local k = dd and dd.Value or "Theme"
+    local key = k == "Team Color" and "TeamColor" or (k == "Auto" and "Auto" or k)
+    return (PHANTOM_COLORS[key] or PHANTOM_COLORS.Theme)()
+end
+
 runcode(function()
-    local Highlight = {}
-    local HighlightOutlineTransparency = {}
-    local HighlightFillTransparency = {}
-    local HighlightList = {}
-    local Fill = {}
-    local TeamColor = {}
+    local espRef = {}
+    local espHLs = {}
+    local espHurt = {}
+    local espAimLines = {}
+    local espCAConns   = {}
 
-    local function getfill(highlight)
-        if Fill.Enabled then
-            highlight.FillColor = GuiLibrary.kit:activeColor()
-            highlight.FillTransparency = HighlightFillTransparency.Value
-        else
-            highlight.FillTransparency = 1
+    local ESPMode, ESPOutC, ESPFillC, ESPOutOp, ESPFillOp
+    local ESPThick, ESPHurt, ESPHurtC, ESPHealth, ESPName
+    local ESPDist, ESPWalls, ESPLQMode, ESPAimBox, ESPSelf, ESPTeam
+
+    local function w2v(pos)
+        local p, vis = Camera:WorldToViewportPoint(pos)
+        return Vector2.new(p.X, p.Y), vis, p.Z
+    end
+
+    local function getHH(char)
+        local h = char:FindFirstChildOfClass("Humanoid")
+        return h and (h.HipHeight + 1) or 2.8
+    end
+
+    local function bounds2D(hrp, hh)
+        local pos     = hrp.Position
+        local lv      = Camera.CFrame.LookVector
+        local rS, rVis, rZ = w2v(pos)
+        if not rVis or rZ <= 0 then return nil end
+        local tS = w2v((CFrame.lookAlong(pos,lv)*CFrame.new( 2,  hh,    0)).Position)
+        local bS = w2v((CFrame.lookAlong(pos,lv)*CFrame.new(-2, -hh-1,  0)).Position)
+        local sw  = math.abs(tS.X - bS.X)
+        local sh  = math.abs(tS.Y - bS.Y)
+        local top = math.min(tS.Y, bS.Y)
+        local left= rS.X - sw/2
+        return left, top, sw, sh
+    end
+
+    local function pts3D(hrp, hh)
+        local p = hrp.Position
+        return {
+            w2v(p+Vector3.new( 1.5, hh, 1.5)),  w2v(p+Vector3.new( 1.5,-hh, 1.5)),
+            w2v(p+Vector3.new(-1.5, hh, 1.5)),  w2v(p+Vector3.new(-1.5,-hh, 1.5)),
+            w2v(p+Vector3.new( 1.5, hh,-1.5)),  w2v(p+Vector3.new( 1.5,-hh,-1.5)),
+            w2v(p+Vector3.new(-1.5, hh,-1.5)),  w2v(p+Vector3.new(-1.5,-hh,-1.5)),
+        }
+    end
+
+    local function mkLine(c, thick)
+        local d = Drawing.new("Line"); d.Thickness = thick or 1
+        d.Color = c; d.Visible = false; d.ZIndex = 2; return d
+    end
+    local function mkSquare(c, thick, filled)
+        local d = Drawing.new("Square"); d.Thickness = thick or 1
+        d.Color = c; d.Filled = filled or false; d.Visible = false; d.ZIndex = 2; return d
+    end
+    local function mkText(c, sz)
+        local d = Drawing.new("Text"); d.Color = c; d.Size = sz or 14
+        d.Visible = false; d.Center = true; d.Outline = true
+        d.OutlineColor = Color3.new(0,0,0); d.ZIndex = 3
+        d.Font = Drawing.Fonts.UI; return d
+    end
+
+    local function newEntry(mode, c, thick)
+        local e = {mode=mode, objs={}}
+        if mode == "Highlight" then
+        elseif mode == "2D Box" then
+            e.box   = mkSquare(c, thick)
+            e.boxBd = mkSquare(Color3.new(0,0,0), thick+1)
+        elseif mode == "Corner Box" then
+            for i=1,8 do e.objs[i] = mkLine(c, thick) end
+        elseif mode == "3D Box" then
+            for i=1,12 do e.objs[i] = mkLine(c, thick) end
+        end
+        e.hpBG = mkLine(Color3.fromRGB(25,25,25), 4)
+        e.hp   = mkLine(Color3.fromRGB(85,255,85), 2)
+        e.name = mkText(c, 14)
+        e.dist = mkText(c, 12)
+        return e
+    end
+
+    local function destroyEntry(e)
+        if not e then return end
+        if e.box   then pcall(function() e.box:Remove()   end) end
+        if e.boxBd then pcall(function() e.boxBd:Remove() end) end
+        for _, d in ipairs(e.objs) do pcall(function() d:Remove() end) end
+        for _, k in ipairs({"hpBG","hp","name","dist"}) do
+            if e[k] then pcall(function() e[k]:Remove() end) end
         end
     end
 
-    local function getOutlineColor(v)
-        if TeamColor.Enabled and v.Team then
-            return v.Team.TeamColor.Color
-        end
-        return GuiLibrary.kit:activeColor()
+    local function hideEntry(e)
+        if not e then return end
+        if e.box   then e.box.Visible   = false end
+        if e.boxBd then e.boxBd.Visible = false end
+        for _, d in ipairs(e.objs) do d.Visible = false end
+        e.hpBG.Visible = false; e.hp.Visible = false
+        e.name.Visible = false; e.dist.Visible = false
     end
 
-    Highlight = GuiLibrary.Registry.renderPanel.API.CreateOptionsButton({
-        Name = "Chams",
+    local function destroyHL(char)
+        local h = espHLs[char]; if h and h.Parent then h:Destroy() end; espHLs[char]=nil
+    end
+    local function removeChar(char)
+        destroyEntry(espRef[char]); espRef[char]=nil; destroyHL(char)
+    end
+
+    local function draw2D(e, left, top, sw, sh, c, thick)
+        if not e.box then return end
+        e.boxBd.Color = Color3.new(0,0,0); e.boxBd.Thickness = thick+1
+        e.boxBd.Position = Vector2.new(left-1, top-1)
+        e.boxBd.Size     = Vector2.new(sw+2, sh+2); e.boxBd.Visible = true
+        e.box.Color = c; e.box.Thickness = thick
+        e.box.Position = Vector2.new(left, top)
+        e.box.Size     = Vector2.new(sw, sh); e.box.Visible = true
+    end
+
+    local function drawCorner(objs, left, top, sw, sh, c, thick)
+        local cw, ch = sw*0.25, sh*0.25
+        local r, b   = left+sw, top+sh
+        local segs = {
+            {Vector2.new(left,    top),    Vector2.new(left+cw, top)},
+            {Vector2.new(left,    top),    Vector2.new(left,    top+ch)},
+            {Vector2.new(r-cw,   top),    Vector2.new(r,       top)},
+            {Vector2.new(r,       top),    Vector2.new(r,       top+ch)},
+            {Vector2.new(left,    b-ch),   Vector2.new(left,    b)},
+            {Vector2.new(left,    b),      Vector2.new(left+cw, b)},
+            {Vector2.new(r,       b-ch),   Vector2.new(r,       b)},
+            {Vector2.new(r-cw,   b),      Vector2.new(r,       b)},
+        }
+        for i,s in ipairs(segs) do
+            objs[i].Color=c; objs[i].Thickness=thick
+            objs[i].From=s[1]; objs[i].To=s[2]; objs[i].Visible=true
+        end
+    end
+
+    local function draw3D(objs, pts, c, thick)
+        local edges={{1,2},{3,4},{5,6},{7,8},{1,3},{1,5},{5,7},{7,3},{2,4},{2,6},{6,8},{8,4}}
+        for i,e in ipairs(edges) do
+            objs[i].Color=c; objs[i].Thickness=thick
+            objs[i].From=pts[e[1]]; objs[i].To=pts[e[2]]; objs[i].Visible=true
+        end
+    end
+
+    local function updateOverlays(e, char, v, c, left, top, sw, sh, showHB, showN, showD)
+        local hum   = char:FindFirstChildOfClass("Humanoid")
+        local hp    = hum and hum.Health    or 0
+        local maxhp = hum and hum.MaxHealth or 100
+        local ratio = math.clamp(hp/math.max(maxhp,1), 0, 1)
+        local bx    = left - 6
+
+        e.hpBG.Visible = showHB
+        e.hp.Visible   = showHB and hp > 0
+        if showHB then
+            e.hpBG.From = Vector2.new(bx, top);       e.hpBG.To = Vector2.new(bx, top+sh)
+            e.hp.Color  = Color3.fromHSV(ratio/3, 0.9, 0.85)
+            e.hp.From   = Vector2.new(bx, top + sh*(1-ratio))
+            e.hp.To     = Vector2.new(bx, top+sh)
+        end
+
+        local myRoot = lplr.Character and lplr.Character:FindFirstChild("HumanoidRootPart")
+        local hrp    = char:FindFirstChild("HumanoidRootPart")
+        e.name.Visible = showN
+        if showN then
+            local nameStr = v.DisplayName ~= "" and v.DisplayName or v.Name
+            e.name.Text     = nameStr
+            e.name.Color    = c
+            e.name.Position = Vector2.new(left+sw/2, top-16)
+        end
+
+        e.dist.Visible = showD
+        if showD and myRoot and hrp then
+            local d = math.floor((myRoot.Position-hrp.Position).Magnitude)
+            e.dist.Text     = d.."m"
+            e.dist.Color    = c
+            e.dist.Position = Vector2.new(left+sw/2, top+sh+3)
+        end
+    end
+
+    local ESP = GuiLibrary.Registry.renderPanel.API.CreateOptionsButton({
+        Name = "ESP",
         Function = function(callback)
             if callback then
-                RunLoops:BindToHeartbeat("Chams", function()
-                    for _, v in pairs(Players:GetPlayers()) do
-                        if v ~= lplr and v.Character and v.Character:FindFirstChild("HumanoidRootPart") then
-                            local hum = v.Character:FindFirstChildOfClass("Humanoid")
-                            if hum and hum.Health <= 0 then
-                                local dead = v.Character:FindFirstChild("Highlight")
-                                if dead then dead:Destroy() end
-                                HighlightList[v.Character] = nil
+                local function hookHurt(p)
+                    local char = p.Character; if not char then return end
+                    local hum  = char:FindFirstChildOfClass("Humanoid"); if not hum then return end
+                    local prevHp = hum.Health
+                    local conn = hum.HealthChanged:Connect(function(hp)
+                        if hp < prevHp then espHurt[char] = tick() end
+                        prevHp = hp
+                    end)
+                    funcs:onExit("ESPHT_"..p.UserId, conn)
+                end
+                local function hookPlayer(p)
+                    hookHurt(p)
+                    if espCAConns[p] then espCAConns[p]:Disconnect() end
+                    espCAConns[p] = p.CharacterAdded:Connect(function()
+                        task.wait(0.15); hookHurt(p)
+                    end)
+                end
+                for _, p in ipairs(Players:GetPlayers()) do hookPlayer(p) end
+                local paConn = Players.PlayerAdded:Connect(function(p) hookPlayer(p) end)
+                funcs:onExit("ESP_PA", paConn)
+
+                local lqN = 0
+                RunLoops:BindToHeartbeat("ESP", function()
+                    lqN += 1
+                    if ESPLQMode and ESPLQMode.Enabled and lqN%3~=0 then return end
+
+                    local mode   = ESPMode   and ESPMode.Value   or "Highlight"
+                    local doHL   = mode == "Highlight"
+                    local outA   = ESPOutOp  and ESPOutOp.Value  or 0
+                    local fillA  = ESPFillOp and ESPFillOp.Value or 0.5
+                    local thick  = ESPThick  and ESPThick.Value  or 1
+                    local useT   = ESPTeam   and ESPTeam.Enabled
+                    local showHB = ESPHealth and ESPHealth.Enabled
+                    local showN  = ESPName   and ESPName.Enabled
+                    local showD  = ESPDist   and ESPDist.Enabled
+                    local walls  = ESPWalls  and ESPWalls.Enabled
+                    local hurtOn = ESPHurt   and ESPHurt.Enabled
+
+                    local seen = {}
+                    local bestDot, bestChar = -1, nil
+
+                    for _, v in ipairs(Players:GetPlayers()) do
+                        local isSelf = v == lplr
+                        if isSelf and not (ESPSelf and ESPSelf.Enabled) then continue end
+                        local char = v.Character; if not char then continue end
+                        local hrp  = char:FindFirstChild("HumanoidRootPart"); if not hrp then continue end
+                        local hum  = char:FindFirstChildOfClass("Humanoid")
+                        if hum and hum.Health <= 0 then removeChar(char); continue end
+                        seen[char] = true
+
+                        local hurt = hurtOn and espHurt[char] and (tick()-espHurt[char] < 0.4)
+                        local oc
+                        if hurt        then oc = pcol(ESPHurtC)
+                        elseif useT and v.Team then oc = v.Team.TeamColor.Color
+                        else oc = pcol(ESPOutC) end
+
+                        if doHL then
+                            if espRef[char] and espRef[char].mode ~= "Highlight" then
+                                destroyEntry(espRef[char]); espRef[char]=nil
+                            end
+                            local h = espHLs[char]
+                            if not h then
+                                h = Instance.new("Highlight"); h.Name="PhantomESP"
+                                h.Adornee=char
+                                h.DepthMode = walls and Enum.HighlightDepthMode.AlwaysOnTop
+                                             or Enum.HighlightDepthMode.Occluded
+                                h.Parent=char; espHLs[char]=h
+                            end
+                            h.OutlineColor=oc; h.OutlineTransparency=outA
+                            h.FillColor=pcol(ESPFillC); h.FillTransparency=fillA
+                            local hh = getHH(char)
+                            local left, top, sw, sh = bounds2D(hrp, hh)
+                            local entry = espRef[char]
+                            if not entry then
+                                entry = newEntry("Highlight", oc, thick)
+                                espRef[char] = entry
+                            end
+                            if left then
+                                updateOverlays(entry, char, v, oc, left, top, sw, sh, showHB, showN, showD)
                             else
-                                local highlight = v.Character:FindFirstChild("Highlight")
+                                hideEntry(entry)
+                            end
+                        else
+                            destroyHL(char)
+                            local hh    = getHH(char)
+                            local left, top, sw, sh = bounds2D(hrp, hh)
+                            local entry = espRef[char]
 
-                                if not highlight then
-                                    highlight = Instance.new("Highlight")
-                                    highlight.Name = "Highlight"
-                                    highlight.Adornee = v.Character
-                                    highlight.Parent = v.Character
-                                    HighlightList[v.Character] = highlight
+                            if not left then
+                                if entry then hideEntry(entry) end; continue
+                            end
+
+                            if not entry or entry.mode ~= mode then
+                                if entry then destroyEntry(entry) end
+                                entry = newEntry(mode, oc, thick)
+                                espRef[char] = entry
+                            end
+
+                            if mode == "2D Box" then
+                                draw2D(entry, left, top, sw, sh, oc, thick)
+                            elseif mode == "Corner Box" then
+                                drawCorner(entry.objs, left, top, sw, sh, oc, thick)
+                            elseif mode == "3D Box" then
+                                draw3D(entry.objs, pts3D(hrp,hh), oc, thick)
+                            end
+                            updateOverlays(entry, char, v, oc, left, top, sw, sh, showHB, showN, showD)
+                        end
+
+                        if not isSelf and ESPAimBox and ESPAimBox.Enabled then
+                            local dv = Camera.CFrame:vectorToObjectSpace(
+                                (hrp.Position-Camera.CFrame.Position).Unit)
+                            local dot = dv.Z < 0 and -dv.Z or 0
+                            if dot > bestDot then bestDot=dot; bestChar=char end
+                        end
+                    end
+
+                    for char in pairs(espRef) do if not seen[char] then removeChar(char) end end
+                    for char in pairs(espHLs)  do if not seen[char] then destroyHL(char)  end end
+
+                    if ESPAimBox and ESPAimBox.Enabled and bestChar then
+                        local hrp = bestChar:FindFirstChild("HumanoidRootPart")
+                        if hrp then
+                            local hh = getHH(bestChar)
+                            local left, top, sw, sh = bounds2D(hrp, hh)
+                            if left then
+                                if #espAimLines == 0 then
+                                    for i=1,8 do espAimLines[i]=mkLine(Color3.fromRGB(255,60,60),2) end
                                 end
-
-                                highlight.OutlineColor = getOutlineColor(v)
-                                highlight.OutlineTransparency = HighlightOutlineTransparency.Value
-
-                                getfill(highlight)
+                                drawCorner(espAimLines, left, top, sw, sh, Color3.fromRGB(255,60,60), 2)
                             end
                         end
+                    else
+                        for _, d in ipairs(espAimLines) do d.Visible=false end
                     end
                 end)
             else
-                RunLoops:UnbindFromHeartbeat("Chams")
-
-                for _, v in pairs(HighlightList) do
-                    if v and v.Parent then
-                        v:Destroy()
-                    end
-                end
-                HighlightList = {}
+                RunLoops:UnbindFromHeartbeat("ESP")
+                for char in pairs(espRef) do removeChar(char) end
+                for char in pairs(espHLs) do destroyHL(char)  end
+                for _, d in ipairs(espAimLines) do pcall(function() d:Remove() end) end
+                espAimLines = {}
+                for _, p in ipairs(Players:GetPlayers()) do funcs:offExit("ESPHT_"..p.UserId) end
+                for _, c in pairs(espCAConns) do pcall(function() c:Disconnect() end) end
+                espCAConns = {}
+                funcs:offExit("ESP_PA")
+                espHurt = {}
             end
         end
     })
-    HighlightOutlineTransparency = Highlight.CreateSlider({
-        Name = "Outline Transparency",
+    ESPMode = ESP.CreateDropdown({
+        Name = "Mode",
+        List = {"Highlight", "2D Box", "Corner Box", "3D Box"},
+        Default = "Highlight",
+        Function = function()end,
+    })
+    ESPOutC = ESP.CreateDropdown({
+        Name = "Outline Color",
+        List = PHANTOM_COL_LIST,
+        Default = "Theme",
+        Function = function()end,
+    })
+    ESPFillC = ESP.CreateDropdown({
+        Name = "Fill Color",
+        List = PHANTOM_COL_LIST,
+        Default = "Theme",
+        Function = function()end,
+    })
+    ESPOutOp = ESP.CreateSlider({
+        Name = "Outline Opacity",
         Min = 0,
         Max = 1,
-        Default = 0
+        Default = 0,
     })
-    Fill = Highlight.CreateToggle({
-        Name = "Fill",
-        Function = function() end
-    })
-    HighlightFillTransparency = Highlight.CreateSlider({
-        Name = "Fill Transparency",
+    ESPFillOp = ESP.CreateSlider({
+        Name = "Fill Opacity",
         Min = 0,
         Max = 1,
-        Default = 0.5
+        Default = 0.5,
     })
-    TeamColor = Highlight.CreateToggle({
+    ESPThick = ESP.CreateSlider({
+        Name = "Line Thickness",
+        Min = 1,
+        Max = 4,
+        Default = 1,
+        Round = 1,
+    })
+    ESPHurt = ESP.CreateToggle({
+        Name = "Hurt Indicator",
+        Default = true,
+        Function = function()end,
+    })
+    ESPHurtC = ESP.CreateDropdown({
+        Name = "Hurt Color",
+        List = {"Red", "Orange", "Yellow", "White", "Pink", "Cyan"},
+        Default = "Red",
+        Function = function()end,
+    })
+    ESPHealth = ESP.CreateToggle({
+        Name = "Health Bar",
+        Default = true,
+        Function = function()end,
+    })
+    ESPName = ESP.CreateToggle({
+        Name = "Name Label",
+        Default = true,
+        Function = function()end,
+    })
+    ESPDist = ESP.CreateToggle({
+        Name = "Distance",
+        Default = false,
+        Function = function()end,
+    })
+    ESPWalls = ESP.CreateToggle({
+        Name = "Through Walls",
+        Default = true,
+        Function = function()end,
+    })
+    ESPLQMode = ESP.CreateToggle({
+        Name = "LQ Mode",
+        Default = false,
+        Function = function()end,
+    })
+    ESPAimBox = ESP.CreateToggle({
+        Name = "AimAssist Box",
+        Default = false,
+        Function = function()end,
+    })
+    ESPSelf = ESP.CreateToggle({
+        Name = "Self Render",
+        Default = false,
+        Function = function()end,
+    })
+    ESPTeam = ESP.CreateToggle({
         Name = "Team Color",
         Default = false,
-        Function = function() end
+        Function = function()end,
     })
+    ESPMode:ShowWhen("2D Box",     ESPThick)
+    ESPMode:ShowWhen("Corner Box", ESPThick)
+    ESPMode:ShowWhen("3D Box",     ESPThick)
+    ESPMode:ShowWhen("Highlight",  ESPFillC)
+    ESPMode:ShowWhen("2D Box",     ESPFillC)
+    ESPMode:ShowWhen("Highlight",  ESPFillOp)
+    ESPMode:ShowWhen("2D Box",     ESPFillOp)
+    ESPMode:ShowWhen("Highlight",  ESPHealth)
+    ESPMode:ShowWhen("2D Box",     ESPHealth)
+    ESPMode:ShowWhen("Corner Box", ESPHealth)
+    ESPMode:ShowWhen("3D Box",     ESPHealth)
+    ESPMode:ShowWhen("Highlight",  ESPName)
+    ESPMode:ShowWhen("2D Box",     ESPName)
+    ESPMode:ShowWhen("Corner Box", ESPName)
+    ESPMode:ShowWhen("3D Box",     ESPName)
+    ESPMode:ShowWhen("Highlight",  ESPDist)
+    ESPMode:ShowWhen("2D Box",     ESPDist)
+    ESPMode:ShowWhen("Corner Box", ESPDist)
+    ESPMode:ShowWhen("3D Box",     ESPDist)
+    ESPHurtC:ShowWhen(ESPHurt)
+    ESPHurt:AddDependent(ESPHurtC)
 end)
+
 
 runcode(function()
     local fpConn = nil
@@ -3686,8 +4148,8 @@ runcode(function()
         Name = "theme",
         List = {"Default","Morning","Sunset","LightSnow","ChillMorning","Blizzard","LightRain","HeavyRain","BloodMoon","Nighttime","Foggy","WasteLand","TimeCycle","GoldenHour","CherryBlossom","Haze","Void"},
         Default = "Default",
-        Function = function(selected)
-            if GameThemes.Enabled and themes[selected] then themes[selected]() end
+        Function = function(callback)
+            if GameThemes.Enabled and themes[callback] then themes[callback]() end
         end
     })
 end)
@@ -3804,7 +4266,7 @@ runcode(function()
     end
 
     GuiLibrary.Registry.renderPanel.API.CreateOptionsButton({
-        Name = "UI Cleanup",
+        Name = "UICleanup",
         Function = function(callback)
             if callback then
                 snapshot()
@@ -3863,7 +4325,7 @@ runcode(function()
     local infRange = false
     local origRange = bedfight.modules.BlocksData.Default.Range
     BlockRange = GuiLibrary.Registry.utillityPanel.API.CreateOptionsButton({
-        Name = "Block Range",
+        Name = "BlockRange",
         Function = function(callback)
             bedfight.modules.BlocksData.Default.Range = callback and (infRange and math.huge or rangeVal.Value) or origRange
         end
@@ -3876,7 +4338,7 @@ runcode(function()
         Round = 1,
         Function = function(callback)
             rangeVal.Value = callback
-            if BlockRange.Enabled and not infRange then bedfight.modules.BlocksData.Default.Range = v end
+            if BlockRange.Enabled and not infRange then bedfight.modules.BlocksData.Default.Range = callback end
         end
     })
     BlockRange.CreateToggle({
@@ -3894,6 +4356,7 @@ runcode(function()
     local MiningData = require(game:GetService("ReplicatedStorage").Modules.DataModules.MiningData)
     local origMining = {}
     local FastBreak = {}
+    local FastBreakCooldown = {}
     for name, d in pairs(MiningData) do
         if type(d) == "table" and d.Cooldown ~= nil then
             origMining[name] = d.Cooldown
@@ -3901,19 +4364,34 @@ runcode(function()
     end
     FastBreak = GuiLibrary.Registry.utillityPanel.API.CreateOptionsButton({
         Name = "FastBreak",
-        Function = function(v)
+        Function = function(callback)
+            local cd = FastBreakCooldown and FastBreakCooldown.Value or 0.15
             for name, orig in pairs(origMining) do
                 local d = MiningData[name]
-                if d then d.Cooldown = v and 0.15 or orig end
+                if d then d.Cooldown = callback and cd or orig end
             end
         end
+    })
+    FastBreakCooldown = FastBreak.CreateSlider({
+        Name = "Cooldown",
+        Min = 0,
+        Max = 0.5,
+        Default = 0.15,
+        Function = function(callback)
+            if FastBreak.Enabled then
+                for name, _ in pairs(origMining) do
+                    local d = MiningData[name]
+                    if d then d.Cooldown = callback end
+                end
+            end
+        end,
     })
 end)
 
 runcode(function()
     local Jetpack = {}
     Jetpack = GuiLibrary.Registry.utillityPanel.API.CreateOptionsButton({
-        Name = "Inf Jetpack",
+        Name = "InfJetpack",
         Function = function(callback)
             if callback then
                 RunLoops:BindToHeartbeat("InfJetpackLoop", function()
@@ -3985,11 +4463,11 @@ runcode(function()
         Name = "Emote",
         List = (function() local t = {} for _, v in ipairs(Emotes) do table.insert(t, v.Value) end return t end)(),
         Default = Emotes[1] and Emotes[1].Value or "",
-        Function = function(selected)
-            SelectedEmote = selected
+        Function = function(callback)
+            SelectedEmote = callback
             if PlayEmote.Enabled then
                 for _, v in ipairs(Emotes) do
-                    if v.Value == selected then bedfight.modules.Signals.PlayEmote:Fire(v.Name) break end
+                    if v.Value == callback then bedfight.modules.Signals.PlayEmote:Fire(v.Name) break end
                 end
             end
         end
@@ -3998,9 +4476,9 @@ runcode(function()
     PlayEmote.CreateToggle({
         Name = "Loop Emote",
         Default = false,
-        Function = function(state)
-            LoopEnabled = state
-            if state and PlayEmote.Enabled then
+        Function = function(callback)
+            LoopEnabled = callback
+            if callback and PlayEmote.Enabled then
                 RunLoops:BindToHeartbeat("PlayEmoteLoop", function()
                     for _, v in ipairs(Emotes) do
                         if v.Value == SelectedEmote then bedfight.modules.Signals.PlayEmote:Fire(v.Name) break end
@@ -4015,8 +4493,8 @@ runcode(function()
     UISpoof = PlayEmote.CreateToggle({
         Name = "UI Spoof",
         Default = false,
-        Function = function(state)
-            if state then
+        Function = function(callback)
+            if callback then
                 for _, plr in ipairs(Players:GetPlayers()) do
                     local char = plr.Character
                     local hrp = char and char:FindFirstChild("HumanoidRootPart")
@@ -4043,8 +4521,8 @@ runcode(function()
     AnimSpoof = PlayEmote.CreateToggle({
         Name = "Sound Spoof",
         Default = true,
-        Function = function(state)
-            if state then
+        Function = function(callback)
+            if callback then
                 for _, entry in ipairs(_Original) do entry.config.Id = "rbxassetid://0" end
             else
                 for _, entry in ipairs(_Original) do entry.config.Id = entry.id end
@@ -4153,7 +4631,7 @@ runcode(function()
             cfg.lastUpdated = os.time()
             if extraFields then
                 for k, v in pairs(extraFields) do
-                    cfg[k] = v
+                    cfg[k] = callback
                 end
             end
             writefile(cfgPath, HttpService:JSONEncode(cfg))
@@ -4170,9 +4648,9 @@ runcode(function()
                 makefolder(serverListFolder)
             end
             local entry = {
-                jobId   = jobId,
+                jobId = jobId,
                 servers = servers,
-                saved   = os.time(),
+                saved = os.time(),
             }
             writefile(serverListPath, HttpService:JSONEncode(entry))
         end)
@@ -4312,19 +4790,12 @@ runcode(function()
 
                 local cooldown = false
                 RunLoops:BindToHeartbeat("ServerHopCheck", function()
-                    if cooldown then
-                        return
-                    end
-
-                    if data.matchState ~= 0 then
-                        stopHop("valid server")
-                        return
-                    end
-
+                    if cooldown then return end
                     cooldown = true
                     task.spawn(function()
                         task.wait(1.5)
-                        if not doHop() then
+                        local ok = doHop()
+                        if not ok then
                             task.wait(3)
                             cooldown = false
                         end
@@ -4342,8 +4813,8 @@ runcode(function()
     lowPingEnabled = ServerHop.CreateToggle({
         Name = "Low Ping Servers",
         Default = false,
-        Function = function(on)
-            lowPingEnabled.Value = on
+        Function = function(callback)
+            lowPingEnabled.Value = callback
         end,
     })
 
@@ -4359,93 +4830,93 @@ runcode(function()
     end)
 end)
 
-runcode(function()
-    local CFspeed = 50
-    local CFloop  = nil
+-- runcode(function()
+--     local CFspeed = 50
+--     local CFloop  = nil
 
-    local _findPos = function()
-        local char = lplr.Character
-        local params = RaycastParams.new()
-        params.FilterType = Enum.RaycastFilterType.Exclude
-        params.FilterDescendantsInstances = char and {char} or {}
+--     local _findPos = function()
+--         local char = lplr.Character
+--         local params = RaycastParams.new()
+--         params.FilterType = Enum.RaycastFilterType.Exclude
+--         params.FilterDescendantsInstances = char and {char} or {}
 
-        local safeY = function(pos)
-            local hit = workspace:Raycast(Vector3.new(pos.X, pos.Y + 60, pos.Z), Vector3.new(0, -120, 0), params)
-            if hit and hit.Position.Y > -20 then return hit.Position + Vector3.new(0, 5, 0) end
-            return nil
-        end
+--         local safeY = function(pos)
+--             local hit = workspace:Raycast(Vector3.new(pos.X, pos.Y + 60, pos.Z), Vector3.new(0, -120, 0), params)
+--             if hit and hit.Position.Y > -20 then return hit.Position + Vector3.new(0, 5, 0) end
+--             return nil
+--         end
 
-        local bedsContainer = workspace:FindFirstChild("BedsContainer")
-        if bedsContainer then
-            for _, bed in ipairs(bedsContainer:GetChildren()) do
-                for _, part in ipairs(bed:GetDescendants()) do
-                    if part:IsA("BasePart") and part.Position.Y > -10 then
-                        local p = safeY(part.Position)
-                        if p then return p end
-                    end
-                end
-            end
-        end
+--         local bedsContainer = workspace:FindFirstChild("BedsContainer")
+--         if bedsContainer then
+--             for _, bed in ipairs(bedsContainer:GetChildren()) do
+--                 for _, part in ipairs(bed:GetDescendants()) do
+--                     if part:IsA("BasePart") and part.Position.Y > -10 then
+--                         local p = safeY(part.Position)
+--                         if p then return p end
+--                     end
+--                 end
+--             end
+--         end
 
-        local pbContainer = workspace:FindFirstChild("PlayersBlocksContainer")
-        if pbContainer then
-            for _, team in ipairs(pbContainer:GetChildren()) do
-                for _, part in ipairs(team:GetDescendants()) do
-                    if part:IsA("BasePart") and part.Position.Y > -10 then
-                        local p = safeY(part.Position)
-                        if p then return p end
-                    end
-                end
-            end
-        end
+--         local pbContainer = workspace:FindFirstChild("PlayersBlocksContainer")
+--         if pbContainer then
+--             for _, team in ipairs(pbContainer:GetChildren()) do
+--                 for _, part in ipairs(team:GetDescendants()) do
+--                     if part:IsA("BasePart") and part.Position.Y > -10 then
+--                         local p = safeY(part.Position)
+--                         if p then return p end
+--                     end
+--                 end
+--             end
+--         end
 
-        for _, p in ipairs(Players:GetPlayers()) do
-            if p ~= lplr and p.Character then
-                local hrp = p.Character:FindFirstChild("HumanoidRootPart")
-                if hrp and hrp.Position.Y > -10 then return hrp.Position + Vector3.new(0, 4, 0) end
-            end
-        end
+--         for _, p in ipairs(Players:GetPlayers()) do
+--             if p ~= lplr and p.Character then
+--                 local hrp = p.Character:FindFirstChild("HumanoidRootPart")
+--                 if hrp and hrp.Position.Y > -10 then return hrp.Position + Vector3.new(0, 4, 0) end
+--             end
+--         end
 
-        return nil
-    end
+--         return nil
+--     end
 
-    GuiLibrary.Registry.blatantPanel.API.CreateOptionsButton({
-        Name = "Creative (blocks)",
-        New  = true,
-        Function = function(callback)
-            local char = lplr.Character
-            if not char then return end
-            local hum  = char:FindFirstChildOfClass("Humanoid")
-            local Head = char:FindFirstChild("Head")
-            if not hum or not Head then return end
-            if callback then
-                local pos = _findPos()
-                if pos then
-                    local hrp = char:FindFirstChild("HumanoidRootPart")
-                    if hrp then hrp.CFrame = CFrame.new(pos) end
-                else
-                    createNotification("CreativeMode", "No map position found — place yourself manually", 3)
-                end
-                hum.PlatformStand = true
-                Head.Anchored = true
-                if CFloop then CFloop:Disconnect() end
-                CFloop = RunService.Heartbeat:Connect(function(dt)
-                    local moveDir   = hum.MoveDirection * (CFspeed * dt)
-                    local hCF       = Head.CFrame
-                    local cam       = Camera.CFrame
-                    local offset    = hCF:ToObjectSpace(cam).Position
-                    local flatCam   = cam * CFrame.new(-offset.X, -offset.Y, -offset.Z + 1)
-                    local vel = CFrame.new(flatCam.Position, Vector3.new(hCF.Position.X, flatCam.Position.Y, hCF.Position.Z)):VectorToObjectSpace(moveDir)
-                    Head.CFrame = CFrame.new(hCF.Position) * (flatCam - flatCam.Position) * CFrame.new(vel)
-                end)
-            else
-                if CFloop then CFloop:Disconnect(); CFloop = nil end
-                hum.PlatformStand = false
-                Head.Anchored = false
-            end
-        end
-    })
-end)
+--     GuiLibrary.Registry.blatantPanel.API.CreateOptionsButton({
+--         Name = "Creative(blocks)",
+--         New  = true,
+--         Function = function(callback)
+--             local char = lplr.Character
+--             if not char then return end
+--             local hum  = char:FindFirstChildOfClass("Humanoid")
+--             local Head = char:FindFirstChild("Head")
+--             if not hum or not Head then return end
+--             if callback then
+--                 local pos = _findPos()
+--                 if pos then
+--                     local hrp = char:FindFirstChild("HumanoidRootPart")
+--                     if hrp then hrp.CFrame = CFrame.new(pos) end
+--                 else
+--                     createNotification("CreativeMode", "No map position found — place yourself manually", 3)
+--                 end
+--                 hum.PlatformStand = true
+--                 Head.Anchored = true
+--                 if CFloop then CFloop:Disconnect() end
+--                 CFloop = RunService.Heartbeat:Connect(function(dt)
+--                     local moveDir   = hum.MoveDirection * (CFspeed * dt)
+--                     local hCF       = Head.CFrame
+--                     local cam       = Camera.CFrame
+--                     local offset    = hCF:ToObjectSpace(cam).Position
+--                     local flatCam   = cam * CFrame.new(-offset.X, -offset.Y, -offset.Z + 1)
+--                     local vel = CFrame.new(flatCam.Position, Vector3.new(hCF.Position.X, flatCam.Position.Y, hCF.Position.Z)):VectorToObjectSpace(moveDir)
+--                     Head.CFrame = CFrame.new(hCF.Position) * (flatCam - flatCam.Position) * CFrame.new(vel)
+--                 end)
+--             else
+--                 if CFloop then CFloop:Disconnect(); CFloop = nil end
+--                 hum.PlatformStand = false
+--                 Head.Anchored = false
+--             end
+--         end
+--     })
+-- end)
 
 runcode(function()
     local VelocityUtils = require(ReplicatedStorage.Modules.VelocityUtils)
@@ -4457,7 +4928,7 @@ runcode(function()
 
     Knockback = GuiLibrary.Registry.utillityPanel.API.CreateOptionsButton({
         Name = "Knockback",
-        New  = true,
+        New = true,
         Function = function(callback)
             if not callback then return end
             local char = lplr.Character
@@ -4485,19 +4956,1097 @@ runcode(function()
     KBPower = Knockback.CreateSlider({
         Name = "Power",
         Min = 10, Max = 300, Default = 80,
-        Function = function(v) KBPower.Value = v end
+        Function = function(callback) KBPower.Value = callback end
     })
 
     KBDuration = Knockback.CreateSlider({
         Name = "Duration",
         Min = 0.05, Max = 1, Default = 0.15,
-        Function = function(v) KBDuration.Value = v end
+        Function = function(callback) KBDuration.Value = callback end
     })
 
     KBMode = Knockback.CreateDropdown({
         Name = "Direction",
         List = {"Backward", "Forward", "Up"},
         Default = "Backward",
-        Function = function(v) KBMode.Value = v end
+        Function = function(callback) KBMode.Value = callback end
+    })
+end)
+
+runcode(function()
+    local itemBBs = {}
+    local ItemBtn, ItemColor, ItemRarity, ItemShowName, ItemShowDist, ItemShowId, ItemMaxDist, ItemSize, ItemBg, ItemCorner
+
+    local ITEM_COLS = {
+        emerald = Color3.fromRGB(50,220,80),
+        diamond = Color3.fromRGB(60,200,220),
+        gold = Color3.fromRGB(255,200,0),
+        iron = Color3.new(1,1,1),
+    }
+    local _ITS = game:GetService("TextService")
+    local function measureItemText(txt, sz, font)
+        local ok, v = pcall(function() return _ITS:GetTextSize(txt, sz, font, Vector2.new(9999, 9999)) end)
+        return ok and v.X or #txt * sz * 0.55
+    end
+    local function itemColor(name)
+        if ItemRarity and not ItemRarity.Enabled then return pcol(ItemColor) end
+        local n = name:lower()
+        for k, c in pairs(ITEM_COLS) do if n:find(k) then return c end end
+        return pcol(ItemColor)
+    end
+    local function makeBB(model, sz)
+        local bb = Instance.new("BillboardGui")
+        bb.Name = "PhantomItemESP"; bb.AlwaysOnTop = true
+        bb.StudsOffset = Vector3.new(0, 2.5, 0)
+        local bg = Instance.new("Frame")
+        bg.Size = UDim2.fromScale(1,1); bg.BorderSizePixel = 0
+        bg.BackgroundColor3 = Color3.fromRGB(10,10,10); bg.BackgroundTransparency = 1
+        local bgcr = Instance.new("UICorner", bg); bgcr.CornerRadius = UDim.new(0, 5)
+        bg.Parent = bb
+        local nameLbl = Instance.new("TextLabel")
+        nameLbl.BackgroundTransparency = 1; nameLbl.BorderSizePixel = 0
+        nameLbl.Font = Enum.Font.GothamSemibold; nameLbl.TextSize = 11
+        nameLbl.TextStrokeTransparency = 0.5; nameLbl.TextColor3 = Color3.new(1,1,1)
+        nameLbl.TextXAlignment = Enum.TextXAlignment.Left
+        nameLbl.Parent = bg
+        local distLbl = Instance.new("TextLabel")
+        distLbl.BackgroundTransparency = 1; distLbl.BorderSizePixel = 0
+        distLbl.Font = Enum.Font.GothamSemibold; distLbl.TextSize = 11
+        distLbl.TextStrokeTransparency = 0.5; distLbl.TextColor3 = Color3.new(1,1,1)
+        distLbl.TextXAlignment = Enum.TextXAlignment.Right
+        distLbl.Parent = bg
+        bb.Parent = model
+        return bb, bg, bgcr, nameLbl, distLbl
+    end
+
+    ItemBtn = GuiLibrary.Registry.renderPanel.API.CreateOptionsButton({
+        Name = "ItemESP",
+        Function = function(callback)
+            if callback then
+                RunLoops:BindToHeartbeat("ItemESP", function()
+                    local myRoot = lplr.Character and lplr.Character:FindFirstChild("HumanoidRootPart")
+                    local maxD  = ItemMaxDist  and ItemMaxDist.Value  or 100
+                    local showN  = ItemShowName and ItemShowName.Enabled
+                    local showD  = ItemShowDist and ItemShowDist.Enabled
+                    local showId = ItemShowId   and ItemShowId.Enabled
+                    local sz    = ItemSize     and ItemSize.Value      or 100
+                    local cont  = workspace:FindFirstChild("DroppedItemsContainer")
+                    if not cont then return end
+                    local seen = {}
+
+                    for _, model in ipairs(cont:GetChildren()) do
+                        if not model:IsA("Model") then continue end
+                        local hitbox = model:FindFirstChild("Hitbox") or model:FindFirstChildOfClass("BasePart")
+                        if not hitbox then continue end
+                        local dist = myRoot and (myRoot.Position - hitbox.Position).Magnitude or 0
+                        if dist > maxD then
+                            local old = itemBBs[model]
+                            local bb2 = type(old) == "table" and old.bb or old
+                            if bb2 and bb2.Parent then bb2:Destroy() end
+                            itemBBs[model] = nil; continue
+                        end
+                        seen[model] = true
+
+                        if not itemBBs[model] then
+                            local _bb, _bg, _bgcr, _nL, _dL = makeBB(model, sz)
+                            itemBBs[model] = {bb=_bb, bg=_bg, bgcr=_bgcr, nameLbl=_nL, distLbl=_dL}
+                        end
+                        local entry = itemBBs[model]
+                        local col = itemColor(model.Name)
+                        local ts = math.clamp(math.floor(sz / 9), 9, 16)
+                        entry.bg.BackgroundTransparency = (ItemBg and ItemBg.Enabled) and 0.35 or 1
+                        entry.bgcr.CornerRadius = UDim.new(0, (ItemCorner and ItemCorner.Value == "Square") and 0 or 5)
+                        entry.nameLbl.TextSize = ts; entry.distLbl.TextSize = ts
+                        entry.nameLbl.TextColor3 = col
+
+                        local font = Enum.Font.GothamSemibold
+                        local rawName = model.Name
+                        local displayName = (not showId) and rawName:match("^(.-)_%d+$") or rawName
+                        local nameStr = showN and (displayName or rawName) or ""
+                        local distStr = showD and ("["..math.floor(dist).."m]") or ""
+                        local nameW = showN and measureItemText(nameStr, ts, font) or 0
+                        local distW = showD and measureItemText(distStr, ts, font) or 0
+                        local pad = 6; local gap = (showN and showD) and 5 or 0
+                        local totalW = math.max(40, nameW + distW + gap + pad * 2)
+                        local h = ts + 8
+                        entry.nameLbl.Visible = showN
+                        entry.nameLbl.Size = UDim2.new(0, nameW, 1, 0)
+                        entry.nameLbl.Position = UDim2.new(0, pad, 0, 0)
+                        entry.distLbl.Visible = showD
+                        entry.distLbl.Size = UDim2.new(0, distW, 1, 0)
+                        entry.distLbl.Position = UDim2.new(0, pad + nameW + gap, 0, 0)
+                        entry.nameLbl.Text = nameStr; entry.distLbl.Text = distStr
+                        entry.bb.Size = UDim2.fromOffset(totalW, h)
+                    end
+                    for model, entry in pairs(itemBBs) do
+                        if not seen[model] or not model.Parent then
+                            if entry.bb and entry.bb.Parent then entry.bb:Destroy() end
+                            itemBBs[model] = nil
+                        end
+                    end
+                end)
+            else
+                RunLoops:UnbindFromHeartbeat("ItemESP")
+                for _, entry in pairs(itemBBs) do
+                    if entry.bb and entry.bb.Parent then entry.bb:Destroy() end
+                end
+                itemBBs = {}
+            end
+        end
+    })
+    ItemColor = ItemBtn.CreateDropdown({
+        Name = "Color",
+        List = PHANTOM_COL_LIST,
+        Default = "Theme",
+        Function = function()end,
+    })
+    ItemRarity = ItemBtn.CreateToggle({
+        Name = "Rarity Color",
+        Default = true,
+        Function = function()end,
+    })
+    ItemShowName = ItemBtn.CreateToggle({
+        Name = "Show Name",
+        Default = true,
+        Function = function()end,
+    })
+    ItemShowDist = ItemBtn.CreateToggle({
+        Name = "Show Distance",
+        Default = true,
+        Function = function()end,
+    })
+    ItemShowId = ItemBtn.CreateToggle({
+        Name = "Show ID",
+        Default = false,
+        Function = function()end,
+    })
+    ItemMaxDist = ItemBtn.CreateSlider({
+        Name = "Max Distance",
+        Min = 20,
+        Max = 300,
+        Default = 100,
+        Round = 1,
+    })
+    ItemSize = ItemBtn.CreateSlider({
+        Name = "Label Size",
+        Min = 60,
+        Max = 160,
+        Default = 100,
+        Round = 1,
+    })
+    ItemBg = ItemBtn.CreateToggle({
+        Name = "Background",
+        Default = true,
+        Function = function()end,
+    })
+    ItemCorner = ItemBtn.CreateDropdown({
+        Name = "Corner Style",
+        List = {"Rounded", "Square"},
+        Default = "Rounded",
+        Function = function()end,
+    })
+end)
+
+runcode(function()
+    local origFogEnd, origFogStart, origFogColor, origBright, origAmbient, origAtmDen, origAtmHaze
+    local Lighting = game:GetService("Lighting")
+    local AV, AVFog, AVAtmos, AVBoost, AVFogEnd, AVFogColor
+
+    AV = GuiLibrary.Registry.renderPanel.API.CreateOptionsButton({
+        Name = "AntiVision",
+        Function = function(callback)
+            if callback then
+                origFogEnd = Lighting.FogEnd; origFogStart = Lighting.FogStart
+                origFogColor = Lighting.FogColor; origBright = Lighting.Brightness
+                origAmbient = Lighting.Ambient
+                local atm = Lighting:FindFirstChildOfClass("Atmosphere")
+                if atm then origAtmDen = atm.Density; origAtmHaze = atm.Haze end
+
+                RunLoops:BindToHeartbeat("AntiVision", function()
+                    local fogEnd = AVFogEnd and AVFogEnd.Value or 100000
+                    if AVFog and AVFog.Enabled then
+                        Lighting.FogEnd   = fogEnd; Lighting.FogStart = fogEnd - 10
+                        Lighting.FogColor = Color3.fromRGB(0,0,0)
+                    end
+                    if AVAtmos and AVAtmos.Enabled then
+                        local atm = Lighting:FindFirstChildOfClass("Atmosphere")
+                        if atm then atm.Density = 0; atm.Haze = 0 end
+                    end
+                    if AVBoost and AVBoost.Enabled then
+                        Lighting.Brightness = 5; Lighting.Ambient = Color3.fromRGB(150,150,150)
+                    end
+                end)
+            else
+                RunLoops:UnbindFromHeartbeat("AntiVision")
+                Lighting.FogEnd = origFogEnd or 100000; Lighting.FogStart = origFogStart or 0
+                if origFogColor then Lighting.FogColor = origFogColor end
+                if origBright   then Lighting.Brightness = origBright  end
+                if origAmbient  then Lighting.Ambient    = origAmbient  end
+                local atm = Lighting:FindFirstChildOfClass("Atmosphere")
+                if atm then
+                    if origAtmDen  ~= nil then atm.Density = origAtmDen  end
+                    if origAtmHaze ~= nil then atm.Haze    = origAtmHaze end
+                end
+            end
+        end
+    })
+    AVFog = AV.CreateToggle({
+        Name = "Remove Fog",
+        Default = true,
+        Function = function()end,
+    })
+    AVAtmos = AV.CreateToggle({
+        Name = "Clear Atmosphere",
+        Default = true,
+        Function = function()end,
+    })
+    AVBoost = AV.CreateToggle({
+        Name = "Boost Lighting",
+        Default = false,
+        Function = function()end,
+    })
+    AVFogEnd= AV.CreateSlider({
+        Name = "Fog Range",
+        Min = 1000,
+        Max = 200000,
+        Default = 100000,
+        Round = 1,
+    })
+end)
+
+runcode(function()
+    local warnGui, warnFrame, warnLabel = nil, nil, nil
+    local NWBtn, NWDist, NWFlash, NWFlashColor, NWShowLabel, NWShowDist, NWPulse
+
+    NWBtn = GuiLibrary.Registry.renderPanel.API.CreateOptionsButton({
+        Name = "NearbyWarn",
+        Function = function(callback)
+            if callback then
+                local pgui = lplr:FindFirstChildOfClass("PlayerGui")
+                warnGui = Instance.new("ScreenGui")
+                warnGui.Name = "PhantomNearby"; warnGui.ResetOnSpawn = false
+                warnGui.IgnoreGuiInset = true; warnGui.DisplayOrder = 999998
+                warnGui.Parent = pgui or game.CoreGui
+
+                warnFrame = Instance.new("Frame", warnGui)
+                warnFrame.Size = UDim2.fromScale(1,1)
+                warnFrame.BackgroundColor3 = Color3.fromRGB(255,50,50)
+                warnFrame.BackgroundTransparency = 1; warnFrame.BorderSizePixel = 0
+
+                warnLabel = Instance.new("TextLabel", warnGui)
+                warnLabel.Size = UDim2.fromOffset(250, 32)
+                warnLabel.AnchorPoint = Vector2.new(0.5, 0)
+                warnLabel.Position = UDim2.new(0.5,0,0,72)
+                warnLabel.BackgroundColor3 = Color3.fromRGB(12,12,12)
+                warnLabel.BackgroundTransparency = 0.2
+                warnLabel.TextColor3 = Color3.fromRGB(255,80,80)
+                warnLabel.Font = Enum.Font.GothamSemibold; warnLabel.TextSize = 14
+                warnLabel.Text = "! ENEMY NEARBY (fuck him up) !"; warnLabel.Visible = false
+                local corner = Instance.new("UICorner", warnLabel); corner.CornerRadius = UDim.new(0,6)
+                local stroke = Instance.new("UIStroke", warnLabel)
+                stroke.Color = Color3.fromRGB(180,40,40); stroke.Thickness = 1.5
+
+                local flashAlpha = 0
+                RunLoops:BindToHeartbeat("NearbyWarn", function(dt)
+                    local myRoot = lplr.Character and lplr.Character:FindFirstChild("HumanoidRootPart")
+                    if not myRoot then warnFrame.BackgroundTransparency = 1; warnLabel.Visible = false; return end
+                    local dist = NWDist and NWDist.Value or 15
+                    local closest, closestD = nil, math.huge
+
+                    for _, v in ipairs(Players:GetPlayers()) do
+                        if v == lplr then continue end
+                        if v.Team and v.Team == lplr.Team then continue end
+                        if not PlayerUtility.IsAlive(v) then continue end
+                        local char = v.Character; if not char then continue end
+                        local hrp  = char:FindFirstChild("HumanoidRootPart"); if not hrp then continue end
+                        local d    = (myRoot.Position - hrp.Position).Magnitude
+                        if d < dist and d < closestD then closest = v; closestD = d end
+                    end
+
+                    if closest then
+                        flashAlpha = math.min(flashAlpha + dt*6, 0.22)
+                        local fc = pcol(NWFlashColor)
+                        local pulse = NWPulse and NWPulse.Enabled
+                            and (1 - flashAlpha * math.abs(math.sin(tick() * 8))) or 1 - flashAlpha
+                        if NWFlash and NWFlash.Enabled then
+                            warnFrame.BackgroundColor3 = fc
+                            warnFrame.BackgroundTransparency = pulse
+                        else warnFrame.BackgroundTransparency = 1 end
+                        if NWShowLabel and NWShowLabel.Enabled then
+                            warnLabel.Visible = true
+                            if NWShowDist and NWShowDist.Enabled then
+                                warnLabel.Text = "!  "..closest.DisplayName.."  "..math.floor(closestD).."m (fuck him up)  !"
+                            else warnLabel.Text = "! ENEMY NEARBY (fuck him up) !" end
+                        else warnLabel.Visible = false end
+                    else
+                        flashAlpha = math.max(flashAlpha - dt*4, 0)
+                        warnFrame.BackgroundTransparency = 1; warnLabel.Visible = false
+                    end
+                end)
+            else
+                RunLoops:UnbindFromHeartbeat("NearbyWarn")
+                if warnGui then warnGui:Destroy(); warnGui = nil end
+                warnFrame = nil; warnLabel = nil
+            end
+        end
+    })
+    NWDist = NWBtn.CreateSlider({
+        Name = "Warn Distance",
+        Min = 5,
+        Max = 60,
+        Default = 15,
+        Round = 1,
+    })
+    NWFlash = NWBtn.CreateToggle({
+        Name = "Screen Flash",
+        Default = true,
+        Function = function()end,
+    })
+    NWFlashColor = NWBtn.CreateDropdown({
+        Name = "Flash Color",
+        List = {"Red", "Orange", "Yellow", "Cyan", "White", "Pink", "Team Color"},
+        Default = "Red",
+        Function = function()end,
+    })
+    NWPulse = NWBtn.CreateToggle({
+        Name = "Pulse Effect",
+        Default = true,
+        Function = function()end,
+    })
+    NWShowLabel = NWBtn.CreateToggle({
+        Name = "Show Label",
+        Default = true,
+        Function = function()end,
+    })
+    NWShowDist = NWBtn.CreateToggle({
+        Name = "Show Distance",
+        Default = true,
+        Function = function()end,
+    })
+end)
+
+runcode(function()
+    local tntEntries = {}
+    local tntSpawn  = {}
+    local TNTBtn, TNTColor, TNTMaxDist, TNTShowName, TNTShowDist, TNTBg, TNTCorner
+    local TNT_FUSE  = 4.2
+
+    local TNT_KEYS = {"tnt","bomb","fireball","explosive","smoke"}
+    local function isTNT(name)
+        local n = name:lower()
+        for _, k in ipairs(TNT_KEYS) do if n:find(k) then return true end end
+        return false
+    end
+    local function tntPos(obj)
+        if obj:IsA("Model") then
+            local ok, cf = pcall(function() return obj:GetModelCFrame() end)
+            return ok and cf.Position or nil
+        end
+        return obj:IsA("BasePart") and obj.Position or nil
+    end
+
+    TNTBtn = GuiLibrary.Registry.renderPanel.API.CreateOptionsButton({
+        Name = "TNTDetector",
+        Function = function(callback)
+            if callback then
+                local lqN = 0
+                RunLoops:BindToHeartbeat("TNTDetector", function()
+                    lqN += 1; if lqN % 3 ~= 0 then return end
+                    local myRoot = lplr.Character and lplr.Character:FindFirstChild("HumanoidRootPart")
+                    local maxD  = TNTMaxDist  and TNTMaxDist.Value  or 200
+                    local c     = pcol(TNTColor)
+                    local showN = TNTShowName and TNTShowName.Enabled
+                    local showD = TNTShowDist and TNTShowDist.Enabled
+                    local containers = {
+                        workspace:FindFirstChild("PlayersBlocksContainer"),
+                        workspace:FindFirstChild("DroppedItemsContainer"),
+                    }
+                    local seen = {}
+                    for _, container in ipairs(containers) do
+                        if not container then continue end
+                        for _, obj in ipairs(container:GetDescendants()) do
+                            if not (obj:IsA("BasePart") or obj:IsA("Model")) then continue end
+                            if not isTNT(obj.Name) then continue end
+                            local pos = tntPos(obj); if not pos then continue end
+                            if myRoot and (myRoot.Position - pos).Magnitude > maxD then continue end
+                            seen[obj] = true
+                            if not tntSpawn[obj] then tntSpawn[obj] = tick() end
+                            if not tntEntries[obj] then
+                                local h = Instance.new("Highlight")
+                                h.Adornee = obj; h.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+                                h.FillColor = c; h.FillTransparency = 0.35
+                                h.OutlineColor = c; h.OutlineTransparency = 0; h.Parent = workspace
+                                local bb = Instance.new("BillboardGui")
+                                bb.Name = "PhantomTNT"; bb.AlwaysOnTop = true
+                                bb.StudsOffset = Vector3.new(0, 3.5, 0)
+                                local bg = Instance.new("Frame")
+                                bg.Size = UDim2.fromScale(1,1); bg.BorderSizePixel = 0
+                                bg.BackgroundColor3 = Color3.fromRGB(10,10,10); bg.BackgroundTransparency = 1
+                                local tcr = Instance.new("UICorner", bg); tcr.CornerRadius = UDim.new(0, 5)
+                                bg.Parent = bb
+                                local nameLbl = Instance.new("TextLabel")
+                                nameLbl.BackgroundTransparency = 1; nameLbl.BorderSizePixel = 0
+                                nameLbl.Font = Enum.Font.GothamSemibold; nameLbl.TextSize = 12
+                                nameLbl.TextStrokeTransparency = 0.5; nameLbl.TextColor3 = Color3.fromRGB(255,80,80)
+                                nameLbl.TextXAlignment = Enum.TextXAlignment.Left; nameLbl.Parent = bg
+                                local timerLbl = Instance.new("TextLabel")
+                                timerLbl.BackgroundTransparency = 1; timerLbl.BorderSizePixel = 0
+                                timerLbl.Font = Enum.Font.GothamSemibold; timerLbl.TextSize = 12
+                                timerLbl.TextStrokeTransparency = 0.5; timerLbl.TextColor3 = Color3.new(1,1,1)
+                                timerLbl.TextXAlignment = Enum.TextXAlignment.Left; timerLbl.Parent = bg
+                                local distLbl = Instance.new("TextLabel")
+                                distLbl.BackgroundTransparency = 1; distLbl.BorderSizePixel = 0
+                                distLbl.Font = Enum.Font.GothamSemibold; distLbl.TextSize = 12
+                                distLbl.TextStrokeTransparency = 0.5; distLbl.TextColor3 = Color3.new(1,1,1)
+                                distLbl.TextXAlignment = Enum.TextXAlignment.Left; distLbl.Parent = bg
+                                bb.Parent = obj
+                                tntEntries[obj] = {h=h, bb=bb, bg=bg, tcr=tcr, nameLbl=nameLbl, timerLbl=timerLbl, distLbl=distLbl}
+                            end
+                            local entry = tntEntries[obj]
+                            entry.h.FillColor = c; entry.h.OutlineColor = c
+                            entry.bg.BackgroundTransparency = (TNTBg and TNTBg.Enabled) and 0.35 or 1
+                            entry.tcr.CornerRadius = UDim.new(0, (TNTCorner and TNTCorner.Value == "Square") and 0 or 5)
+                            do
+                                local dist = myRoot and math.floor((myRoot.Position - pos).Magnitude) or 0
+                                local elapsed   = tick() - (tntSpawn[obj] or tick())
+                                local remaining = math.max(0, TNT_FUSE - elapsed)
+                                local timerC = Color3.fromHSV(math.clamp(remaining/TNT_FUSE,0,1)/3, 0.9, 1)
+                                local ts = 12; local font = Enum.Font.GothamSemibold
+                                local pad = 6; local gap = 4
+                                local nameStr  = showN and obj.Name or ""
+                                local timerStr = string.format("%.1fs", remaining)
+                                local distStr  = showD and ("["..dist.."m]") or ""
+                                local nameW  = showN and measureTextW(nameStr, ts, font) or 0
+                                local timerW = measureTextW(timerStr, ts, font)
+                                local distW  = showD and measureTextW(distStr, ts, font) or 0
+                                local totalW = math.max(50, nameW + (nameW>0 and gap or 0) + timerW + (distW>0 and gap or 0) + distW + pad*2)
+                                local x = pad
+                                entry.nameLbl.Visible = showN
+                                entry.nameLbl.Size = UDim2.new(0, nameW, 1, 0); entry.nameLbl.Position = UDim2.new(0, x, 0, 0)
+                                entry.nameLbl.Text = nameStr; if showN then x += nameW + gap end
+                                entry.timerLbl.TextColor3 = timerC
+                                entry.timerLbl.Size = UDim2.new(0, timerW, 1, 0); entry.timerLbl.Position = UDim2.new(0, x, 0, 0)
+                                entry.timerLbl.Text = timerStr; x += timerW + (distW>0 and gap or 0)
+                                entry.distLbl.Visible = showD
+                                entry.distLbl.Size = UDim2.new(0, distW, 1, 0); entry.distLbl.Position = UDim2.new(0, x, 0, 0)
+                                entry.distLbl.Text = distStr
+                                entry.bb.Size = UDim2.fromOffset(totalW, ts + 8)
+                            end
+                        end
+                    end
+                    for obj, entry in pairs(tntEntries) do
+                        if not seen[obj] or not obj.Parent then
+                            if entry.h  and entry.h.Parent  then entry.h:Destroy()  end
+                            if entry.bb and entry.bb.Parent then entry.bb:Destroy() end
+                            tntEntries[obj] = nil; tntSpawn[obj] = nil
+                        end
+                    end
+                end)
+            else
+                RunLoops:UnbindFromHeartbeat("TNTDetector")
+                for _, e in pairs(tntEntries) do
+                    if e.h  and e.h.Parent  then e.h:Destroy()  end
+                    if e.bb and e.bb.Parent then e.bb:Destroy() end
+                end
+                tntEntries = {}; tntSpawn = {}
+            end
+        end
+    })
+    TNTColor = TNTBtn.CreateDropdown({
+        Name = "Color",
+        List = {"Red", "Orange", "Yellow", "White", "Theme", "Team Color"},
+        Default = "Red",
+        Function = function()end,
+    })
+    TNTMaxDist = TNTBtn.CreateSlider({
+        Name = "Max Distance",
+        Min = 20,
+        Max = 400,
+        Default = 200,
+        Round = 1,
+    })
+    TNTShowName = TNTBtn.CreateToggle({
+        Name = "Show Name",
+        Default = true,
+        Function = function()end,
+    })
+    TNTShowDist = TNTBtn.CreateToggle({
+        Name = "Show Distance",
+        Default = true,
+        Function = function()end,
+    })
+    TNTBg = TNTBtn.CreateToggle({
+        Name = "Background",
+        Default = true,
+        Function = function()end,
+    })
+    TNTCorner = TNTBtn.CreateDropdown({
+        Name = "Corner Style",
+        List = {"Rounded", "Square"},
+        Default = "Rounded",
+        Function = function()end,
+    })
+end)
+
+runcode(function()
+    local bedEntries = {}
+    local BedBtn, BedColor, BedEnemyOnly, BedShowDist, BedShowTeam, BedFillOp, BedOutOp, BedBg, BedCorner
+
+    local function getBedModels()
+        local beds = workspace:FindFirstChild("Beds")
+        if beds then return beds:GetChildren() end
+        local found = {}
+        for _, d in ipairs(workspace:GetDescendants()) do
+            if d.Name == "Bed" and d:IsA("Model") then found[#found+1] = d end
+        end
+        return found
+    end
+    local function getMattressColor(bed)
+        local m = bed:FindFirstChild("Mattress")
+        if m and m:IsA("BasePart") then return m.Color end
+        for _, p in ipairs(bed:GetDescendants()) do
+            if p:IsA("BasePart") and p.Name:lower():find("mattress") then return p.Color end
+        end
+        return nil
+    end
+    local _TS = game:GetService("TextService")
+    local function measureText(txt, sz, font)
+        local ok, v = pcall(function() return _TS:GetTextSize(txt, sz, font, Vector2.new(9999, 9999)) end)
+        return ok and v.X or #txt * sz * 0.6
+    end
+    local function getBedAttrTeam(bed)
+        return bed:GetAttribute("Team") and tostring(bed:GetAttribute("Team")) or nil
+    end
+    local function findTeamByName(name)
+        local ok, teams = pcall(function() return game:GetService("Teams"):GetTeams() end)
+        if not ok then return nil end
+        local nl = name:lower()
+        for _, team in ipairs(teams) do
+            if team.Name:lower() == nl then return team end
+        end
+        return nil
+    end
+    local function isEnemyBed(bed)
+        if not lplr.Team then return true end
+        local attr = getBedAttrTeam(bed)
+        if attr then return attr:lower() ~= lplr.Team.Name:lower() end
+        return true
+    end
+    local function getBedTeamInfo(bed)
+        local attr = getBedAttrTeam(bed)
+        if attr then
+            local team = findTeamByName(attr)
+            local color = team and team.TeamColor.Color or getMattressColor(bed) or Color3.fromRGB(220,60,60)
+            return attr .. " Bed", color
+        end
+        return bed.Name, Color3.fromRGB(220, 60, 60)
+    end
+
+    BedBtn = GuiLibrary.Registry.renderPanel.API.CreateOptionsButton({
+        Name = "BedESP",
+        Function = function(callback)
+            if callback then
+                local bedN = 0
+                RunLoops:BindToHeartbeat("BedESP", function()
+                    bedN += 1; if bedN % 10 ~= 0 then return end
+                    local myRoot = lplr.Character and lplr.Character:FindFirstChild("HumanoidRootPart")
+                    local eOnly  = BedEnemyOnly and BedEnemyOnly.Enabled
+                    local showD  = BedShowDist  and BedShowDist.Enabled
+                    local showT  = BedShowTeam  and BedShowTeam.Enabled
+                    local filA   = BedFillOp    and BedFillOp.Value or 0.5
+                    local outA   = BedOutOp     and BedOutOp.Value  or 0
+                    local ec     = pcol(BedColor)
+                    local seen   = {}
+
+                    for _, bed in ipairs(getBedModels()) do
+                        if not bed or not bed.Parent then continue end
+                        local enemy = isEnemyBed(bed)
+                        if eOnly and not enemy then continue end
+                        seen[bed] = true
+                        if not bedEntries[bed] then
+                            local h = Instance.new("Highlight")
+                            h.Adornee = bed; h.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+                            h.Parent = workspace
+                            local bb = Instance.new("BillboardGui")
+                            bb.Name = "PhantomBedESP"; bb.AlwaysOnTop = true
+                            bb.StudsOffset = Vector3.new(0, 4.5, 0)
+                            local bg = Instance.new("Frame")
+                            bg.Size = UDim2.fromScale(1,1); bg.BorderSizePixel = 0
+                            bg.BackgroundColor3 = Color3.fromRGB(10,10,10); bg.BackgroundTransparency = 1
+                            local bcr = Instance.new("UICorner", bg); bcr.CornerRadius = UDim.new(0, 5)
+                            bg.Parent = bb
+                            local nameLbl = Instance.new("TextLabel")
+                            nameLbl.BackgroundTransparency = 1; nameLbl.BorderSizePixel = 0
+                            nameLbl.Font = Enum.Font.GothamSemibold; nameLbl.TextSize = 12
+                            nameLbl.TextStrokeTransparency = 0.5; nameLbl.TextColor3 = Color3.new(1,1,1)
+                            nameLbl.TextXAlignment = Enum.TextXAlignment.Left
+                            nameLbl.Parent = bg
+                            local function makeLbl(color)
+                                local l = Instance.new("TextLabel")
+                                l.BackgroundTransparency = 1; l.BorderSizePixel = 0
+                                l.Font = Enum.Font.GothamSemibold; l.TextSize = 12
+                                l.TextStrokeTransparency = 0.5; l.TextColor3 = color
+                                l.TextXAlignment = Enum.TextXAlignment.Left; l.Parent = bg
+                                return l
+                            end
+                            local green = Color3.fromRGB(85, 255, 127)
+                            local lbLbl      = makeLbl(green)      lbLbl.Text = "["
+                            local distNumLbl = makeLbl(Color3.new(1,1,1))
+                            local rbLbl      = makeLbl(green)      rbLbl.Text = "]"
+                            bb.Parent = bed
+                            bedEntries[bed] = {h=h, bb=bb, bg=bg, bcr=bcr, nameLbl=nameLbl, lbLbl=lbLbl, distNumLbl=distNumLbl, rbLbl=rbLbl}
+                        end
+                        local entry = bedEntries[bed]
+                        local autoMode = BedColor and BedColor.Value == "Auto"
+                        local teamLabel, teamColor = getBedTeamInfo(bed)
+                        local bc = autoMode and teamColor or ec
+                        entry.h.FillColor = bc; entry.h.FillTransparency = filA
+                        entry.h.OutlineColor = bc; entry.h.OutlineTransparency = outA
+                        entry.bg.BackgroundTransparency = (BedBg and BedBg.Enabled) and 0.35 or 1
+                        entry.bcr.CornerRadius = UDim.new(0, (BedCorner and BedCorner.Value == "Square") and 0 or 5)
+                        entry.nameLbl.TextColor3 = bc
+                        local ok, cf = pcall(function() return bed:GetModelCFrame() end)
+                        local bpos = ok and cf.Position or Vector3.zero
+                        local ts = 12; local font = Enum.Font.GothamSemibold
+                        local nameVisible = showT
+                        local distVisible = showD and myRoot ~= nil
+                        local nameStr = nameVisible and teamLabel or ""
+                        local numStr  = distVisible and (myRoot and math.floor((myRoot.Position - bpos).Magnitude).."m" or "0m") or ""
+                        local nameW = nameVisible and measureText(nameStr, ts, font) or 0
+                        local lbW   = distVisible and measureText("[", ts, font) or 0
+                        local numW  = distVisible and measureText(numStr, ts, font) or 0
+                        local rbW   = distVisible and measureText("]", ts, font) or 0
+                        local pad = 6
+                        local gap = (nameVisible and distVisible) and 5 or 0
+                        local totalW = math.max(40, nameW + lbW + numW + rbW + gap + pad * 2)
+                        entry.nameLbl.Visible = nameVisible
+                        entry.nameLbl.Size = UDim2.new(0, nameW, 1, 0)
+                        entry.nameLbl.Position = UDim2.new(0, pad, 0, 0)
+                        entry.nameLbl.Text = nameStr
+                        local dx = pad + nameW + gap
+                        entry.lbLbl.Visible = distVisible
+                        entry.lbLbl.Size = UDim2.new(0, lbW, 1, 0)
+                        entry.lbLbl.Position = UDim2.new(0, dx, 0, 0)
+                        entry.distNumLbl.Visible = distVisible
+                        entry.distNumLbl.Size = UDim2.new(0, numW, 1, 0)
+                        entry.distNumLbl.Position = UDim2.new(0, dx + lbW, 0, 0)
+                        entry.distNumLbl.Text = numStr
+                        entry.rbLbl.Visible = distVisible
+                        entry.rbLbl.Size = UDim2.new(0, rbW, 1, 0)
+                        entry.rbLbl.Position = UDim2.new(0, dx + lbW + numW, 0, 0)
+                        entry.bb.Size = UDim2.fromOffset(totalW, ts + 8)
+                        entry.bb.Enabled = nameVisible or distVisible
+                    end
+                    for bed, entry in pairs(bedEntries) do
+                        if not seen[bed] or not bed.Parent then
+                            if entry.h  and entry.h.Parent  then entry.h:Destroy()  end
+                            if entry.bb and entry.bb.Parent then entry.bb:Destroy() end
+                            bedEntries[bed] = nil
+                        end
+                    end
+                end)
+            else
+                RunLoops:UnbindFromHeartbeat("BedESP")
+                for _, entry in pairs(bedEntries) do
+                    if entry.h  and entry.h.Parent  then entry.h:Destroy()  end
+                    if entry.bb and entry.bb.Parent then entry.bb:Destroy() end
+                end
+                bedEntries = {}
+            end
+        end
+    })
+    BedColor = BedBtn.CreateDropdown({
+        Name = "Enemy Color",
+        List = {"Auto", "Red", "Orange", "Yellow", "White", "Theme", "Team Color"},
+        Default = "Auto",
+        Function = function()end,
+    })
+    BedFillOp = BedBtn.CreateSlider({
+        Name = "Fill Opacity",
+        Min = 0,
+        Max = 1,
+        Default = 0.5,
+    })
+    BedOutOp = BedBtn.CreateSlider({
+        Name = "Outline Opacity",
+        Min = 0,
+        Max = 1,
+        Default = 0,
+    })
+    BedEnemyOnly = BedBtn.CreateToggle({
+        Name = "Enemy Only",
+        Default = true,
+        Function = function()end,
+    })
+    BedShowDist = BedBtn.CreateToggle({
+        Name = "Show Distance",
+        Default = true,
+        Function = function()end,
+    })
+    BedShowTeam = BedBtn.CreateToggle({
+        Name = "Show Team Name",
+        Default = true,
+        Function = function()end,
+    })
+    BedBg = BedBtn.CreateToggle({
+        Name = "Background",
+        Default = true,
+        Function = function()end,
+    })
+    BedCorner = BedBtn.CreateDropdown({
+        Name = "Corner Style",
+        List = {"Rounded", "Square"},
+        Default = "Rounded",
+        Function = function()end,
+    })
+end)
+
+runcode(function()
+    local fcActive, fcConn = false, nil
+    local FCBtn, FCSpeed, FCFOV, FCNoClip
+    local UIS = game:GetService("UserInputService")
+
+    FCBtn = GuiLibrary.Registry.renderPanel.API.CreateOptionsButton({
+        Name = "Freecam",
+        Function = function(callback)
+            if callback then
+                fcActive = true
+                local lv    = Camera.CFrame.LookVector
+                local pitch = math.asin(math.clamp(lv.Y, -1, 1))
+                local yaw   = math.atan2(-lv.X, -lv.Z)
+                local camPos= Camera.CFrame.Position
+
+                UIS.MouseBehavior = Enum.MouseBehavior.LockCenter
+
+                fcConn = RunService.RenderStepped:Connect(function(dt)
+                    if not fcActive then return end
+                    if Camera.CameraType ~= Enum.CameraType.Scriptable then
+                        Camera.CameraType = Enum.CameraType.Scriptable
+                    end
+
+                    local speed = FCSpeed and FCSpeed.Value or 30
+                    local fast  = UIS:IsKeyDown(Enum.KeyCode.LeftShift) and 3 or 1
+                    local move  = Vector3.zero
+                    if UIS:IsKeyDown(Enum.KeyCode.W) then move += Vector3.new(0,0,-1) end
+                    if UIS:IsKeyDown(Enum.KeyCode.S) then move += Vector3.new(0,0, 1) end
+                    if UIS:IsKeyDown(Enum.KeyCode.A) then move += Vector3.new(-1,0,0) end
+                    if UIS:IsKeyDown(Enum.KeyCode.D) then move += Vector3.new( 1,0,0) end
+                    if UIS:IsKeyDown(Enum.KeyCode.E) then move += Vector3.new(0, 1,0) end
+                    if UIS:IsKeyDown(Enum.KeyCode.Q) then move += Vector3.new(0,-1,0) end
+
+                    local md = UIS:GetMouseDelta()
+                    yaw = yaw   - md.X * 0.003
+                    pitch = math.clamp(pitch - md.Y * 0.003, -math.pi/2+0.01, math.pi/2-0.01)
+
+                    local rot = CFrame.fromEulerAnglesYXZ(pitch, yaw, 0)
+                    if move.Magnitude > 0 then
+                        camPos = camPos + rot:VectorToWorldSpace(move.Unit) * speed * fast * dt
+                    end
+                    Camera.CFrame = CFrame.new(camPos) * rot
+                    if FCFOV then Camera.FieldOfView = FCFOV.Value end
+                end)
+            else
+                fcActive = false
+                if fcConn then fcConn:Disconnect(); fcConn = nil end
+                Camera.CameraType = Enum.CameraType.Custom
+                UIS.MouseBehavior = Enum.MouseBehavior.Default
+                Camera.FieldOfView = 70
+            end
+        end
+    })
+    FCSpeed = FCBtn.CreateSlider({
+        Name = "Speed",
+        Min = 5,
+        Max = 200,
+        Default = 30,
+        Round = 1,
+    })
+    FCFOV = FCBtn.CreateSlider({
+        Name = "FOV",
+        Min = 20,
+        Max = 120,
+        Default = 70,
+        Round = 1,
+    })
+end)
+
+runcode(function()
+    local XRBtn, XROpacity, XRBlocks, XRWool
+
+    local function processXray(on)
+        local transp   = XROpacity and XROpacity.Value or 0.88
+        local doBlocks = XRBlocks  and XRBlocks.Enabled
+        local doWool   = XRWool    and XRWool.Enabled
+        local function process(container, enabled)
+            if not container then return end
+            for _, p in ipairs(container:GetDescendants()) do
+                if p:IsA("BasePart") then
+                    p.LocalTransparencyModifier = (on and enabled) and transp or 0
+                end
+            end
+        end
+        process(workspace:FindFirstChild("BlocksContainer"),        doBlocks)
+        process(workspace:FindFirstChild("PlayersBlocksContainer"),  doWool)
+    end
+
+    XRBtn = GuiLibrary.Registry.renderPanel.API.CreateOptionsButton({
+        Name = "Xray",
+        Function = function(callback)
+            if callback then
+                local lqN = 0
+                RunLoops:BindToHeartbeat("Xray", function()
+                    lqN += 1; if lqN % 4 ~= 0 then return end
+                    processXray(true)
+                end)
+            else
+                RunLoops:UnbindFromHeartbeat("Xray"); processXray(false)
+            end
+        end
+    })
+    XROpacity = XRBtn.CreateSlider({
+        Name = "Transparency",
+        Min = 0.3,
+        Max = 0.99,
+        Default = 0.88,
+    })
+    XRBlocks = XRBtn.CreateToggle({
+        Name = "Map Blocks",
+        Default = true,
+        Function = function()end,
+    })
+    XRWool = XRBtn.CreateToggle({
+        Name = "Player Wool",
+        Default = true,
+        Function = function()end,
+    })
+end)
+
+runcode(function()
+    local AHBtn, AHSize, AHPadding, AHBg, AHCorner, AHOpacity, AHPos
+
+    local hudGui, hudFrame = nil, nil
+    local iconLabels = {}
+    local lastSig    = ""
+    local FALLBACK   = "rbxassetid://130674868309232"
+
+    local SLOT_KEYS = {"helmet","chestplate","leggings","boots"}
+
+    local function norm2(v)
+        return string.gsub(string.lower(tostring(v or "")), "[^%w]", "")
+    end
+
+    local function getArmorSlot(name, cls)
+        local t = string.lower(tostring(name or "") .. " " .. tostring(cls or ""))
+        if t:find("helmet") or t:find("head")                 then return "helmet"     end
+        if t:find("chestplate") or t:find("chest") or t:find("body") then return "chestplate" end
+        if t:find("leggings") or t:find("pants") or t:find("legs")  then return "leggings"   end
+        if t:find("boots")  or t:find("shoes") or t:find("feet")    then return "boots"       end
+        return nil
+    end
+
+    local function getImage(itemName, className)
+        for _, name in ipairs({itemName, className}) do
+            if name and name ~= "" then
+                local d = bedfight.modules.ItemsData[name]
+                if d and d.Image then return d.Image end
+                local lk = string.lower(name)
+                for k, v in pairs(bedfight.modules.ItemsData) do
+                    if string.lower(k) == lk and v.Image then return v.Image end
+                end
+            end
+        end
+        return FALLBACK
+    end
+
+    local function buildSlots()
+        local slots = {}
+
+        local hook = data.hooked[lplr]
+        if hook and hook.items then
+            for _, entry in ipairs(hook.items) do
+                local obj = entry.item
+                local iName = obj and obj.Name or ""
+                local cls   = entry.class or ""
+                if (entry.inventory or ""):lower() == "armor"
+                    or getArmorSlot(iName, cls)
+                then
+                    local slot = getArmorSlot(iName, cls)
+                    if slot and not slots[slot] then
+                        slots[slot] = {image = getImage(iName, cls)}
+                    end
+                end
+            end
+        end
+
+        if not next(slots) then
+            local armorInv = bedfight.modules.InventoryHandler.Inventories
+                and bedfight.modules.InventoryHandler.Inventories.Armor
+            if armorInv then
+                for _, slot in ipairs(armorInv.Items) do
+                    local iName = slot.Name or ""
+                    local cls   = slot:GetAttribute("Class") or ""
+                    if iName ~= "" then
+                        local slotKey = getArmorSlot(iName, cls)
+                        if slotKey and not slots[slotKey] then
+                            slots[slotKey] = {image = getImage(iName, cls)}
+                        end
+                    end
+                end
+            end
+        end
+
+        return slots
+    end
+
+    local function buildSig(slots)
+        local parts = {}
+        for _, k in ipairs(SLOT_KEYS) do
+            parts[#parts+1] = k .. "=" .. (slots[k] and slots[k].image or "")
+        end
+        return table.concat(parts, "|")
+    end
+
+    local function rebuildIcons(slots, sz, pad, bgOn, cornerOn)
+        for _, lbl in ipairs(iconLabels) do
+            if lbl and lbl.Parent then lbl:Destroy() end
+        end
+        iconLabels = {}
+        if not hudFrame then return end
+
+        local totalH = 0
+        local count  = 0
+        for _, k in ipairs(SLOT_KEYS) do
+            if slots[k] then count += 1 end
+        end
+        totalH = count * sz + math.max(0, count - 1) * pad
+
+        hudFrame.Size = UDim2.fromOffset(sz + 8, totalH + 8)
+        local pos = AHPos and AHPos.Value or "Bottom Left"
+        local margin = 12
+        local frameH = totalH + 8
+        local frameW = sz + 8
+        if pos == "Bottom Left" then
+            hudFrame.AnchorPoint = Vector2.new(0, 1)
+            hudFrame.Position = UDim2.new(0, margin, 1, -margin)
+        elseif pos == "Bottom Right" then
+            hudFrame.AnchorPoint = Vector2.new(1, 1)
+            hudFrame.Position = UDim2.new(1, -margin, 1, -margin)
+        elseif pos == "Middle Left" then
+            hudFrame.AnchorPoint = Vector2.new(0, 0.5)
+            hudFrame.Position = UDim2.new(0, margin, 0.5, 0)
+        elseif pos == "Middle Right" then
+            hudFrame.AnchorPoint = Vector2.new(1, 0.5)
+            hudFrame.Position = UDim2.new(1, -margin, 0.5, 0)
+        end
+
+        local yOff = 4
+        for _, k in ipairs(SLOT_KEYS) do
+            local info = slots[k]
+            if info then
+                local img = Instance.new("ImageLabel", hudFrame)
+                img.Size              = UDim2.fromOffset(sz, sz)
+                img.Position          = UDim2.fromOffset(4, yOff)
+                img.BackgroundTransparency = 1
+                img.BorderSizePixel   = 0
+                img.Image             = info.image
+                img.ScaleType         = Enum.ScaleType.Fit
+                iconLabels[#iconLabels+1] = img
+                yOff += sz + pad
+            end
+        end
+    end
+
+    AHBtn = GuiLibrary.Registry.renderPanel.API.CreateOptionsButton({
+        Name = "ArmorHUD",
+        Function = function(callback)
+            if callback then
+                if not data.hooked[lplr] then
+                    task.spawn(function() hookinv(lplr) end)
+                end
+
+                local pgui = lplr:FindFirstChildOfClass("PlayerGui")
+                hudGui = Instance.new("ScreenGui")
+                hudGui.Name = "PhantomArmorHUD"; hudGui.ResetOnSpawn = false
+                hudGui.IgnoreGuiInset = true; hudGui.DisplayOrder = 999990
+                hudGui.Parent = pgui or game.CoreGui
+
+                hudFrame = Instance.new("Frame", hudGui)
+                hudFrame.BackgroundColor3 = Color3.fromRGB(10,10,10)
+                hudFrame.BackgroundTransparency = 0.4
+                hudFrame.BorderSizePixel = 0
+                hudFrame.Size = UDim2.fromOffset(48, 48)
+                local hCorner = Instance.new("UICorner", hudFrame)
+                hCorner.CornerRadius = UDim.new(0, 6)
+
+                local lqN = 0
+                RunLoops:BindToHeartbeat("ArmorHUD", function()
+                    lqN += 1; if lqN % 6 ~= 0 then return end
+
+                    local sz      = AHSize    and math.floor(AHSize.Value)    or 40
+                    local pad     = AHPadding and math.floor(AHPadding.Value) or 4
+                    local bgOn    = AHBg      and AHBg.Enabled
+                    local cStyle  = AHCorner  and AHCorner.Value or "Rounded"
+                    local op      = AHOpacity and AHOpacity.Value or 0.4
+
+                    hudFrame.Visible = bgOn
+                    hudFrame.BackgroundTransparency = op
+                    hCorner.CornerRadius = UDim.new(0, cStyle == "Square" and 0 or 6)
+
+                    local slots = buildSlots()
+                    local posV  = AHPos and AHPos.Value or "Bottom Left"
+                    local sig   = buildSig(slots) .. "|sz=" .. sz .. "|pad=" .. pad .. "|pos=" .. posV
+                    local hasAny = next(slots) ~= nil
+                    hudFrame.Visible = bgOn and hasAny
+                    for _, lbl2 in ipairs(iconLabels) do
+                        lbl2.Visible = hasAny
+                    end
+                    if sig ~= lastSig then
+                        lastSig = sig
+                        rebuildIcons(slots, sz, pad, bgOn, cStyle)
+                    end
+                end)
+            else
+                RunLoops:UnbindFromHeartbeat("ArmorHUD")
+                if hudGui then hudGui:Destroy(); hudGui = nil end
+                hudFrame = nil; iconLabels = {}; lastSig = ""
+            end
+        end
+    })
+    AHPos = AHBtn.CreateDropdown({
+        Name = "Position",
+        List = {"Bottom Left", "Bottom Right", "Middle Left", "Middle Right"},
+        Default = "Bottom Left",
+        Function = function() end,
+    })
+    AHSize = AHBtn.CreateSlider({
+        Name = "Icon Size",
+        Min = 24,
+        Max = 64,
+        Default = 40,
+        Round = 1,
+    })
+    AHPadding = AHBtn.CreateSlider({
+        Name = "Icon Spacing",
+        Min = 0,
+        Max = 16,
+        Default = 4,
+        Round = 1,
+    })
+    AHOpacity = AHBtn.CreateSlider({
+        Name = "BG Opacity",
+        Min = 0,
+        Max = 0.9,
+        Default = 0.4,
+    })
+    AHBg = AHBtn.CreateToggle({
+        Name = "Background",
+        Default = true,
+        Function = function() end,
+    })
+    AHCorner = AHBtn.CreateDropdown({
+        Name = "Corner Style",
+        List = {"Rounded", "Square"},
+        Default = "Rounded",
+        Function = function() end,
     })
 end)
