@@ -720,9 +720,7 @@ runcode(function()
                     if not ctrl then return end
                     ctrl.CanAttack = true
                     SwordController.GetHitWithBox = function() return currentTarget end
-                    vmSuppressDefault = VMAnimToggle.Enabled
                     ctrl:Activate()
-                    vmSuppressDefault = false
                     SwordController.GetHitWithBox = origGetHitWithBox
                     --if projFireAt then task.spawn(projFireAt, root, target) end
                 end)
