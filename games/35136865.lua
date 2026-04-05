@@ -601,8 +601,6 @@ runcode(function()
     local Killaura = {}
     local FacePlayer = {}
     local TeamCheck = {}
-    local VMAnimToggle = {Enabled = false}
-    local VMAnimStyle = {Value = "Butcher"}
 
     local swordtype = nil
     local currentTarget = nil
@@ -614,12 +612,6 @@ runcode(function()
     local origGetHitWithBox = nil
     local origSwordNew = nil
     local capturedControllers = {}
-
-    local vmAnimPlaying = false
-    local vmJointCache = nil
-    local vmOrigC0Cache = nil
-    local vmSuppressDefault = false
-    local origVMLoadAnim = nil
 
     local function getPing()
         local ok, value = pcall(function()
@@ -682,30 +674,6 @@ runcode(function()
                     return ctrl
                 end
 
-                local _kaCharConn = lplr.CharacterAdded:Connect(function()
-                    vmJointCache = nil; vmOrigC0Cache = nil
-                    task.delay(0.3, function()
-                        if Killaura.Enabled then hookAnims() end
-                    end)
-                end)
-                funcs:onExit("KA_CharConn", function()
-                    if _kaCharConn then _kaCharConn:Disconnect() end
-                end)
-
-                local _ok, _VMH = pcall(require, ReplicatedStorage.Modules.ViewModelHandler)
-                if _ok and _VMH and _VMH.LoadAnimation then
-                    origVMLoadAnim = _VMH.LoadAnimation
-                    local _fake = {
-                        Play = function() end, Stop = function() end,
-                        AdjustSpeed = function() end, AdjustWeight = function() end,
-                        Stopped = {Connect = function() return {Disconnect = function() end} end},
-                    }
-                    _VMH.LoadAnimation = function(...)
-                        if vmSuppressDefault then return _fake end
-                        return origVMLoadAnim(...)
-                    end
-                end
-
                 RunLoops:BindToHeartbeat("Killaura", function()
                     if shieldActive then return end
 
@@ -756,7 +724,6 @@ runcode(function()
                     ctrl:Activate()
                     vmSuppressDefault = false
                     SwordController.GetHitWithBox = origGetHitWithBox
-                    task.spawn(playVMAnim)
                     --if projFireAt then task.spawn(projFireAt, root, target) end
                 end)
             else
@@ -777,14 +744,6 @@ runcode(function()
                 end
                 capturedControllers = {}
                 currentTarget = nil
-                vmSuppressDefault = false
-                vmAnimPlaying = false
-                vmJointCache, vmOrigC0Cache = nil, nil
-                if origVMLoadAnim then
-                    local _ok, _VMH = pcall(require, ReplicatedStorage.Modules.ViewModelHandler)
-                    if _ok and _VMH then _VMH.LoadAnimation = origVMLoadAnim end
-                    origVMLoadAnim = nil
-                end
                 revertitem()
                 RunLoops:UnbindFromHeartbeat("Killaura")
             end
@@ -2019,7 +1978,7 @@ runcode(function()
     local chestfuncs = {}
 
     chestfuncs.Loop = function(loop, cycle, index, teams)
-        if not PlayerUtility.IsAlivePlayerUtility.IsAlivePlayerUtility.IsAlive then return end
+        if not PlayerUtility.lplrIsAlive then return end
         local team = lplr.Team and lplr.Team.Name
         if not team or team == "Spectators" or not teams or #teams == 0 then
             return getTeams(), 1, 1
