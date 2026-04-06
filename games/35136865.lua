@@ -596,12 +596,38 @@ do
     matchState()
 end
 
+local touching = false
+do
+    touchConnStart = UserInputService.TouchStarted:Connect(function()
+        touching = true
+    end)
+
+    touchConnEnd = UserInputService.TouchEnded:Connect(function()
+        touching = false
+    end)
+    
+    funcs:onExit("bodyVelHook", function()
+        if touchConnStart then
+            touchConnStart:Disconnect()
+            touchConnStart = nil
+        end
+        if touchConnEnd then
+            touchConnEnd:Disconnect()
+            touchConnEnd = nil
+        end
+        touching = false
+    end)
+end
+
+
 local Distance = {Value = 21}
 runcode(function()
     local Killaura = {}
     local FacePlayer = {}
     local TeamCheck = {}
-
+    local SwingOnly = {}
+    local ItemOnly = {}
+    
     local swordtype = nil
     local currentTarget = nil
     local currentController = nil
@@ -694,6 +720,7 @@ runcode(function()
 
                     swordtype = getsword()
                     if not swordtype then revertitem() return end
+                    if ItemOnly.Enabled and getClientEquipped() ~= swordtype then return end
                     local swordData = bedfight.modules.SwordsData[swordtype]
                     if not swordData then return end
                     local ping = getPing()
@@ -705,6 +732,10 @@ runcode(function()
                     if FacePlayer.Enabled and not LongFly.Enabled then
                         local aimPos = root.Position + Vector3.new(root.AssemblyLinearVelocity.X, 0, root.AssemblyLinearVelocity.Z) * ping
                         myRoot.CFrame = CFrame.lookAt(myRoot.Position, Vector3.new(aimPos.X, myRoot.Position.Y, aimPos.Z))
+                    end
+
+                    if SwingOnly.Enabled and not (UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1) or touching) then
+                        return
                     end
 
                     if data.projLastFire and (tick() - data.projLastFire) < 0.05 then return end
@@ -740,6 +771,7 @@ runcode(function()
                     SwordController.new = origSwordNew
                     origSwordNew = nil
                 end
+                touching = false
                 capturedControllers = {}
                 currentTarget = nil
                 revertitem()
@@ -763,6 +795,16 @@ runcode(function()
     })
     FacePlayer = Killaura.CreateToggle({
         Name = "FacePlayer",
+        Function = function() end
+    })
+    SwingOnly = Killaura.CreateToggle({
+        Name = "Swing Only",
+        Tooltip = "Only attacks while clicking",
+        Function = function() end
+    })
+    ItemOnly = Killaura.CreateToggle({
+        Name = "Item Only",
+        Tooltip = "Only attacks when sword is held",
         Function = function() end
     })
 end)
