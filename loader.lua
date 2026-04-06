@@ -375,7 +375,14 @@ local function createLoaderUi()
 
 	return {
 		SetStatus = function(_, text)
-			status.Text = tostring(text)
+			if status and status.Parent then
+				local ok, err = pcall(function()
+					status.Text = tostring(text)
+				end)
+				if not ok then
+					warn("[phantom] Unable to set status text (UI inaccessible): ", err)
+				end
+			end
 		end,
 		SetProgress = function(_, complete, total, current)
 			local ratio = total > 0 and math.clamp(complete / total, 0, 1) or 0
