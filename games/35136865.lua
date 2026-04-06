@@ -17,19 +17,6 @@ local ReplicatedStorage = cloneref(game:GetService("ReplicatedStorage"))
 local Lighting = cloneref(game:GetService("Lighting"))
 local Teams = cloneref(game:GetService("Teams"))
 local UserInputService = cloneref(game:GetService("UserInputService"))
-local _GTS = cloneref(game:GetService("TextService"))
-
--- Shared text-width cache: key = text.."\0"..size, value = pixel width
-local _twCache = {}
-local function measureTextW(txt, sz, font)
-    local key = txt .. "\0" .. sz
-    local cached = _twCache[key]
-    if cached then return cached end
-    local ok, v = pcall(function() return _GTS:GetTextSize(txt, sz, font, Vector2.new(9999, 9999)) end)
-    local w = ok and v.X or #txt * sz * 0.55
-    _twCache[key] = w
-    return w
-end
 
 local lplr = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
@@ -601,6 +588,8 @@ runcode(function()
     local Killaura = {}
     local FacePlayer = {}
     local TeamCheck = {}
+    local VMAnimToggle = {Enabled = false}
+    local VMAnimStyle = {Value = "Butcher"}
 
     local swordtype = nil
     local currentTarget = nil
@@ -612,6 +601,12 @@ runcode(function()
     local origGetHitWithBox = nil
     local origSwordNew = nil
     local capturedControllers = {}
+
+    local vmAnimPlaying = false
+    local vmJointCache = nil
+    local vmOrigC0Cache = nil
+    local vmSuppressDefault = false
+    local origVMLoadAnim = nil
 
     local function getPing()
         local ok, value = pcall(function()
@@ -674,6 +669,30 @@ runcode(function()
                     return ctrl
                 end
 
+                local _kaCharConn = lplr.CharacterAdded:Connect(function()
+                    vmJointCache = nil; vmOrigC0Cache = nil
+                    task.delay(0.3, function()
+                        if Killaura.Enabled then hookAnims() end
+                    end)
+                end)
+                funcs:onExit("KA_CharConn", function()
+                    if _kaCharConn then _kaCharConn:Disconnect() end
+                end)
+
+                local _ok, _VMH = pcall(require, ReplicatedStorage.Modules.ViewModelHandler)
+                if _ok and _VMH and _VMH.LoadAnimation then
+                    origVMLoadAnim = _VMH.LoadAnimation
+                    local _fake = {
+                        Play = function() end, Stop = function() end,
+                        AdjustSpeed = function() end, AdjustWeight = function() end,
+                        Stopped = {Connect = function() return {Disconnect = function() end} end},
+                    }
+                    _VMH.LoadAnimation = function(...)
+                        if vmSuppressDefault then return _fake end
+                        return origVMLoadAnim(...)
+                    end
+                end
+
                 RunLoops:BindToHeartbeat("Killaura", function()
                     if shieldActive then return end
 
@@ -720,8 +739,11 @@ runcode(function()
                     if not ctrl then return end
                     ctrl.CanAttack = true
                     SwordController.GetHitWithBox = function() return currentTarget end
+                    vmSuppressDefault = VMAnimToggle.Enabled
                     ctrl:Activate()
+                    vmSuppressDefault = false
                     SwordController.GetHitWithBox = origGetHitWithBox
+                    task.spawn(playVMAnim)
                     --if projFireAt then task.spawn(projFireAt, root, target) end
                 end)
             else
@@ -742,6 +764,14 @@ runcode(function()
                 end
                 capturedControllers = {}
                 currentTarget = nil
+                vmSuppressDefault = false
+                vmAnimPlaying = false
+                vmJointCache, vmOrigC0Cache = nil, nil
+                if origVMLoadAnim then
+                    local _ok, _VMH = pcall(require, ReplicatedStorage.Modules.ViewModelHandler)
+                    if _ok and _VMH then _VMH.LoadAnimation = origVMLoadAnim end
+                    origVMLoadAnim = nil
+                end
                 revertitem()
                 RunLoops:UnbindFromHeartbeat("Killaura")
             end
@@ -1976,7 +2006,7 @@ runcode(function()
     local chestfuncs = {}
 
     chestfuncs.Loop = function(loop, cycle, index, teams)
-        if not PlayerUtility.lplrIsAlive then return end
+        if not PlayerUtility.IsAlivePlayerUtility.IsAlivePlayerUtility.IsAlive then return end
         local team = lplr.Team and lplr.Team.Name
         if not team or team == "Spectators" or not teams or #teams == 0 then
             return getTeams(), 1, 1
@@ -2375,8 +2405,6 @@ runcode(function()
 end)
 
 runcode(function()
-    local TextService = game:GetService("TextService")
-
     local NameTags = {}
     local TeamColor = {}
     local ShowDistance = {}
@@ -4940,11 +4968,6 @@ runcode(function()
         gold = Color3.fromRGB(255,200,0),
         iron = Color3.new(1,1,1),
     }
-    local _ITS = game:GetService("TextService")
-    local function measureItemText(txt, sz, font)
-        local ok, v = pcall(function() return _ITS:GetTextSize(txt, sz, font, Vector2.new(9999, 9999)) end)
-        return ok and v.X or #txt * sz * 0.55
-    end
     local function itemColor(name)
         if ItemRarity and not ItemRarity.Enabled then return pcol(ItemColor) end
         local n = name:lower()
@@ -5021,8 +5044,8 @@ runcode(function()
                         local displayName = (not showId) and rawName:match("^(.-)_%d+$") or rawName
                         local nameStr = showN and (displayName or rawName) or ""
                         local distStr = showD and ("["..math.floor(dist).."m]") or ""
-                        local nameW = showN and measureItemText(nameStr, ts, font) or 0
-                        local distW = showD and measureItemText(distStr, ts, font) or 0
+                        local nameW = showN and measureTextW(nameStr, ts, font) or 0
+                        local distW = showD and measureTextW(distStr, ts, font) or 0
                         local pad = 6; local gap = (showN and showD) and 5 or 0
                         local totalW = math.max(40, nameW + distW + gap + pad * 2)
                         local h = ts + 8
@@ -5466,19 +5489,13 @@ runcode(function()
         end
         return nil
     end
-    local _TS = game:GetService("TextService")
-    local function measureText(txt, sz, font)
-        local ok, v = pcall(function() return _TS:GetTextSize(txt, sz, font, Vector2.new(9999, 9999)) end)
-        return ok and v.X or #txt * sz * 0.6
-    end
+    local _bedInfoCache = {}
     local function getBedAttrTeam(bed)
         return bed:GetAttribute("Team") and tostring(bed:GetAttribute("Team")) or nil
     end
     local function findTeamByName(name)
-        local ok, teams = pcall(function() return game:GetService("Teams"):GetTeams() end)
-        if not ok then return nil end
         local nl = name:lower()
-        for _, team in ipairs(teams) do
+        for _, team in ipairs(Teams:GetTeams()) do
             if team.Name:lower() == nl then return team end
         end
         return nil
@@ -5490,13 +5507,20 @@ runcode(function()
         return true
     end
     local function getBedTeamInfo(bed)
+        local cached = _bedInfoCache[bed]
+        if cached then return cached[1], cached[2] end
         local attr = getBedAttrTeam(bed)
+        local label, color
         if attr then
             local team = findTeamByName(attr)
-            local color = team and team.TeamColor.Color or getMattressColor(bed) or Color3.fromRGB(220,60,60)
-            return attr .. " Bed", color
+            color = team and team.TeamColor.Color or getMattressColor(bed) or Color3.fromRGB(220,60,60)
+            label = attr .. " Bed"
+        else
+            label = bed.Name
+            color = Color3.fromRGB(220, 60, 60)
         end
-        return bed.Name, Color3.fromRGB(220, 60, 60)
+        _bedInfoCache[bed] = {label, color}
+        return label, color
     end
 
     BedBtn = GuiLibrary.Registry.renderPanel.API.CreateOptionsButton({
@@ -5569,10 +5593,10 @@ runcode(function()
                         local distVisible = showD and myRoot ~= nil
                         local nameStr = nameVisible and teamLabel or ""
                         local numStr  = distVisible and (myRoot and math.floor((myRoot.Position - bpos).Magnitude).."m" or "0m") or ""
-                        local nameW = nameVisible and measureText(nameStr, ts, font) or 0
-                        local lbW   = distVisible and measureText("[", ts, font) or 0
-                        local numW  = distVisible and measureText(numStr, ts, font) or 0
-                        local rbW   = distVisible and measureText("]", ts, font) or 0
+                        local nameW = nameVisible and measureTextW(nameStr, ts, font) or 0
+                        local lbW   = distVisible and measureTextW("[", ts, font) or 0
+                        local numW  = distVisible and measureTextW(numStr, ts, font) or 0
+                        local rbW   = distVisible and measureTextW("]", ts, font) or 0
                         local pad = 6
                         local gap = (nameVisible and distVisible) and 5 or 0
                         local totalW = math.max(40, nameW + lbW + numW + rbW + gap + pad * 2)
