@@ -18,6 +18,18 @@ local Lighting = cloneref(game:GetService("Lighting"))
 local Teams = cloneref(game:GetService("Teams"))
 local UserInputService = cloneref(game:GetService("UserInputService"))
 
+local _GTS = cloneref(game:GetService("TextService"))
+local _twCache = {}
+local function measureTextW(txt, sz, font)
+    local key = txt .. "\0" .. sz
+    local cached = _twCache[key]
+    if cached then return cached end
+    local ok, v = pcall(function() return _GTS:GetTextSize(txt, sz, font, Vector2.new(9999, 9999)) end)
+    local w = ok and v.X or #txt * sz * 0.55
+    _twCache[key] = w
+    return w
+end
+
 local lplr = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
 
@@ -2006,7 +2018,7 @@ runcode(function()
     local chestfuncs = {}
 
     chestfuncs.Loop = function(loop, cycle, index, teams)
-        if not PlayerUtility.IsAlivePlayerUtility.IsAlivePlayerUtility.IsAlive then return end
+        if not PlayerUtility.IsAlive(lplr) then return end
         local team = lplr.Team and lplr.Team.Name
         if not team or team == "Spectators" or not teams or #teams == 0 then
             return getTeams(), 1, 1
