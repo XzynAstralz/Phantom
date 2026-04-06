@@ -11,10 +11,6 @@ repeat task.wait() until game:IsLoaded()
 
 local hidden = get_hidden_gui or gethui
 local _sti = setthreadidentity or (getfenv and getfenv().setthreadidentity) or nil
-local _grmt = getrawmetatable
-local _sro  = setreadonly
-local _gnm  = getnamecallmethod
-local _ncc  = newcclosure
 
 local Players = cloneref(game:GetService("Players"))
 local RunService = cloneref(game:GetService("RunService"))
@@ -186,6 +182,38 @@ Players.PlayerRemoving:Connect(function(plr)
     funcs:offExit(getHookId(plr))
     cleanupHookinv(plr)
 end)
+
+local hookdetection = function()
+    local SwordHitRemote = bedfight.remotes.SwordHit
+    local metatable = getrawmetatable(game)
+    setreadonly(metatable, false)
+    local originalNamecall = metatable.__namecall
+    metatable.__namecall = newcclosure(function(self, ...)
+        local method = getnamecallmethod()
+        local args = { ... }
+        if checkcaller() then
+            return originalNamecall(self, ...)
+        end
+        if method == "FireServer" and self == SwordHitRemote then
+            if args[1] and typeof(args[1]) == "Instance" then
+                local character = args[1]:IsA("Model") and args[1] or args[1]:FindFirstAncestorOfClass("Model")
+                local player = character and Players:GetPlayerFromCharacter(character)
+                if player then
+                    args[1] = player.Name
+                end
+            end
+            return originalNamecall(self, unpack(args))
+        end
+        return originalNamecall(self, ...)
+    end)
+    setreadonly(metatable, true)
+    funcs:onExit("hookdetection", function()
+        local metatable2 = getrawmetatable(game)
+        setreadonly(metatable2, false)
+        metatable2.__namecall = originalNamecall
+        setreadonly(metatable2, true)
+    end)
+end
 
 local hookinv = function(plr)
     plr = plr or lplr
@@ -477,6 +505,7 @@ do
     hookinv(lplr)
     hookAnims()
     hookmode()
+    hookdetection()
 
     local switchedTo
     local previousEquipped
@@ -600,13 +629,34 @@ do
     matchState()
 end
 
+local touching = false
+do
+    touchConnStart = UserInputService.TouchStarted:Connect(function()
+        touching = true
+    end)
+
+    touchConnEnd = UserInputService.TouchEnded:Connect(function()
+        touching = false
+    end)
+    
+    funcs:onExit("bodyVelHook", function()
+        if touchConnStart then
+            touchConnStart:Disconnect()
+            touchConnStart = nil
+        end
+        if touchConnEnd then
+            touchConnEnd:Disconnect()
+            touchConnEnd = nil
+        end
+        touching = false
+    end)
+end
+
 local Distance = {Value = 21}
 runcode(function()
     local Killaura = {}
     local FacePlayer = {}
     local TeamCheck = {}
-    local VMAnimToggle = {Enabled = false}
-    local VMAnimStyle = {Value = "Butcher"}
 
     local swordtype = nil
     local currentTarget = nil
@@ -687,52 +737,6 @@ runcode(function()
                     return ctrl
                 end
 
-                if not origNamecall and _grmt and _sro and _gnm then
-                    local SwordHitRemote = bedfight.remotes.SwordHit
-                    local mt = _grmt(game)
-                    local prevNamecall = mt.__namecall
-                    origNamecall = prevNamecall
-                    local function newNamecall(self, ...)
-                        if _gnm() == "FireServer" and self == SwordHitRemote then
-                            local args = {...}
-                            if args[1] and typeof(args[1]) == "Instance" then
-                                local char = args[1]:IsA("Model") and args[1] or args[1]:FindFirstAncestorOfClass("Model")
-                                local plr = char and Players:GetPlayerFromCharacter(char)
-                                if plr then args[1] = plr.Name end
-                            end
-                            return prevNamecall(self, table.unpack(args))
-                        end
-                        return prevNamecall(self, ...)
-                    end
-                    _sro(mt, false)
-                    mt.__namecall = _ncc and _ncc(newNamecall) or newNamecall
-                    _sro(mt, true)
-                end
-
-                local _kaCharConn = lplr.CharacterAdded:Connect(function()
-                    vmJointCache = nil; vmOrigC0Cache = nil
-                    task.delay(0.3, function()
-                        if Killaura.Enabled then hookAnims() end
-                    end)
-                end)
-                funcs:onExit("KA_CharConn", function()
-                    if _kaCharConn then _kaCharConn:Disconnect() end
-                end)
-
-                local _ok, _VMH = pcall(require, ReplicatedStorage.Modules.ViewModelHandler)
-                if _ok and _VMH and _VMH.LoadAnimation then
-                    origVMLoadAnim = _VMH.LoadAnimation
-                    local _fake = {
-                        Play = function() end, Stop = function() end,
-                        AdjustSpeed = function() end, AdjustWeight = function() end,
-                        Stopped = {Connect = function() return {Disconnect = function() end} end},
-                    }
-                    _VMH.LoadAnimation = function(...)
-                        if vmSuppressDefault then return _fake end
-                        return origVMLoadAnim(...)
-                    end
-                end
-
                 RunLoops:BindToHeartbeat("Killaura", function()
                     if shieldActive then return end
 
@@ -754,6 +758,7 @@ runcode(function()
 
                     swordtype = getsword()
                     if not swordtype then revertitem() return end
+                    if ItemOnly.Enabled and getClientEquipped() ~= swordtype then return end
                     local swordData = bedfight.modules.SwordsData[swordtype]
                     if not swordData then return end
                     local ping = getPing()
@@ -772,7 +777,12 @@ runcode(function()
                     data.Attacking = true
                     data.attackingEntity = target
 
-                    currentTarget = target
+
+                    if SwingOnly.Enabled and not (UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1) or touching) then
+                        return
+                    end
+
+                    currentTarget = nearest[1].character
 
                     switchitem(swordtype)
                     
@@ -780,9 +790,7 @@ runcode(function()
                     if not ctrl then return end
                     ctrl.CanAttack = true
                     SwordController.GetHitWithBox = function() return currentTarget end
-                    vmSuppressDefault = VMAnimToggle.Enabled
                     ctrl:Activate()
-                    vmSuppressDefault = false
                     SwordController.GetHitWithBox = origGetHitWithBox
                     --if projFireAt then task.spawn(projFireAt, root, target) end
                 end)
@@ -804,14 +812,6 @@ runcode(function()
                 end
                 capturedControllers = {}
                 currentTarget = nil
-                vmSuppressDefault = false
-                vmAnimPlaying = false
-                vmJointCache, vmOrigC0Cache = nil, nil
-                if origVMLoadAnim then
-                    local _ok, _VMH = pcall(require, ReplicatedStorage.Modules.ViewModelHandler)
-                    if _ok and _VMH then _VMH.LoadAnimation = origVMLoadAnim end
-                    origVMLoadAnim = nil
-                end
                 if origNamecall and _grmt and _sro then
                     local mt = _grmt(game)
                     _sro(mt, false)
@@ -824,7 +824,6 @@ runcode(function()
             end
         end
     })
-
     Distance = Killaura.CreateSlider({
         Name = "Distance",
         Min = 0,
@@ -840,6 +839,16 @@ runcode(function()
     })
     FacePlayer = Killaura.CreateToggle({
         Name = "FacePlayer",
+        Function = function() end
+    })
+    SwingOnly = Killaura.CreateToggle({
+        Name = "Swing Only",
+        Tooltip = "Only attacks while clicking",
+        Function = function() end
+    })
+    ItemOnly = Killaura.CreateToggle({
+        Name = "Item Only",
+        Tooltip = "Only attacks when sword is held",
         Function = function() end
     })
 end)
@@ -4567,45 +4576,6 @@ runcode(function()
     })
 
     SelectedEmote = Emotes[1] and Emotes[1].Value or nil
-end)
-
-runcode(function()
-    local RemoteSpoof = {}
-    local oldNamecall
-    local targets = {}
-
-    RemoteSpoof = GuiLibrary.Registry.miscPanel.API.CreateOptionsButton({
-        Name = "RemoteSpoof",
-        Function = function(callback)
-            if callback then
-                table.clear(targets)
-
-                for _, remote in pairs(bedfight.remotes) do
-                    targets[remote] = true
-                end
-
-                if not oldNamecall then
-                    oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
-                        local method = getnamecallmethod()
-                        local args = { ... }
-                        if checkcaller() then
-                            return oldNamecall(self, ...)
-                        end
-
-                        if RemoteSpoof.Enabled and targets[self] then
-                            if method == "FireServer" or method == "InvokeServer" then
-                                return oldNamecall(self, unpack(args))
-                            end
-                        end
-
-                        return oldNamecall(self, ...)
-                    end)
-                end
-            else
-                table.clear(targets)
-            end
-        end
-    })
 end)
 
 runcode(function()
