@@ -282,119 +282,136 @@ local function getSettings()
 end
 
 local function createLoaderUi()
-	local parent = (get_hidden_gui and get_hidden_gui()) or (gethui and gethui()) or game.CoreGui
-	local gui = Instance.new("ScreenGui")
-	gui.Name = "PhantomLoader"
-	gui.ResetOnSpawn = false
-	gui.IgnoreGuiInset = true
-	gui.DisplayOrder = 999998
-	gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-	gui.Parent = parent
-
-	local root = Instance.new("Frame")
-	root.Parent = gui
-	root.AnchorPoint = Vector2.new(0.5, 0.5)
-	root.Position = UDim2.fromScale(0.5, 0.5)
-	root.Size = UDim2.new(0, 420, 0, 166)
-	root.BackgroundColor3 = Color3.fromRGB(10, 14, 21)
-	root.BorderSizePixel = 0
-
-	local rootCorner = Instance.new("UICorner")
-	rootCorner.CornerRadius = UDim.new(0, 18)
-	rootCorner.Parent = root
-
-	local rootStroke = Instance.new("UIStroke")
-	rootStroke.Color = Color3.fromRGB(67, 78, 96)
-	rootStroke.Transparency = 0.2
-	rootStroke.Parent = root
-
-	local title = Instance.new("TextLabel")
-	title.Parent = root
-	title.BackgroundTransparency = 1
-	title.Position = UDim2.new(0, 18, 0, 16)
-	title.Size = UDim2.new(1, -36, 0, 24)
-	title.Font = Enum.Font.GothamBold
-	title.Text = "Phantom Loader"
-	title.TextColor3 = Color3.fromRGB(241, 235, 226)
-	title.TextSize = 20
-	title.TextXAlignment = Enum.TextXAlignment.Left
-
-	local subtitle = Instance.new("TextLabel")
-	subtitle.Parent = root
-	subtitle.BackgroundTransparency = 1
-	subtitle.Position = UDim2.new(0, 18, 0, 44)
-	subtitle.Size = UDim2.new(1, -36, 0, 16)
-	subtitle.Font = Enum.Font.Gotham
-	subtitle.Text = "GameID " .. tostring(game.PlaceId)
-	subtitle.TextColor3 = Color3.fromRGB(165, 174, 190)
-	subtitle.TextSize = 12
-	subtitle.TextXAlignment = Enum.TextXAlignment.Left
-
-	local status = Instance.new("TextLabel")
-	status.Parent = root
-	status.BackgroundTransparency = 1
-	status.Position = UDim2.new(0, 18, 0, 74)
-	status.Size = UDim2.new(1, -36, 0, 20)
-	status.Font = Enum.Font.GothamMedium
-	status.Text = "Checking for updates..."
-	status.TextColor3 = Color3.fromRGB(239, 155, 73)
-	status.TextSize = 14
-	status.TextXAlignment = Enum.TextXAlignment.Left
-
-	local detail = Instance.new("TextLabel")
-	detail.Parent = root
-	detail.BackgroundTransparency = 1
-	detail.Position = UDim2.new(0, 18, 0, 96)
-	detail.Size = UDim2.new(1, -36, 0, 16)
-	detail.Font = Enum.Font.Gotham
-	detail.Text = "0/0"
-	detail.TextColor3 = Color3.fromRGB(165, 174, 190)
-	detail.TextSize = 12
-	detail.TextXAlignment = Enum.TextXAlignment.Left
-
-	local track = Instance.new("Frame")
-	track.Parent = root
-	track.BackgroundColor3 = Color3.fromRGB(24, 31, 45)
-	track.BorderSizePixel = 0
-	track.Position = UDim2.new(0, 18, 1, -34)
-	track.Size = UDim2.new(1, -36, 0, 12)
-
-	local trackCorner = Instance.new("UICorner")
-	trackCorner.CornerRadius = UDim.new(0, 6)
-	trackCorner.Parent = track
-
-	local fill = Instance.new("Frame")
-	fill.Parent = track
-	fill.BackgroundColor3 = Color3.fromRGB(239, 155, 73)
-	fill.BorderSizePixel = 0
-	fill.Size = UDim2.new(0, 0, 1, 0)
-
-	local fillCorner = Instance.new("UICorner")
-	fillCorner.CornerRadius = UDim.new(0, 6)
-	fillCorner.Parent = fill
-
-	return {
-		SetStatus = function(_, text)
-			if status and status.Parent then
-				local ok, err = pcall(function()
-					status.Text = tostring(text)
-				end)
-				if not ok then
-					warn("[phantom] Unable to set status text (UI inaccessible): ", err)
-				end
-			end
-		end,
-		SetProgress = function(_, complete, total, current)
-			local ratio = total > 0 and math.clamp(complete / total, 0, 1) or 0
-			fill.Size = UDim2.new(ratio, 0, 1, 0)
-			detail.Text = string.format("%d/%d  %s", complete, total, tostring(current or game.PlaceId))
-		end,
-		Destroy = function()
-			if gui.Parent then
-				gui:Destroy()
-			end
-		end,
+	local noop = {
+		SetStatus = function() end,
+		SetProgress = function() end,
+		Destroy = function() end,
 	}
+
+	local ok, result = pcall(function()
+		local parent = (get_hidden_gui and get_hidden_gui()) or (gethui and gethui()) or game.CoreGui
+
+		local gui = Instance.new("ScreenGui")
+		gui.Name = "PhantomLoader"
+		gui.ResetOnSpawn = false
+		gui.IgnoreGuiInset = true
+		gui.DisplayOrder = 999998
+		gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+		gui.Parent = parent
+
+		local root = Instance.new("Frame")
+		root.Parent = gui
+		root.AnchorPoint = Vector2.new(0.5, 0.5)
+		root.Position = UDim2.fromScale(0.5, 0.5)
+		root.Size = UDim2.new(0, 420, 0, 166)
+		root.BackgroundColor3 = Color3.fromRGB(10, 14, 21)
+		root.BorderSizePixel = 0
+
+		local rootCorner = Instance.new("UICorner")
+		rootCorner.CornerRadius = UDim.new(0, 18)
+		rootCorner.Parent = root
+
+		local rootStroke = Instance.new("UIStroke")
+		rootStroke.Color = Color3.fromRGB(67, 78, 96)
+		rootStroke.Transparency = 0.2
+		rootStroke.Parent = root
+
+		local title = Instance.new("TextLabel")
+		title.Parent = root
+		title.BackgroundTransparency = 1
+		title.Position = UDim2.new(0, 18, 0, 16)
+		title.Size = UDim2.new(1, -36, 0, 24)
+		title.Font = Enum.Font.GothamBold
+		title.Text = "Phantom Loader"
+		title.TextColor3 = Color3.fromRGB(241, 235, 226)
+		title.TextSize = 20
+		title.TextXAlignment = Enum.TextXAlignment.Left
+
+		local subtitle = Instance.new("TextLabel")
+		subtitle.Parent = root
+		subtitle.BackgroundTransparency = 1
+		subtitle.Position = UDim2.new(0, 18, 0, 44)
+		subtitle.Size = UDim2.new(1, -36, 0, 16)
+		subtitle.Font = Enum.Font.Gotham
+		subtitle.Text = "GameID " .. tostring(game.PlaceId)
+		subtitle.TextColor3 = Color3.fromRGB(165, 174, 190)
+		subtitle.TextSize = 12
+		subtitle.TextXAlignment = Enum.TextXAlignment.Left
+
+		local status = Instance.new("TextLabel")
+		status.Parent = root
+		status.BackgroundTransparency = 1
+		status.Position = UDim2.new(0, 18, 0, 74)
+		status.Size = UDim2.new(1, -36, 0, 20)
+		status.Font = Enum.Font.GothamMedium
+		status.Text = "Checking for updates..."
+		status.TextColor3 = Color3.fromRGB(239, 155, 73)
+		status.TextSize = 14
+		status.TextXAlignment = Enum.TextXAlignment.Left
+
+		local detail = Instance.new("TextLabel")
+		detail.Parent = root
+		detail.BackgroundTransparency = 1
+		detail.Position = UDim2.new(0, 18, 0, 96)
+		detail.Size = UDim2.new(1, -36, 0, 16)
+		detail.Font = Enum.Font.Gotham
+		detail.Text = "0/0"
+		detail.TextColor3 = Color3.fromRGB(165, 174, 190)
+		detail.TextSize = 12
+		detail.TextXAlignment = Enum.TextXAlignment.Left
+
+		local track = Instance.new("Frame")
+		track.Parent = root
+		track.BackgroundColor3 = Color3.fromRGB(24, 31, 45)
+		track.BorderSizePixel = 0
+		track.Position = UDim2.new(0, 18, 1, -34)
+		track.Size = UDim2.new(1, -36, 0, 12)
+
+		local trackCorner = Instance.new("UICorner")
+		trackCorner.CornerRadius = UDim.new(0, 6)
+		trackCorner.Parent = track
+
+		local fill = Instance.new("Frame")
+		fill.Parent = track
+		fill.BackgroundColor3 = Color3.fromRGB(239, 155, 73)
+		fill.BorderSizePixel = 0
+		fill.Size = UDim2.new(0, 0, 1, 0)
+
+		local fillCorner = Instance.new("UICorner")
+		fillCorner.CornerRadius = UDim.new(0, 6)
+		fillCorner.Parent = fill
+
+		return {
+			SetStatus = function(_, text)
+				pcall(function()
+					if status and status.Parent then
+						status.Text = tostring(text)
+					end
+				end)
+			end,
+			SetProgress = function(_, complete, total, current)
+				pcall(function()
+					local ratio = total > 0 and math.clamp(complete / total, 0, 1) or 0
+					fill.Size = UDim2.new(ratio, 0, 1, 0)
+					detail.Text = string.format("%d/%d  %s", complete, total, tostring(current or game.PlaceId))
+				end)
+			end,
+			Destroy = function()
+				pcall(function()
+					if gui and gui.Parent then
+						gui:Destroy()
+					end
+				end)
+			end,
+		}
+	end)
+
+	if ok and type(result) == "table" then
+		return result
+	end
+
+	warn("[phantom] UI unavailable: " .. tostring(result))
+	return noop
 end
 
 ensureFolder("")
