@@ -48,6 +48,7 @@ local function getJson(url)
         Method = "GET",
         Headers = {
             ["User-Agent"] = "WEAO-3PService",
+            ["Accept"] = "application/json",
         },
     })
     if not ok or type(res) ~= "table" then
@@ -55,6 +56,9 @@ local function getJson(url)
     end
 
     local sc = tonumber(res.StatusCode or res.statusCode or res.status_code) or 0
+    if sc == 403 then
+        return nil, "status 403 (forbidden) - check User-Agent or endpoint domain"
+    end
     if sc ~= 200 then
         return nil, "status " .. tostring(sc)
     end
@@ -132,7 +136,7 @@ local function parseRemoteTests(data)
 end
 
 local function pullRemote(executorName)
-    local list, e1 = getJson("https://whatexpsare.online/api/status/exploits")
+    local list, e1 = getJson("https://weao.xyz/api/status/exploits")
     if not list then
         return nil, nil, nil, "exploit status: " .. tostring(e1)
     end
@@ -148,7 +152,7 @@ local function pullRemote(executorName)
         return nil, nil, nil, "invalid sunc keys"
     end
 
-    local data, e2 = getJson("https://whatexpsare.online/api/sunc?scrap=" .. scrap .. "&key=" .. key)
+    local data, e2 = getJson("https://weao.xyz/api/sunc?scrap=" .. scrap .. "&key=" .. key)
     if not data then
         return nil, nil, nil, "sunc fetch: " .. tostring(e2)
     end
