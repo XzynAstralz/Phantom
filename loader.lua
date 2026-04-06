@@ -506,27 +506,31 @@ if remoteManifest then
 	if (not settings.autoUpdate and not forceBootstrap) then
 		updateStatus = "disabled"
 		ui:SetStatus("Auto updater disabled.")
+		ui:Destroy()
 	elseif #plan.toDownload == 0 then
 		updateStatus = "up-to-date"
 		writeJson("cache/release-manifest.json", remoteManifest)
 		ui:SetStatus("Up to date")
 		ui:SetProgress(1, 1, tostring(game.PlaceId))
+		ui:Destroy()
 	else
 		updateStatus = "updated"
 		local failures = applyUpdatePlan(remoteManifest, plan)
 		if #failures == 0 then
 			writeJson("cache/release-manifest.json", remoteManifest)
 			ui:SetStatus("Update complete")
+			ui:Destroy()
 		else
 			updateStatus = "partial"
 			ui:SetStatus("Update finished with warnings")
+			ui:Destroy()
 		end
 	end
 else
 	ui:SetStatus("GitHub unavailable. Using local files.")
 	ui:SetProgress(0, 0, tostring(game.PlaceId))
+	ui:Destroy()
 	if not isfile(resolve("Main.lua")) then
-		ui:Destroy()
 		return warn("[phantom] unable to bootstrap runtime: " .. tostring(releaseOrError))
 	end
 end
