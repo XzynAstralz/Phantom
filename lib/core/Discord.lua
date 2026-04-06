@@ -11,6 +11,11 @@ local function getRequestFunction()
 	return request or http_request or (syn and syn.request) or (http and http.request) or (fluxus and fluxus.request) or (_G and _G.request) or (_G and _G.http_request) or (getgenv and getgenv().request) or (getgenv and getgenv().http_request)
 end
 
+if not getRequestFunction() then
+	warn("[Discord] No request function found, Discord invites will not work")
+	return
+end
+
 local function extractInviteCode(value)
 	value = tostring(value or "")
 	return value:match("discord%%.gg/([%w_-]+)") or value:match("discord%%.com/invite/([%w_-]+)") or value:match("^([%w_-]+)$") or ""

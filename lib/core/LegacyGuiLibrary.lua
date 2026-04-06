@@ -580,14 +580,7 @@ Screen.Name            = "Spectrum"
 Screen.ZIndexBehavior  = Enum.ZIndexBehavior.Sibling
 Screen.IgnoreGuiInset  = true
 Screen.DisplayOrder    = 9e9
-do
-    local ok, err = pcall(function()
-        Screen.OnTopOfCoreBlur = true
-    end)
-    if not ok then
-        warn("[phantom] Unable to set OnTopOfCoreBlur: ", err)
-    end
-end
+
 Screen.ResetOnSpawn    = false
 
 Root.Name                   = "Root"
