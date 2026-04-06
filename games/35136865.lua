@@ -10,6 +10,11 @@
 repeat task.wait() until game:IsLoaded()
 
 local hidden = get_hidden_gui or gethui
+local _sti = setthreadidentity or (getfenv and getfenv().setthreadidentity) or nil
+local _grmt = getrawmetatable
+local _sro  = setreadonly
+local _gnm  = getnamecallmethod
+local _ncc  = newcclosure
 
 local Players = cloneref(game:GetService("Players"))
 local RunService = cloneref(game:GetService("RunService"))
@@ -613,6 +618,7 @@ runcode(function()
     local origGetHitWithBox = nil
     local origSwordNew = nil
     local capturedControllers = {}
+    local origNamecall = nil
 
     local vmAnimPlaying = false
     local vmJointCache = nil
@@ -681,6 +687,28 @@ runcode(function()
                     return ctrl
                 end
 
+                if not origNamecall and _grmt and _sro and _gnm then
+                    local SwordHitRemote = bedfight.remotes.SwordHit
+                    local mt = _grmt(game)
+                    local prevNamecall = mt.__namecall
+                    origNamecall = prevNamecall
+                    local function newNamecall(self, ...)
+                        if _gnm() == "FireServer" and self == SwordHitRemote then
+                            local args = {...}
+                            if args[1] and typeof(args[1]) == "Instance" then
+                                local char = args[1]:IsA("Model") and args[1] or args[1]:FindFirstAncestorOfClass("Model")
+                                local plr = char and Players:GetPlayerFromCharacter(char)
+                                if plr then args[1] = plr.Name end
+                            end
+                            return prevNamecall(self, table.unpack(args))
+                        end
+                        return prevNamecall(self, ...)
+                    end
+                    _sro(mt, false)
+                    mt.__namecall = _ncc and _ncc(newNamecall) or newNamecall
+                    _sro(mt, true)
+                end
+
                 local _kaCharConn = lplr.CharacterAdded:Connect(function()
                     vmJointCache = nil; vmOrigC0Cache = nil
                     task.delay(0.3, function()
@@ -708,7 +736,8 @@ runcode(function()
                 RunLoops:BindToHeartbeat("Killaura", function()
                     if shieldActive then return end
 
-                    local nearest = PlayerUtility.GetNearestEntities(Distance.Value, TeamCheck.Enabled, false)
+                    local isSpectator = not lplr.Team or lplr.Team.Name == "Spectators"
+                    local nearest = PlayerUtility.GetNearestEntities(Distance.Value, TeamCheck.Enabled and not isSpectator, false)
                     if not nearest or #nearest == 0 then
                         data.Attacking, data.attackingEntity, currentTarget = false, nil, nil
                         if currentController then currentController:Stop(true); currentController = nil end
@@ -755,7 +784,6 @@ runcode(function()
                     ctrl:Activate()
                     vmSuppressDefault = false
                     SwordController.GetHitWithBox = origGetHitWithBox
-                    task.spawn(playVMAnim)
                     --if projFireAt then task.spawn(projFireAt, root, target) end
                 end)
             else
@@ -783,6 +811,13 @@ runcode(function()
                     local _ok, _VMH = pcall(require, ReplicatedStorage.Modules.ViewModelHandler)
                     if _ok and _VMH then _VMH.LoadAnimation = origVMLoadAnim end
                     origVMLoadAnim = nil
+                end
+                if origNamecall and _grmt and _sro then
+                    local mt = _grmt(game)
+                    _sro(mt, false)
+                    mt.__namecall = origNamecall
+                    _sro(mt, true)
+                    origNamecall = nil
                 end
                 revertitem()
                 RunLoops:UnbindFromHeartbeat("Killaura")
@@ -830,9 +865,10 @@ runcode(function()
                 hsTimer = 0
 
                 RunLoops:BindToHeartbeat("Speed", function(dt)
-                    if PlayerUtility.lplrIsAlive and lplr.Character.Humanoid.MoveDirection.Magnitude > 0 then
-                        local hum = lplr.Character.Humanoid
-                        local root = lplr.Character.HumanoidRootPart
+                    local char = lplr.Character
+                    local hum = char and char:FindFirstChildOfClass("Humanoid")
+                    local root = char and char:FindFirstChild("HumanoidRootPart")
+                    if PlayerUtility.lplrIsAlive and hum and root and hum.MoveDirection.Magnitude > 0 then
                         local moveDirection = hum.MoveDirection
 
                         local newCFrame
@@ -2314,6 +2350,7 @@ runcode(function()
                     TracerGui.Parent = hidden and hidden() or game.CoreGui
                 end
                 RunLoops:BindToHeartbeat("Tracers", function()
+                    if _sti then _sti(8) end
                     local i = 1
                     local LineOrigin = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y)
                     local myRoot = lplr.Character and lplr.Character:FindFirstChild("HumanoidRootPart")
@@ -2793,6 +2830,7 @@ runcode(function()
                 local infoTick = 0
 
                 RunLoops:BindToHeartbeat("NameTags", function(dt)
+                    if _sti then _sti(8) end
                     infoTick = infoTick + dt
 
                     local vp = Camera.ViewportSize
@@ -3433,6 +3471,7 @@ runcode(function()
 
                 local lqN = 0
                 RunLoops:BindToHeartbeat("ESP", function()
+                    if _sti then _sti(8) end
                     lqN += 1
                     if ESPLQMode and ESPLQMode.Enabled and lqN%3~=0 then return end
 
@@ -4624,11 +4663,12 @@ runcode(function()
             end
             local cfg = isfile(cfgPath) and (safeJSONDecode(readfile(cfgPath)) or {}) or {}
             cfg.serverHopEnabled = enabled
-            cfg.totalHops = totalHops or hopCount or 0
+            local newCount = totalHops or hopCount or 0
+            cfg.totalHops = math.max(newCount, tonumber(cfg.totalHops) or 0)
             cfg.lastUpdated = os.time()
             if extraFields then
                 for k, v in pairs(extraFields) do
-                    cfg[k] = callback
+                    cfg[k] = v
                 end
             end
             writefile(cfgPath, HttpService:JSONEncode(cfg))
@@ -4815,13 +4855,30 @@ runcode(function()
         end,
     })
 
+    local function isValidServer()
+        local ok, status = pcall(function()
+            return ReplicatedStorage.GameInfo.Status.Value
+        end)
+        if not ok or not status then return false end
+        return status == "Started" or status == "Starting"
+    end
+
     task.spawn(function()
         pcall(function()
             local cfg = readConfig()
             hopCount = tonumber(cfg.totalHops) or 0
             if cfg and cfg.serverHopEnabled then
-                task.wait(2)
-                createNotification("ServerHop", "Config restored | Total hops: " .. hopCount, 2)
+                task.wait(5)
+                if isValidServer() then
+                    local ok, status = pcall(function()
+                        return ReplicatedStorage.GameInfo.Status.Value
+                    end)
+                    local statusStr = (ok and status) or "Unknown"
+                    stopHop("Game is " .. statusStr)
+                else
+                    saveConfig(false, hopCount)
+                    createNotification("ServerHop", "Landed — total hops: " .. hopCount, 3)
+                end
             end
         end)
     end)

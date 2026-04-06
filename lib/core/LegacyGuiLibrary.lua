@@ -3920,7 +3920,7 @@ function Spectrum.CreateArrayListWidget(cfg)
     watermark.Position = UDim2.new(0, 0, 0.05, 0)
     watermark.Size = UDim2.new(0, 601, 0.1456832382, 0)
     watermark.Font = Enum.Font.GothamSemibold
-    watermark.Text = "Phantom 🐣"
+    watermark.Text = "Phantom"
     watermark.TextColor3 = kit:objectColor(watermark)
     watermark.TextScaled = true
     watermark.TextStrokeTransparency = 0
