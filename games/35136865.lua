@@ -197,38 +197,6 @@ Players.PlayerRemoving:Connect(function(plr)
     cleanupHookinv(plr)
 end)
 
-local hookdetection = function()
-    local SwordHitRemote = bedfight.remotes.SwordHit
-    local metatable = getrawmetatable(game)
-    setreadonly(metatable, false)
-    local originalNamecall = metatable.__namecall
-    metatable.__namecall = newcclosure(function(self, ...)
-        local method = getnamecallmethod()
-        local args = { ... }
-        if checkcaller() then
-            return originalNamecall(self, ...)
-        end
-        if method == "FireServer" and self == SwordHitRemote then
-            if args[1] and typeof(args[1]) == "Instance" then
-                local character = args[1]:IsA("Model") and args[1] or args[1]:FindFirstAncestorOfClass("Model")
-                local player = character and Players:GetPlayerFromCharacter(character)
-                if player then
-                    args[1] = player.Name
-                end
-            end
-            return originalNamecall(self, unpack(args))
-        end
-        return originalNamecall(self, ...)
-    end)
-    setreadonly(metatable, true)
-    funcs:onExit("hookdetection", function()
-        local metatable2 = getrawmetatable(game)
-        setreadonly(metatable2, false)
-        metatable2.__namecall = originalNamecall
-        setreadonly(metatable2, true)
-    end)
-end
-
 local hookinv = function(plr)
     plr = plr or lplr
     local inv = plr:FindFirstChild("Inventory") or plr:WaitForChild("Inventory", 5)
@@ -519,7 +487,6 @@ do
     hookinv(lplr)
     hookAnims()
     hookmode()
-    hookdetection()
 
     local switchedTo
     local previousEquipped
