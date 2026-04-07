@@ -887,21 +887,7 @@ runcode(function()
                             newCFrame = root.CFrame
                         end
 
-                        if Mode.Value == "CFrame" then
-                            if not Fly.Enabled then
-                                local speedVelocity = moveDirection * SpeedSlider.Value
-                                speedVelocity = speedVelocity / (1 / dt)
-                                newCFrame = newCFrame + speedVelocity
-
-                                createBodyVel()
-                                if not infFlyVel then
-                                    bodyVel.MaxForce = Vector3.new(bodyVel.P, 0, bodyVel.P)
-                                end
-                            end
-
-                            root.CFrame = newCFrame
-
-                        elseif Mode.Value == "Velocity" then
+                        if Mode.Value == "Velocity" then
                             root.AssemblyLinearVelocity =(moveDirection * SpeedSlider.Value) + Vector3.new(0, root.AssemblyLinearVelocity.Y, 0)
 
                         elseif Mode.Value == "HeatSeeker" then
@@ -942,7 +928,7 @@ runcode(function()
     })
     Mode = Speed.CreateDropdown({
         Name = "Mode",
-        List = {"CFrame", "Velocity", "HeatSeeker"},
+        List = {"Velocity", "HeatSeeker"},
         Default = "Velocity",
     })
     local HSBoostSpeedSlider = Speed.CreateSlider({
@@ -2230,7 +2216,6 @@ runcode(function()
                     chestState.rConn = lplr.CharacterAdded:Connect(function(char)
                         local hum = char:WaitForChild("Humanoid", 5)
                         if not hum then return end
-                        -- Restore first, then Hook (Hook→Cleanup resets all transient state)
                         chestfuncs.Restore(loop)
                         chestfuncs.Hook(loop)
                     end)
