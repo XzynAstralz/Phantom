@@ -91,6 +91,20 @@ local bedfight = {
     }
 }
 
+do -- anti-log
+    local og
+    og = hookmetamethod(game, "__namecall", function(self, ...)
+        if not checkcaller() and self == bedfight.remotes.SwordHit and select(3, ...) then
+            return nil
+        end
+        return og(self, ...)
+    end)
+
+    funcs:onExit("bfantilog", function()
+        hookmetamethod(game, "__namecall", og)
+    end)
+end
+
 local rangedData  = bedfight.modules.RangedData
 local projData    = bedfight.modules.ProjectilesData
 do
