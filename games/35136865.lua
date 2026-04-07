@@ -197,38 +197,6 @@ Players.PlayerRemoving:Connect(function(plr)
     cleanupHookinv(plr)
 end)
 
-local hookdetection = function()
-    local SwordHitRemote = bedfight.remotes.SwordHit
-    local metatable = getrawmetatable(game)
-    setreadonly(metatable, false)
-    local originalNamecall = metatable.__namecall
-    metatable.__namecall = newcclosure(function(self, ...)
-        local method = getnamecallmethod()
-        local args = { ... }
-        if checkcaller() then
-            return originalNamecall(self, ...)
-        end
-        if method == "FireServer" and self == SwordHitRemote then
-            if args[1] and typeof(args[1]) == "Instance" then
-                local character = args[1]:IsA("Model") and args[1] or args[1]:FindFirstAncestorOfClass("Model")
-                local player = character and Players:GetPlayerFromCharacter(character)
-                if player then
-                    args[1] = player.Name
-                end
-            end
-            return originalNamecall(self, unpack(args))
-        end
-        return originalNamecall(self, ...)
-    end)
-    setreadonly(metatable, true)
-    funcs:onExit("hookdetection", function()
-        local metatable2 = getrawmetatable(game)
-        setreadonly(metatable2, false)
-        metatable2.__namecall = originalNamecall
-        setreadonly(metatable2, true)
-    end)
-end
-
 local hookinv = function(plr)
     plr = plr or lplr
     local inv = plr:FindFirstChild("Inventory") or plr:WaitForChild("Inventory", 5)
@@ -519,7 +487,6 @@ do
     hookinv(lplr)
     hookAnims()
     hookmode()
-    hookdetection()
 
     local switchedTo
     local previousEquipped
@@ -682,13 +649,6 @@ runcode(function()
     local origGetHitWithBox = nil
     local origSwordNew = nil
     local capturedControllers = {}
-    local origNamecall = nil
-
-    local vmAnimPlaying = false
-    local vmJointCache = nil
-    local vmOrigC0Cache = nil
-    local vmSuppressDefault = false
-    local origVMLoadAnim = nil
 
     local function getPing()
         local ok, value = pcall(function()
@@ -826,13 +786,6 @@ runcode(function()
                 end
                 capturedControllers = {}
                 currentTarget = nil
-                if origNamecall and _grmt and _sro then
-                    local mt = _grmt(game)
-                    _sro(mt, false)
-                    mt.__namecall = origNamecall
-                    _sro(mt, true)
-                    origNamecall = nil
-                end
                 revertitem()
                 RunLoops:UnbindFromHeartbeat("Killaura")
             end
@@ -901,21 +854,7 @@ runcode(function()
                             newCFrame = root.CFrame
                         end
 
-                        if Mode.Value == "CFrame" then
-                            if not Fly.Enabled then
-                                local speedVelocity = moveDirection * SpeedSlider.Value
-                                speedVelocity = speedVelocity / (1 / dt)
-                                newCFrame = newCFrame + speedVelocity
-
-                                createBodyVel()
-                                if not infFlyVel then
-                                    bodyVel.MaxForce = Vector3.new(bodyVel.P, 0, bodyVel.P)
-                                end
-                            end
-
-                            root.CFrame = newCFrame
-
-                        elseif Mode.Value == "Velocity" then
+                        if Mode.Value == "Velocity" then
                             root.AssemblyLinearVelocity =(moveDirection * SpeedSlider.Value) + Vector3.new(0, root.AssemblyLinearVelocity.Y, 0)
 
                         elseif Mode.Value == "HeatSeeker" then
@@ -956,7 +895,7 @@ runcode(function()
     })
     Mode = Speed.CreateDropdown({
         Name = "Mode",
-        List = {"CFrame", "Velocity", "HeatSeeker"},
+        List = {"Velocity", "HeatSeeker"},
         Default = "Velocity",
     })
     local HSBoostSpeedSlider = Speed.CreateSlider({
@@ -2047,32 +1986,15 @@ runcode(function()
     local KeepInv = {}
     local SaveInLobby = {}
 
-    local function freshState()
-        return {
-            saved = {},
-            savedSlots = {},
-            saving = false,
-            rConn = nil,
-            hConn = nil,
-            invConn = nil,
-            saveCooldown = false,
-            restoreCooldown = false,
-            dmgWindow = {},
-            lastHp = 0,
-            lowestY = math.huge,
-            lobbySaved = false,
-        }
-    end
-
-    local state = freshState()
+    local chestState = {saved = {}, savedSlots = {}, saving = false, rConn = nil, hConn = nil, invConn = nil, saveCooldown = false, restoreCooldown = false, dmgWindow = {}, lastHp = 0, lowestY = math.huge, lobbySaved = false,}
 
     for _, v in pairs(workspace:GetDescendants()) do
         if v:IsA("BasePart") and v.CanCollide and v.Transparency < 1 then
             local y = v.Position.Y - v.Size.Y / 2
-            if y < state.lowestY then state.lowestY = y end
+            if y < chestState.lowestY then chestState.lowestY = y end
         end
     end
-    local lowestY = state.lowestY
+    local lowestY = chestState.lowestY
 
     local chestfuncs = {}
 
@@ -2083,12 +2005,13 @@ runcode(function()
             return getTeams(), 1, 1
         end
         local t = teams[index]
-        local chest = ReplicatedStorage.TeamChestsStorage:FindFirstChild(t)
-        if chest and t ~= "Spectators" then
+        local teamName = typeof(t) == "Instance" and t.Name or t
+        local chest = ReplicatedStorage.TeamChestsStorage:FindFirstChild(teamName)
+        if chest and teamName ~= "Spectators" then
             local slot = chest:FindFirstChild(tostring(cycle))
             local name = slot and slot:GetAttribute("Name")
             if name and name ~= "" then
-                bedfight.remotes.TakeItemFromChest:FireServer(t, cycle, tostring(cycle))
+                bedfight.remotes.TakeItemFromChest:FireServer(teamName, cycle, tostring(cycle))
             end
         end
         index = index + 1
@@ -2097,42 +2020,44 @@ runcode(function()
     end
 
     chestfuncs.Save = function(team)
-        if state.saving or state.saveCooldown then return end
-        state.saving = true
-        state.saved = {}
-        state.savedSlots = {}
+        if chestState.saving or chestState.saveCooldown then return end
+        chestState.saving = true
+        chestState.saved = {}
+        chestState.savedSlots = {}
+        local teamName = typeof(team) == "Instance" and team.Name or team
         for _, invy in pairs(bedfight.modules.InventoryHandler.Inventories) do
             for i, slot in pairs(invy.Items) do
                 if slot.Name ~= "" then
                     local itemData = bedfight.modules.ItemsData[slot.Name]
                     if itemData and itemData.CanStoreInChest then
-                        if not state.savedSlots[i] then
-                            state.savedSlots[i] = true
+                        if not chestState.savedSlots[i] then
+                            chestState.savedSlots[i] = true
                             local chestSlot = 99 + i
-                            state.saved[slot.Name .. "_" .. i .. "_" .. chestSlot] = {team = team, slot = chestSlot}
-                            bedfight.remotes.PutItemInChest:FireServer(slot.Name, team, chestSlot)
+                            chestState.saved[slot.Name .. "_" .. i .. "_" .. chestSlot] = {team = team, slot = chestSlot}
+                            bedfight.remotes.PutItemInChest:FireServer(slot.Name, teamName, chestSlot)
                         end
                     end
                 end
             end
         end
-        state.saving = false
-        state.saveCooldown = true
-        task.delay(5, function() state.saveCooldown = false end)
+        chestState.saving = false
+        chestState.saveCooldown = true
+        task.delay(5, function() chestState.saveCooldown = false end)
     end
 
     chestfuncs.SaveItem = function(team, item)
         if not item or item.Name == "" then return end
         local itemData = bedfight.modules.ItemsData[item.Name]
         if not itemData or not itemData.CanStoreInChest then return end
+        local teamName = typeof(team) == "Instance" and team.Name or team
         for _, invy in pairs(bedfight.modules.InventoryHandler.Inventories) do
             for i, slot in pairs(invy.Items) do
-                if slot.Name == item.Name and not (state.savedSlots and state.savedSlots[i]) then
+                if slot.Name == item.Name and not (chestState.savedSlots and chestState.savedSlots[i]) then
                     local chestSlot = 99 + i
-                    state.savedSlots = state.savedSlots or {}
-                    state.savedSlots[i] = true
-                    state.saved[item.Name .. "_" .. i .. "_" .. chestSlot] = {team = team, slot = chestSlot}
-                    bedfight.remotes.PutItemInChest:FireServer(item.Name, team, chestSlot)
+                    chestState.savedSlots = chestState.savedSlots or {}
+                    chestState.savedSlots[i] = true
+                    chestState.saved[item.Name .. "_" .. i .. "_" .. chestSlot] = {team = team, slot = chestSlot}
+                    bedfight.remotes.PutItemInChest:FireServer(item.Name, teamName, chestSlot)
                     return
                 end
             end
@@ -2140,16 +2065,17 @@ runcode(function()
     end
 
     chestfuncs.Restore = function(loop)
-        if not next(state.saved) then return end
+        if not next(chestState.saved) then return end
         local restoreList = {}
-        for _, dataSlot in pairs(state.saved) do table.insert(restoreList, dataSlot) end
-        state.saved = {}
-        state.savedSlots = {}
-        state.dmgWindow = {}
+        for _, dataSlot in pairs(chestState.saved) do table.insert(restoreList, dataSlot) end
+        chestState.saved = {}
+        chestState.savedSlots = {}
+        chestState.dmgWindow = {}
         task.spawn(function()
             for _, info in ipairs(restoreList) do
                 task.wait(0.25)
-                bedfight.remotes.TakeItemFromChest:FireServer(info.team, info.slot, tostring(info.slot))
+                local teamName = typeof(info.team) == "Instance" and info.team.Name or info.team
+                bedfight.remotes.TakeItemFromChest:FireServer(teamName, info.slot, tostring(info.slot))
             end
             if loop then RunLoops:BindToHeartbeat("ChestManagerLoop", loop) end
         end)
@@ -2157,13 +2083,13 @@ runcode(function()
 
     chestfuncs.Cleanup = function()
         RunLoops:UnbindFromHeartbeat("ChestManagerVoid")
-        if state.hConn then state.hConn:Disconnect(); state.hConn = nil end
-        if state.invConn then state.invConn:Disconnect(); state.invConn = nil end
-        state.dmgWindow = {}
-        state.saveCooldown = false
-        state.restoreCooldown = false
-        state.lobbySaved = false
-        state.saving = false
+        if chestState.hConn then chestState.hConn:Disconnect(); chestState.hConn = nil end
+        if chestState.invConn then chestState.invConn:Disconnect(); chestState.invConn = nil end
+        chestState.dmgWindow = {}
+        chestState.saveCooldown = false
+        chestState.restoreCooldown = false
+        chestState.lobbySaved = false
+        chestState.saving = false
     end
 
     chestfuncs.Hook = function(loop)
@@ -2173,64 +2099,62 @@ runcode(function()
         local hum = char:WaitForChild("Humanoid")
         local hrp = char:WaitForChild("HumanoidRootPart")
         local inv = lplr:WaitForChild("Inventory")
-        state.lastHp = hum.Health
+        chestState.lastHp = hum.Health
 
         RunLoops:BindToHeartbeat("ChestManagerVoid", function()
-            if not KeepInv.Enabled or state.saving or state.saveCooldown then return end
+            if not KeepInv.Enabled or chestState.saving or chestState.saveCooldown then return end
             if not (hrp and hrp.Parent) then return end
             local team = lplr.Team and lplr.Team.Name
             if not team or team == "Spectators" then return end
             if hrp.Position.Y <= lowestY - 15 then
                 chestfuncs.Save(team)
-            elseif SaveInLobby.Enabled and not state.lobbySaved and data.matchState == 0 then
-                state.lobbySaved = true
+            elseif SaveInLobby.Enabled and not chestState.lobbySaved and data.matchState == 0 then
+                chestState.lobbySaved = true
                 chestfuncs.Save(team)
             end
         end)
 
-        state.hConn = hum.HealthChanged:Connect(function(h)
+        chestState.hConn = hum.HealthChanged:Connect(function(h)
             if not KeepInv.Enabled then return end
             local team = lplr.Team and lplr.Team.Name
             if not team or team == "Spectators" then return end
-            local delta = state.lastHp - h
+            local delta = chestState.lastHp - h
             local maxHp = hum.MaxHealth
-            state.lastHp = h
+            chestState.lastHp = h
 
-            if h <= 0 and not state.saving then
+            if h <= 0 and not chestState.saving then
                 chestfuncs.Save(team)
                 return
             end
 
             if delta > 0 then
                 local now = tick()
-                table.insert(state.dmgWindow, {t = now, dmg = delta})
-                for i = #state.dmgWindow, 1, -1 do
-                    if now - state.dmgWindow[i].t > 1.2 then table.remove(state.dmgWindow, i) end
+                table.insert(chestState.dmgWindow, {t = now, dmg = delta})
+                for i = #chestState.dmgWindow, 1, -1 do
+                    if now - chestState.dmgWindow[i].t > 1.2 then table.remove(chestState.dmgWindow, i) end
                 end
                 local total = 0
-                for _, e in ipairs(state.dmgWindow) do total = total + e.dmg end
+                for _, e in ipairs(chestState.dmgWindow) do total = total + e.dmg end
                 local hpRatio = h / maxHp
-                if total >= h*0.85 or delta >= maxHp*0.45
-                    or (hpRatio <= 0.20 and total >= maxHp*0.06)
-                    or (hpRatio <= 0.35 and total >= h*0.60) then
+                if total >= h*0.85 or delta >= maxHp*0.45 or (hpRatio <= 0.20 and total >= maxHp*0.06) or (hpRatio <= 0.35 and total >= h*0.60) then
                     chestfuncs.Save(team)
                 end
-            elseif delta < 0 and not state.restoreCooldown and next(state.saved) then
+            elseif delta < 0 and not chestState.restoreCooldown and next(chestState.saved) then
                 if h / maxHp >= 0.50 then
-                    state.restoreCooldown = true
+                    chestState.restoreCooldown = true
                     chestfuncs.Restore(loop)
-                    task.delay(2.5, function() state.restoreCooldown = false end)
+                    task.delay(2.5, function() chestState.restoreCooldown = false end)
                 end
             end
         end)
 
-        state.invConn = inv.ChildAdded:Connect(function(item)
-            if not KeepInv.Enabled or state.saveCooldown then return end
+        chestState.invConn = inv.ChildAdded:Connect(function(item)
+            if not KeepInv.Enabled or chestState.saveCooldown then return end
             local team = lplr.Team and lplr.Team.Name
             if not team or team == "Spectators" then return end
             local now = tick()
             local windowActive = false
-            for _, e in ipairs(state.dmgWindow) do
+            for _, e in ipairs(chestState.dmgWindow) do
                 if now - e.t <= 1.2 then windowActive = true; break end
             end
             local hpRatio = hum.MaxHealth > 0 and (hum.Health / hum.MaxHealth) or 0
@@ -2255,15 +2179,10 @@ runcode(function()
                 end
                 if callback then
                     loopState.teams = getTeams()
-                    if state.rConn then state.rConn:Disconnect() end
-                    state.rConn = lplr.CharacterAdded:Connect(function(char)
+                    if chestState.rConn then chestState.rConn:Disconnect() end
+                    chestState.rConn = lplr.CharacterAdded:Connect(function(char)
                         local hum = char:WaitForChild("Humanoid", 5)
                         if not hum then return end
-                        state.dmgWindow = {}
-                        state.saveCooldown = false
-                        state.restoreCooldown = false
-                        state.lobbySaved = false
-                        state.saving = false
                         chestfuncs.Restore(loop)
                         chestfuncs.Hook(loop)
                     end)
@@ -2272,24 +2191,20 @@ runcode(function()
                 else
                     RunLoops:UnbindFromHeartbeat("ChestManagerLoop")
                     chestfuncs.Cleanup()
-                    state.saved = {}
-                    state.savedSlots = {}
-                    state.saving = false
-                    state.dmgWindow = {}
-                    state.lobbySaved = false
-                    if state.rConn then state.rConn:Disconnect(); state.rConn = nil end
+                    chestState.saved = {}
+                    chestState.savedSlots = {}
+                    if chestState.rConn then chestState.rConn:Disconnect(); chestState.rConn = nil end
                 end
             end
         end
     })
-
     KeepInv = CM.CreateToggle({
         Name = "KeepInv",
         Function = function() end
     })
     SaveInLobby = CM.CreateToggle({
         Name = "SaveInLobby",
-        Function= function() end
+        Function = function() end
     })
 end)
 
