@@ -726,6 +726,7 @@ runcode(function()
 
                     local target = nearest[1].character
                     if not target then revertitem() return end
+                    if target:GetAttribute("Forcefield") then return end
 
                     local humanoid = target:FindFirstChildOfClass("Humanoid")
                     local root = target:FindFirstChild("HumanoidRootPart")
@@ -795,7 +796,7 @@ runcode(function()
     Distance = Killaura.CreateSlider({
         Name = "Distance",
         Min = 0,
-        Max = 17,
+        Max = 21,
         Default = 17,
         Round = 1,
         Function = function() end
@@ -1415,7 +1416,7 @@ runcode(function()
 
                 root.Anchored = true
                 root.AssemblyLinearVelocity = Vector3.zero
-                task.wait(0.5)
+                task.wait(0.7)
                 root.Anchored = false
 
                 local camLook = workspace.CurrentCamera.CFrame.LookVector

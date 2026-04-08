@@ -32,18 +32,35 @@ runcode(function()
     local ZoneTPDropdown = {Value = ""}
 
     local safeZonePart = workspace:WaitForChild("MainMap"):WaitForChild("Model"):WaitForChild("Part")
-    zoneList[#zoneList + 1] = "Safe Zone"
+    table.insert(zoneList, "Safe Zone")
     allZoneParts["Safe Zone"] = {safeZonePart}
 
-    for _, zone in ipairs(zonesFolder:GetChildren()) do
-        if tonumber(zone.Name) then
-            table.insert(zoneList, zone.Name)
+    local zones = {}
 
-            allZoneParts[zone.Name] = {}
-            for _, part in ipairs(zone:GetChildren()) do
-                if part:IsA("BasePart") then
-                    table.insert(allZoneParts[zone.Name], part)
-                end
+    for _, zone in ipairs(zonesFolder:GetChildren()) do
+        local num = tonumber(zone.Name)
+        if num then
+            table.insert(zones, zone)
+        end
+    end
+
+    table.sort(zones, function(a, b)
+        return tonumber(a.Name) < tonumber(b.Name)
+    end)
+
+    for _, zone in ipairs(zones) do
+        table.insert(zoneList, zone.Name)
+
+        allZoneParts[zone.Name] = {}
+
+        local parts = zone:GetChildren()
+        table.sort(parts, function(a, b)
+            return a.Name < b.Name
+        end)
+
+        for _, part in ipairs(parts) do
+            if part:IsA("BasePart") then
+                table.insert(allZoneParts[zone.Name], part)
             end
         end
     end
