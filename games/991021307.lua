@@ -35,7 +35,6 @@ runcode(function()
     table.insert(zoneList, "Safe Zone")
     allZoneParts["Safe Zone"] = {safeZonePart}
 
-    -- Collect numeric zones first
     local zones = {}
 
     for _, zone in ipairs(zonesFolder:GetChildren()) do
@@ -45,12 +44,10 @@ runcode(function()
         end
     end
 
-    -- Sort zones numerically by name
     table.sort(zones, function(a, b)
         return tonumber(a.Name) < tonumber(b.Name)
     end)
 
-    -- Build list in order
     for _, zone in ipairs(zones) do
         table.insert(zoneList, zone.Name)
 
