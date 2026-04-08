@@ -87,6 +87,7 @@ local bedfight = {
         BlocksData = require(ReplicatedStorage.Modules.DataModules.BlocksData),
         JetpackState = require(ReplicatedStorage.Modules.JetpackState),
         SwordsData = require(ReplicatedStorage.Modules.DataModules.SwordsData),
+        VelocityUtils = require(ReplicatedStorage.Modules.VelocityUtils),
         spawnFakeProjectile = nil,
     }
 }
@@ -820,6 +821,55 @@ runcode(function()
     })
 end)
 
+runcode(function()
+    local AimAssist = {}
+    local AimFOV = {}
+    local AimSmoothing = {}
+    local aimTeamCheck = {}
+
+    AimAssist = GuiLibrary.Registry.combatPanel.API.CreateOptionsButton({
+        Name = "Aim Assist",
+        Function = function(callback)
+            if callback then
+                RunLoops:BindToHeartbeat("AimAssist", function()
+                    if not UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton2) then return end
+                    local isSpectator = not lplr.Team or lplr.Team.Name == "Spectators"
+                    local nearest = PlayerUtility.GetNearestEntities(AimFOV.Value, aimTeamCheck.Enabled and not isSpectator, false)
+                    if not nearest or #nearest == 0 then return end
+                    local target = nearest[1].character
+                    if not target then return end
+                    local head = target:FindFirstChild("Head") or target:FindFirstChild("HumanoidRootPart")
+                    if not head then return end
+                    local cam = workspace.CurrentCamera
+                    local camPos = cam.CFrame.Position
+                    local lookDir = (head.Position - camPos).Unit
+                    cam.CFrame = cam.CFrame:Lerp(CFrame.new(camPos, camPos + lookDir), AimSmoothing.Value)
+                end)
+            else
+                RunLoops:UnbindFromHeartbeat("AimAssist")
+            end
+        end
+    })
+    AimFOV = AimAssist.CreateSlider({
+        Name = "Range",
+        Min = 5,
+        Max = 100,
+        Default = 30,
+        Round = 1,
+    })
+    AimSmoothing = AimAssist.CreateSlider({
+        Name = "Smoothness",
+        Min = 0.05,
+        Max = 1,
+        Default = 0.15,
+    })
+    aimTeamCheck = AimAssist.CreateToggle({
+        Name = "Team Check",
+        Default = true,
+        Function = function() end,
+    })
+end)
+
 local SpeedSlider = {}
 runcode(function()
     local AutoJump = {}
@@ -1224,6 +1274,7 @@ runcode(function()
 				extTimer = 0
 				descendState = false
 				ascendState = false
+				MAX_AIR_TIME = 0.9
 				TweenFrame:TweenSize(UDim2.new(0, 0, 1, 0), Enum.EasingDirection.InOut, Enum.EasingStyle.Linear, 0.1, true)
 				ScreenGui.ScreenGui.Enabled = false
 				RunLoops:UnbindFromHeartbeat("Fly")
@@ -2883,7 +2934,9 @@ runcode(function()
                                 end
 
                                 local baseName
-                                if ShowDisplayName.Enabled then
+                                if _G.phantomNameSpoofActive then
+                                    baseName = _G.phantomSpoofName or "wynnech"
+                                elseif ShowDisplayName.Enabled then
                                     baseName = plr.DisplayName ~= "" and plr.DisplayName or plr.Name
                                 else
                                     baseName = plr.Name
@@ -3122,7 +3175,7 @@ runcode(function()
     })
     SeparateBackground = NameTags.CreateToggle({
         Name = "Separate BG",
-        Default = false,
+        Default = true,
         Function = function() updateSubVis() end,
     })
     IconSpacing = NameTags.CreateSlider({
@@ -3143,7 +3196,7 @@ runcode(function()
     })
     TagBg = NameTags.CreateToggle({
         Name = "Background",
-        Default = false,
+        Default = true,
         Function = function()end,
     })
     TagBgCorner = NameTags.CreateDropdown({
@@ -3162,13 +3215,13 @@ runcode(function()
     })
     BoldText = NameTags.CreateToggle({
         Name = "Bold",
-        Default = false,
+        Default = true,
         Function = function()end,
     })
     FontWeight = NameTags.CreateDropdown({
         Name = "Bold Weight",
         List = {"Semibold", "Bold", "Black"},
-        Default = "Bold",
+        Default = "Semibold",
         Function = function()end,
     })
     FontWeight:ShowWhen(BoldText)
@@ -3177,7 +3230,7 @@ runcode(function()
         Name = "Text Size",
         Min = 7,
         Max = 20,
-        Default = 10,
+        Default = 13,
         Round = 1,
         Function = function()end,
     })
@@ -3403,9 +3456,12 @@ runcode(function()
                         task.wait(0.15); hookHurt(p)
                     end)
                 end
-                for _, p in ipairs(Players:GetPlayers()) do hookPlayer(p) end
-                local paConn = Players.PlayerAdded:Connect(function(p) hookPlayer(p) end)
+                local espPlayers = {}
+                for _, p in ipairs(Players:GetPlayers()) do espPlayers[p] = true; hookPlayer(p) end
+                local paConn = Players.PlayerAdded:Connect(function(p) espPlayers[p] = true; hookPlayer(p) end)
+                local prConn = Players.PlayerRemoving:Connect(function(p) espPlayers[p] = nil end)
                 funcs:onExit("ESP_PA", paConn)
+                funcs:onExit("ESP_PR", prConn)
 
                 local lqN = 0
                 RunLoops:BindToHeartbeat("ESP", function()
@@ -3428,7 +3484,7 @@ runcode(function()
                     local seen = {}
                     local bestDot, bestChar = -1, nil
 
-                    for _, v in ipairs(Players:GetPlayers()) do
+                    for v in pairs(espPlayers) do
                         local isSelf = v == lplr
                         if isSelf and not (ESPSelf and ESPSelf.Enabled) then continue end
                         local char = v.Character; if not char then continue end
@@ -3528,10 +3584,11 @@ runcode(function()
                 for char in pairs(espHLs) do destroyHL(char)  end
                 for _, d in ipairs(espAimLines) do pcall(function() d:Remove() end) end
                 espAimLines = {}
-                for _, p in ipairs(Players:GetPlayers()) do funcs:offExit("ESPHT_"..p.UserId) end
+                for p in pairs(espCAConns) do funcs:offExit("ESPHT_"..p.UserId) end
                 for _, c in pairs(espCAConns) do pcall(function() c:Disconnect() end) end
                 espCAConns = {}
                 funcs:offExit("ESP_PA")
+                funcs:offExit("ESP_PR")
                 espHurt = {}
             end
         end
@@ -4339,7 +4396,7 @@ runcode(function()
     FastBreak = GuiLibrary.Registry.utillityPanel.API.CreateOptionsButton({
         Name = "FastBreak",
         Function = function(callback)
-            local cd = FastBreakCooldown and FastBreakCooldown.Value or 0.15
+            local cd = FastBreakCooldown and FastBreakCooldown.Value or 0.1
             for name, orig in pairs(origMining) do
                 local d = MiningData[name]
                 if d then d.Cooldown = callback and cd or orig end
@@ -4350,7 +4407,7 @@ runcode(function()
         Name = "Cooldown",
         Min = 0,
         Max = 0.5,
-        Default = 0.15,
+        Default = 0.1,
         Function = function(callback)
             if FastBreak.Enabled then
                 for name, _ in pairs(origMining) do
@@ -4508,6 +4565,508 @@ runcode(function()
 end)
 
 runcode(function()
+    local SpoofBtn = {}
+    local RanksData = require(ReplicatedStorage.Modules.DataModules.RanksData)
+    local rankNames = {}
+    for _, r in ipairs(RanksData.Ranks) do table.insert(rankNames, r.Name) end
+
+    local lbHookRef = nil
+    local lbRemote = ReplicatedStorage.Remotes:FindFirstChild("UpdateLeaderboardRanking")
+    local nameSpoofActive = false
+    local spoofName = "wynnech"
+    local nsConns = {}
+    local nsTagConns = {}
+    local nsRankConns = {}
+    local rankSpoofActive = false
+    local biEntries = {}
+    local boardInjectActive = false
+    local spoofBtnEnabled = false
+    local lbSpoofToggle = {}
+    local rankSpoofToggle = {}
+    local nameSpoofToggle = {}
+    local boardInjectToggle = {}
+    local LbRank, LbScore, RankDrop, BiRankPos, BiScore, BiRankDrop, NameTagTextBox
+    local playerSet = {}
+    for _, p in ipairs(Players:GetPlayers()) do playerSet[p] = true end
+    Players.PlayerAdded:Connect(function(p) playerSet[p] = true end)
+    Players.PlayerRemoving:Connect(function(p) playerSet[p] = nil end)
+
+    local nsIndexHook
+    nsIndexHook = hookmetamethod(game, "__index", function(self, key)
+        if nameSpoofActive
+            and (key == "Name" or key == "DisplayName")
+            and playerSet[self]
+            and not checkcaller() then
+            return spoofName
+        end
+        return nsIndexHook(self, key)
+    end)
+
+    local nameListCache = {}
+    local nameCacheDirty = true
+    Players.PlayerAdded:Connect(function()   nameCacheDirty = true end)
+    Players.PlayerRemoving:Connect(function() nameCacheDirty = true end)
+
+    local getNameList = function()
+        if not nameCacheDirty then return nameListCache end
+        nameCacheDirty = false
+        local seen, list = {}, {}
+        for _, plr in ipairs(Players:GetPlayers()) do
+            for _, n in ipairs({plr.Name, plr.DisplayName}) do
+                if n and n ~= "" and not seen[n] then
+                    seen[n] = true; table.insert(list, n)
+                end
+            end
+        end
+        nameListCache = list
+        return list
+    end
+
+    local replaceLabel = function(label, nameList)
+        local t = label.Text
+        if t == "" then return end
+        local newT = t
+        for _, name in ipairs(nameList) do
+            if #name >= 3 then
+                if newT:lower() == name:lower() then newT = spoofName; break end
+                local plain = name:gsub("([%(%)%.%%%+%-%*%?%[%]%^%$])", "%%%1")
+                newT = newT:gsub(plain, spoofName):gsub(plain:upper(), spoofName)
+            end
+        end
+        if newT ~= t then label.Text = newT end
+    end
+
+    local cachedHidden = (hidden and hidden()) or nil
+
+    local safeClone = function(src)
+        local ok, r = pcall(function() return src:Clone() end)
+        return ok and r or nil
+    end
+
+    local getRankedListFrame = function()
+        local board = workspace:FindFirstChild("Lobby")
+        board = board and board:FindFirstChild("Ranked")
+        board = board and board:FindFirstChild("Leaderboard")
+        if not board then return nil end
+        local lf = board:FindFirstChild("LeaderboardGui")
+        lf = lf and lf:FindFirstChild("LeaderboardScrollingFrame")
+        lf = lf and lf:FindFirstChild("LeaderboardListFrame")
+        return lf
+    end
+
+    local injectRankedBoard = function()
+        task.spawn(function()
+            local lf = getRankedListFrame()
+            if not lf or not boardInjectActive then return end
+
+            local tmpl = nil
+            for _ = 1, 10 do
+                if not boardInjectActive then return end
+                for _, c in ipairs(lf:GetChildren()) do
+                    if (c:IsA("Frame") or c:IsA("ImageLabel")) and c.Name ~= "__spoofEntry" then
+                        tmpl = c; break
+                    end
+                end
+                if tmpl then break end
+                task.wait(0.5)
+            end
+            if not tmpl or not boardInjectActive then return end
+            local old = lf:FindFirstChild("__spoofEntry")
+            if old then old:Destroy() end
+            local entry = safeClone(tmpl)
+            if not entry then return end
+            entry.Name = "__spoofEntry"
+            entry.LayoutOrder = (BiRankPos and BiRankPos.Value or 1) - 1
+            local score    = BiScore    and BiScore.Value    or 9999
+            local iconName = BiRankDrop and BiRankDrop.Value or RanksData.GetRank(score)
+            local rankData = RanksData.UnorderedRanks[iconName]
+            pcall(function() entry.UsernameLabel.Text    = "@" .. spoofName end)
+            pcall(function() entry.DisplayNameLabel.Text = spoofName end)
+            pcall(function() entry.RankPointsLabel.Text  = tostring(score) end)
+            pcall(function() entry.RankLabel.Text        = "#" .. (BiRankPos and BiRankPos.Value or 1) end)
+            pcall(function() entry.RankIcon.Image        = rankData and rankData.Image or "" end)
+            entry.Parent = lf
+            table.insert(biEntries, entry)
+        end)
+    end
+
+    local injectLobbyBoards = function()
+        local lb = workspace:FindFirstChild("Lobby")
+        lb = lb and lb:FindFirstChild("Leaderboards")
+        if not lb then return end
+        for _, typeFolder in ipairs(lb:GetChildren()) do
+            for _, board in ipairs(typeFolder:GetChildren()) do
+                local sf = board:FindFirstChild("Board")
+                sf = sf and sf:FindFirstChild("BoardGui")
+                sf = sf and sf:FindFirstChild("ScrollingFrame")
+                if sf then
+                    local eName = "__spoof" .. lplr.UserId
+                    local old = sf:FindFirstChild(eName)
+                    if old then old:Destroy() end
+                    local tmpl = nil
+                    for _, c in ipairs(sf:GetChildren()) do
+                        if c:IsA("Frame") then tmpl = c; break end
+                    end
+                    if tmpl then
+                        local e = safeClone(tmpl)
+                        if e then
+                            e.Name = eName
+                            e.LayoutOrder = -9999
+                            local pos   = BiRankPos and BiRankPos.Value or 1
+                            local score = BiScore   and BiScore.Value   or 9999
+                            pcall(function() e.NameLabel.Text  = spoofName end)
+                            pcall(function() e.RankLabel.Text  = "#" .. pos end)
+                            pcall(function() e.ValueLabel.Text = tostring(score) end)
+                            e.Parent = sf
+                            table.insert(biEntries, e)
+                        end
+                    end
+                end
+                local botFrame = board:FindFirstChild("Bottom")
+                botFrame = botFrame and botFrame:FindFirstChild("BottomGui")
+                botFrame = botFrame and botFrame:FindFirstChild("Frame")
+                if botFrame then
+                    local pos   = BiRankPos and BiRankPos.Value or 1
+                    local score = BiScore   and BiScore.Value   or 9999
+                    pcall(function() botFrame.TextLabel.Text = "#" .. pos .. " You:" end)
+                    pcall(function() botFrame.ValueLabel.Text = tostring(score) end)
+                end
+            end
+        end
+    end
+
+    local clearBoardEntries = function()
+        for _, e in ipairs(biEntries) do pcall(function() e:Destroy() end) end
+        table.clear(biEntries)
+    end
+
+    SpoofBtn = GuiLibrary.Registry.miscPanel.API.CreateOptionsButton({
+        Name = "StreamerMode",
+        Function = function(callback)
+            spoofBtnEnabled = callback == true
+            local state = spoofBtnEnabled
+            if lbSpoofToggle.Enabled then
+                task.spawn(lbSpoofToggle.Function, state)
+            end
+            if rankSpoofToggle.Enabled then
+                task.spawn(rankSpoofToggle.Function, state)
+            end
+            if nameSpoofToggle.Enabled then
+                task.spawn(nameSpoofToggle.Function, state)
+            end
+            if boardInjectToggle.Enabled then
+                task.spawn(boardInjectToggle.Function, state)
+            end
+        end
+    })
+
+    lbSpoofToggle = SpoofBtn.CreateToggle({
+        Name = "Leaderboard Spoof",
+        Default = false,
+        Function = function(callback)
+            if callback then
+                if lbRemote and not lbHookRef then
+                    local conns = getconnections(lbRemote.OnClientEvent)
+                    if conns and conns[1] and conns[1].Function then
+                        lbHookRef = hookfunction(conns[1].Function, newcclosure(function(p21, p22, p23, p24)
+                            return lbHookRef(p21, p22, LbRank.Value, LbScore.Value)
+                        end))
+                    end
+                end
+            else
+                if lbHookRef then
+                    local conns = lbRemote and getconnections(lbRemote.OnClientEvent)
+                    if conns and conns[1] and conns[1].Function then
+                        hookfunction(conns[1].Function, lbHookRef)
+                    end
+                    lbHookRef = nil
+                end
+            end
+        end
+    })
+    LbRank = SpoofBtn.CreateSlider({
+        Name = "LB Rank #",
+        Min = 1,
+        Max = 100,
+        Default = 1,
+        Round = 1,
+    })
+    LbScore = SpoofBtn.CreateSlider({
+        Name = "LB Score",
+        Min = 0,
+        Max = 9999,
+        Default = 9999,
+        Round = 1,
+    })
+    lbSpoofToggle:AddDependent(LbRank)
+    lbSpoofToggle:AddDependent(LbScore)
+
+    local hookRankIcon = function(icon)
+        if not icon then return end
+        local rankData = RanksData.UnorderedRanks[RankDrop and RankDrop.Value or ""]
+        if rankData then icon.Image = rankData.Image end
+        local conn = icon:GetPropertyChangedSignal("Image"):Connect(function()
+            if rankSpoofActive then
+                local rd = RanksData.UnorderedRanks[RankDrop and RankDrop.Value or ""]
+                if rd and icon.Image ~= rd.Image then icon.Image = rd.Image end
+            end
+        end)
+        table.insert(nsRankConns, conn)
+    end
+
+    local hookAllRankIcons = function()
+        local pg = lplr.PlayerGui
+        local gui = pg and pg:FindFirstChild("PlayersNameTagGui")
+        if not gui then return end
+        local char = lplr.Character
+        local head = char and char:FindFirstChild("Head")
+        for _, tag in ipairs(gui:GetChildren()) do
+            if tag:IsA("BillboardGui") and tag.Adornee == head then
+                local bottom = tag:FindFirstChild("BottomFrame")
+                hookRankIcon(bottom and bottom:FindFirstChild("RankIcon"))
+            end
+        end
+    end
+
+    rankSpoofToggle = SpoofBtn.CreateToggle({
+        Name = "Rank Spoof",
+        Default = false,
+        Function = function(callback)
+            rankSpoofActive = callback
+            if callback then
+                hookAllRankIcons()
+            else
+                for _, c in ipairs(nsRankConns) do pcall(function() c:Disconnect() end) end
+                table.clear(nsRankConns)
+                pcall(function()
+                    local pg = lplr.PlayerGui
+                    local gui = pg and pg:FindFirstChild("PlayersNameTagGui")
+                    if not gui then return end
+                    for _, tag in ipairs(gui:GetChildren()) do
+                        local bottom = tag:FindFirstChild("BottomFrame")
+                        local icon = bottom and bottom:FindFirstChild("RankIcon")
+                        if icon then icon.Image = "" end
+
+                    end
+                end)
+            end
+        end
+    })
+    RankDrop = SpoofBtn.CreateDropdown({
+        Name = "Rank",
+        List = rankNames,
+        Default = rankNames[#rankNames] or "Crystal III",
+        Function = function(val)
+            if not rankSpoofActive then return end
+            local rankData = RanksData.UnorderedRanks[val]
+            if not rankData then return end
+            local pg = lplr.PlayerGui
+            local gui = pg and pg:FindFirstChild("PlayersNameTagGui")
+            if not gui then return end
+            local char = lplr.Character
+            local head = char and char:FindFirstChild("Head")
+            for _, tag in ipairs(gui:GetChildren()) do
+                if tag:IsA("BillboardGui") and tag.Adornee == head then
+                    local bottom = tag:FindFirstChild("BottomFrame")
+                    local icon = bottom and bottom:FindFirstChild("RankIcon")
+                    if icon then icon.Image = rankData.Image end
+                end
+            end
+        end,
+    })
+    rankSpoofToggle:AddDependent(RankDrop)
+    local hookTagLabel = function(label)
+        if not label or not label:IsA("TextLabel") then return end
+        label.Text = spoofName
+        local conn = label:GetPropertyChangedSignal("Text"):Connect(function()
+            if nameSpoofActive and label.Text ~= spoofName then
+                label.Text = spoofName
+            end
+        end)
+        table.insert(nsTagConns, conn)
+    end
+
+    local hookAllTags = function()
+        local pg = lplr.PlayerGui
+        local gui = pg and pg:FindFirstChild("PlayersNameTagGui")
+        if not gui then return end
+        for _, tag in ipairs(gui:GetChildren()) do
+            local bottom = tag:FindFirstChild("BottomFrame")
+            hookTagLabel(bottom and bottom:FindFirstChild("NameLabel"))
+        end
+    end
+
+    nameSpoofToggle = SpoofBtn.CreateToggle({
+        Name = "Name Spoof",
+        Default = false,
+        Function = function(callback)
+            nameSpoofActive = callback
+            _G.phantomNameSpoofActive = callback
+            _G.phantomSpoofName = spoofName
+            if callback then
+                local nl = getNameList()
+                local coreGui = game:GetService("CoreGui")
+                hookAllTags()
+                local pg = lplr.PlayerGui
+                local gui = pg and pg:FindFirstChild("PlayersNameTagGui")
+                if gui then
+                    nsConns[3] = gui.ChildAdded:Connect(function(tag)
+                        task.defer(function()
+                            if not nameSpoofActive then return end
+                            local bottom = tag:FindFirstChild("BottomFrame")
+                                or tag:WaitForChild("BottomFrame", 2)
+                            hookTagLabel(bottom and bottom:FindFirstChild("NameLabel"))
+                        end)
+                    end)
+                end
+                if cachedHidden then
+                    for _, child in ipairs(cachedHidden:GetChildren()) do
+                        if child.Name == "PhantomNameTags" then
+                            for _, desc in ipairs(child:GetDescendants()) do
+                                if desc:IsA("TextLabel") then replaceLabel(desc, nl) end
+                            end
+                        end
+                    end
+                end
+                nsConns[1] = lplr.PlayerGui.DescendantAdded:Connect(function(desc)
+                    if not nameSpoofActive then return end
+                    if desc:IsA("TextLabel") or desc:IsA("TextBox") then
+                        task.defer(function()
+                            if not nameSpoofActive then return end
+                            replaceLabel(desc, getNameList())
+                        end)
+                    end
+                end)
+                pcall(function()
+                    nsConns[2] = coreGui.DescendantAdded:Connect(function(desc)
+                        if not nameSpoofActive then return end
+                        if desc:IsA("TextLabel") or desc:IsA("TextBox") then
+                            task.defer(function()
+                                if not nameSpoofActive then return end
+                                replaceLabel(desc, getNameList())
+                            end)
+                        end
+                    end)
+                end)
+            else
+                for _, c in ipairs(nsConns) do pcall(function() c:Disconnect() end) end
+                table.clear(nsConns)
+                for _, c in ipairs(nsTagConns) do pcall(function() c:Disconnect() end) end
+                table.clear(nsTagConns)
+                pcall(function()
+                    local pg = lplr.PlayerGui
+                    local gui = pg and pg:FindFirstChild("PlayersNameTagGui")
+                    if not gui then return end
+                    for _, tag in ipairs(gui:GetChildren()) do
+                        local bottom = tag:FindFirstChild("BottomFrame")
+                        local label = bottom and bottom:FindFirstChild("NameLabel")
+                        if label then
+                            local char = tag.Adornee and tag.Adornee.Parent
+                            local plr = char and Players:GetPlayerFromCharacter(char)
+                            if plr then
+                                label.Text = plr.DisplayName ~= "" and plr.DisplayName or plr.Name
+                            end
+                        end
+                    end
+                end)
+            end
+        end
+    })
+    NameTagTextBox = SpoofBtn.CreateTextbox({
+        Name = "Spoof Name",
+        Default = "wynnech",
+        Function = function(val)
+            spoofName = (val and val ~= "") and val or "wynnech"
+            _G.phantomSpoofName = spoofName
+            if nameSpoofActive then
+                local pg = lplr.PlayerGui
+                local gui = pg and pg:FindFirstChild("PlayersNameTagGui")
+                if gui then
+                    for _, tag in ipairs(gui:GetChildren()) do
+                        local bottom = tag:FindFirstChild("BottomFrame")
+                        local label = bottom and bottom:FindFirstChild("NameLabel")
+                        if label then label.Text = spoofName end
+                    end
+                end
+                nameCacheDirty = true
+            end
+            if boardInjectActive then
+                clearBoardEntries()
+                injectRankedBoard()
+                injectLobbyBoards()
+            end
+        end,
+    })
+    nameSpoofToggle:AddDependent(NameTagTextBox)
+
+    boardInjectToggle = SpoofBtn.CreateToggle({
+        Name = "Board Inject",
+        Default = false,
+        Function = function(callback)
+            if callback then
+                boardInjectActive = true
+                clearBoardEntries()
+                injectRankedBoard()
+                injectLobbyBoards()
+                RunLoops:BindToHeartbeat("BoardInject", function()
+                    local lf = getRankedListFrame()
+                    if lf and not lf:FindFirstChild("__spoofEntry") then
+                        injectRankedBoard()
+                    end
+                end, 3)
+            else
+                boardInjectActive = false
+                RunLoops:UnbindFromHeartbeat("BoardInject")
+                clearBoardEntries()
+            end
+        end
+    })
+    BiRankPos = SpoofBtn.CreateSlider({
+        Name = "Board Pos",
+        Min = 1,
+        Max = 100,
+        Default = 1,
+        Round = 1,
+        Function = function()
+            if not boardInjectActive then return end
+            clearBoardEntries()
+            injectRankedBoard()
+            injectLobbyBoards()
+        end,
+    })
+    BiScore = SpoofBtn.CreateSlider({
+        Name = "Board Score",
+        Min = 0,
+        Max = 20000,
+        Default = 9999,
+        Round = 1,
+        Function = function()
+            if not boardInjectActive then return end
+            clearBoardEntries()
+            injectRankedBoard()
+            injectLobbyBoards()
+        end,
+    })
+    BiRankDrop = SpoofBtn.CreateDropdown({
+        Name = "Board Rank Icon",
+        List = rankNames,
+        Default = "Crystal III",
+        Function = function(val)
+            if not boardInjectActive then return end
+            local lf = getRankedListFrame()
+            local entry = lf and lf:FindFirstChild("__spoofEntry")
+            if entry then
+                local rankData = RanksData.UnorderedRanks[val]
+                pcall(function() entry.RankIcon.Image = rankData and rankData.Image or "" end)
+            end
+        end,
+    })
+    boardInjectToggle:AddDependent(BiRankPos)
+    boardInjectToggle:AddDependent(BiScore)
+    boardInjectToggle:AddDependent(BiRankDrop)
+end)
+
+runcode(function()
     repeat task.wait(1) until lplr.PlayerGui:FindFirstChild("TopbarButtonsGui")
 
     local ServerHop = {}
@@ -4562,8 +5121,7 @@ runcode(function()
             end
             local cfg = isfile(cfgPath) and (safeJSONDecode(readfile(cfgPath)) or {}) or {}
             cfg.serverHopEnabled = enabled
-            local newCount = totalHops or hopCount or 0
-            cfg.totalHops = math.max(newCount, tonumber(cfg.totalHops) or 0)
+            cfg.totalHops = totalHops or hopCount or 0
             cfg.lastUpdated = os.time()
             if extraFields then
                 for k, v in pairs(extraFields) do
@@ -4584,9 +5142,9 @@ runcode(function()
                 makefolder(serverListFolder)
             end
             local entry = {
-                jobId = jobId,
+                jobId   = jobId,
                 servers = servers,
-                saved = os.time(),
+                saved   = os.time(),
             }
             writefile(serverListPath, HttpService:JSONEncode(entry))
         end)
@@ -4726,12 +5284,19 @@ runcode(function()
 
                 local cooldown = false
                 RunLoops:BindToHeartbeat("ServerHopCheck", function()
-                    if cooldown then return end
+                    if cooldown then
+                        return
+                    end
+
+                    if data.matchState ~= 0 then
+                        stopHop("valid server")
+                        return
+                    end
+
                     cooldown = true
                     task.spawn(function()
                         task.wait(1.5)
-                        local ok = doHop()
-                        if not ok then
+                        if not doHop() then
                             task.wait(3)
                             cooldown = false
                         end
@@ -4749,35 +5314,18 @@ runcode(function()
     lowPingEnabled = ServerHop.CreateToggle({
         Name = "Low Ping Servers",
         Default = false,
-        Function = function(callback)
-            lowPingEnabled.Value = callback
+        Function = function(on)
+            lowPingEnabled.Value = on
         end,
     })
-
-    local function isValidServer()
-        local ok, status = pcall(function()
-            return ReplicatedStorage.GameInfo.Status.Value
-        end)
-        if not ok or not status then return false end
-        return status == "Started" or status == "Starting"
-    end
 
     task.spawn(function()
         pcall(function()
             local cfg = readConfig()
             hopCount = tonumber(cfg.totalHops) or 0
             if cfg and cfg.serverHopEnabled then
-                task.wait(5)
-                if isValidServer() then
-                    local ok, status = pcall(function()
-                        return ReplicatedStorage.GameInfo.Status.Value
-                    end)
-                    local statusStr = (ok and status) or "Unknown"
-                    stopHop("Game is " .. statusStr)
-                else
-                    saveConfig(false, hopCount)
-                    createNotification("ServerHop", "Landed — total hops: " .. hopCount, 3)
-                end
+                task.wait(2)
+                createNotification("ServerHop", "Config restored | Total hops: " .. hopCount, 2)
             end
         end)
     end)
@@ -4872,7 +5420,6 @@ end)
 -- end)
 
 runcode(function()
-    local VelocityUtils = require(ReplicatedStorage.Modules.VelocityUtils)
     local Knockback = {}
 
     local KBPower    = {Value = 80}
@@ -4899,7 +5446,7 @@ runcode(function()
             else
                 dir = (-flat + Vector3.new(0, 0.35, 0)).Unit
             end
-            VelocityUtils.Create(hrp, dir * KBPower.Value, KBDuration.Value)
+            bedfight.modules.VelocityUtils.Create(hrp, dir * KBPower.Value, KBDuration.Value)
             task.wait(KBDuration.Value)
             hrp.AssemblyLinearVelocity = Vector3.zero
             Knockback.Toggle()
@@ -4908,13 +5455,17 @@ runcode(function()
 
     KBPower = Knockback.CreateSlider({
         Name = "Power",
-        Min = 10, Max = 300, Default = 80,
+        Min = 10, 
+        Max = 300, 
+        Default = 80,
         Function = function(callback) KBPower.Value = callback end
     })
 
     KBDuration = Knockback.CreateSlider({
         Name = "Duration",
-        Min = 0.05, Max = 1, Default = 0.15,
+        Min = 0.05, 
+        Max = 1, 
+        Default = 0.15,
         Function = function(callback) KBDuration.Value = callback end
     })
 
@@ -4926,8 +5477,11 @@ runcode(function()
     })
 end)
 
+
 runcode(function()
     local itemBBs = {}
+    local itemTracked = {}
+    local itemConns = {}
     local ItemBtn, ItemColor, ItemRarity, ItemShowName, ItemShowDist, ItemShowId, ItemMaxDist, ItemSize, ItemBg, ItemCorner
 
     local ITEM_COLS = {
@@ -4971,19 +5525,29 @@ runcode(function()
         Name = "ItemESP",
         Function = function(callback)
             if callback then
+                local cont = workspace:FindFirstChild("DroppedItemsContainer")
+                local function trackItem(obj)
+                    if obj:IsA("Model") then itemTracked[obj] = true end
+                end
+                if cont then
+                    for _, obj in ipairs(cont:GetChildren()) do trackItem(obj) end
+                    table.insert(itemConns, cont.ChildAdded:Connect(trackItem))
+                    table.insert(itemConns, cont.ChildRemoved:Connect(function(obj) itemTracked[obj] = nil end))
+                end
+
+                local lqN = 0
                 RunLoops:BindToHeartbeat("ItemESP", function()
+                    lqN += 1; if lqN % 2 ~= 0 then return end
                     local myRoot = lplr.Character and lplr.Character:FindFirstChild("HumanoidRootPart")
                     local maxD  = ItemMaxDist  and ItemMaxDist.Value  or 100
                     local showN  = ItemShowName and ItemShowName.Enabled
                     local showD  = ItemShowDist and ItemShowDist.Enabled
                     local showId = ItemShowId   and ItemShowId.Enabled
                     local sz    = ItemSize     and ItemSize.Value      or 100
-                    local cont  = workspace:FindFirstChild("DroppedItemsContainer")
-                    if not cont then return end
                     local seen = {}
 
-                    for _, model in ipairs(cont:GetChildren()) do
-                        if not model:IsA("Model") then continue end
+                    for model in pairs(itemTracked) do
+                        if not model.Parent then itemTracked[model] = nil; continue end
                         local hitbox = model:FindFirstChild("Hitbox") or model:FindFirstChildOfClass("BasePart")
                         if not hitbox then continue end
                         local dist = myRoot and (myRoot.Position - hitbox.Position).Magnitude or 0
@@ -5035,6 +5599,9 @@ runcode(function()
                 end)
             else
                 RunLoops:UnbindFromHeartbeat("ItemESP")
+                for _, c in ipairs(itemConns) do pcall(function() c:Disconnect() end) end
+                itemConns = {}
+                itemTracked = {}
                 for _, entry in pairs(itemBBs) do
                     if entry.bb and entry.bb.Parent then entry.bb:Destroy() end
                 end
@@ -5276,6 +5843,8 @@ end)
 runcode(function()
     local tntEntries = {}
     local tntSpawn  = {}
+    local tntTracked = {}
+    local tntConns   = {}
     local TNTBtn, TNTColor, TNTMaxDist, TNTShowName, TNTShowDist, TNTBg, TNTCorner
     local TNT_FUSE  = 4.2
 
@@ -5284,6 +5853,11 @@ runcode(function()
         local n = name:lower()
         for _, k in ipairs(TNT_KEYS) do if n:find(k) then return true end end
         return false
+    end
+    local function trackTNT(obj)
+        if obj:IsA("BasePart") or obj:IsA("Model") then
+            if isTNT(obj.Name) then tntTracked[obj] = true end
+        end
     end
     local function tntPos(obj)
         if obj:IsA("Model") then
@@ -5297,6 +5871,19 @@ runcode(function()
         Name = "TNTDetector",
         Function = function(callback)
             if callback then
+                local containers = {
+                    workspace:FindFirstChild("PlayersBlocksContainer"),
+                    workspace:FindFirstChild("DroppedItemsContainer"),
+                }
+                for _, container in ipairs(containers) do
+                    if not container then continue end
+                    for _, obj in ipairs(container:GetDescendants()) do trackTNT(obj) end
+                    table.insert(tntConns, container.DescendantAdded:Connect(trackTNT))
+                    table.insert(tntConns, container.DescendantRemoving:Connect(function(obj)
+                        tntTracked[obj] = nil
+                    end))
+                end
+
                 local lqN = 0
                 RunLoops:BindToHeartbeat("TNTDetector", function()
                     lqN += 1; if lqN % 3 ~= 0 then return end
@@ -5305,21 +5892,14 @@ runcode(function()
                     local c     = pcol(TNTColor)
                     local showN = TNTShowName and TNTShowName.Enabled
                     local showD = TNTShowDist and TNTShowDist.Enabled
-                    local containers = {
-                        workspace:FindFirstChild("PlayersBlocksContainer"),
-                        workspace:FindFirstChild("DroppedItemsContainer"),
-                    }
                     local seen = {}
-                    for _, container in ipairs(containers) do
-                        if not container then continue end
-                        for _, obj in ipairs(container:GetDescendants()) do
-                            if not (obj:IsA("BasePart") or obj:IsA("Model")) then continue end
-                            if not isTNT(obj.Name) then continue end
-                            local pos = tntPos(obj); if not pos then continue end
-                            if myRoot and (myRoot.Position - pos).Magnitude > maxD then continue end
-                            seen[obj] = true
-                            if not tntSpawn[obj] then tntSpawn[obj] = tick() end
-                            if not tntEntries[obj] then
+                    for obj in pairs(tntTracked) do
+                        if not obj.Parent then tntTracked[obj] = nil; continue end
+                        local pos = tntPos(obj); if not pos then continue end
+                        if myRoot and (myRoot.Position - pos).Magnitude > maxD then continue end
+                        seen[obj] = true
+                        if not tntSpawn[obj] then tntSpawn[obj] = tick() end
+                        if not tntEntries[obj] then
                                 local h = Instance.new("Highlight")
                                 h.Adornee = obj; h.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
                                 h.FillColor = c; h.FillTransparency = 0.35
@@ -5380,7 +5960,6 @@ runcode(function()
                                 entry.distLbl.Text = distStr
                                 entry.bb.Size = UDim2.fromOffset(totalW, ts + 8)
                             end
-                        end
                     end
                     for obj, entry in pairs(tntEntries) do
                         if not seen[obj] or not obj.Parent then
@@ -5397,6 +5976,8 @@ runcode(function()
                     if e.bb and e.bb.Parent then e.bb:Destroy() end
                 end
                 tntEntries = {}; tntSpawn = {}
+                for _, c in ipairs(tntConns) do pcall(function() c:Disconnect() end) end
+                table.clear(tntConns); table.clear(tntTracked)
             end
         end
     })
@@ -5440,14 +6021,33 @@ runcode(function()
     local bedEntries = {}
     local BedBtn, BedColor, BedEnemyOnly, BedShowDist, BedShowTeam, BedFillOp, BedOutOp, BedBg, BedCorner
 
-    local function getBedModels()
-        local beds = workspace:FindFirstChild("Beds")
-        if beds then return beds:GetChildren() end
-        local found = {}
-        for _, d in ipairs(workspace:GetDescendants()) do
-            if d.Name == "Bed" and d:IsA("Model") then found[#found+1] = d end
+    local _bedsCache = nil
+    local _cachedLbW, _cachedRbW
+    local _bedsConns = {}
+    local function buildBedsCache()
+        _bedsCache = {}
+        local bedsFolder = workspace:FindFirstChild("Beds")
+        if bedsFolder then
+            for _, b in ipairs(bedsFolder:GetChildren()) do
+                if b:IsA("Model") then _bedsCache[b] = true end
+            end
+            table.insert(_bedsConns, bedsFolder.ChildAdded:Connect(function(b)
+                if b:IsA("Model") then _bedsCache[b] = true end
+            end))
+            table.insert(_bedsConns, bedsFolder.ChildRemoved:Connect(function(b)
+                _bedsCache[b] = nil
+            end))
+        else
+            for _, d in ipairs(workspace:GetDescendants()) do
+                if d.Name == "Bed" and d:IsA("Model") then _bedsCache[d] = true end
+            end
         end
-        return found
+    end
+    local function getBedModels()
+        if not _bedsCache then buildBedsCache() end
+        local out = {}
+        for b in pairs(_bedsCache) do out[#out+1] = b end
+        return out
     end
     local function getMattressColor(bed)
         local m = bed:FindFirstChild("Mattress")
@@ -5557,14 +6157,18 @@ runcode(function()
                         local ok, cf = pcall(function() return bed:GetModelCFrame() end)
                         local bpos = ok and cf.Position or Vector3.zero
                         local ts = 12; local font = Enum.Font.GothamSemibold
+                        if not _cachedLbW then
+                            _cachedLbW = measureTextW("[", ts, font)
+                            _cachedRbW = measureTextW("]", ts, font)
+                        end
                         local nameVisible = showT
                         local distVisible = showD and myRoot ~= nil
                         local nameStr = nameVisible and teamLabel or ""
                         local numStr  = distVisible and (myRoot and math.floor((myRoot.Position - bpos).Magnitude).."m" or "0m") or ""
                         local nameW = nameVisible and measureTextW(nameStr, ts, font) or 0
-                        local lbW   = distVisible and measureTextW("[", ts, font) or 0
+                        local lbW   = distVisible and _cachedLbW or 0
                         local numW  = distVisible and measureTextW(numStr, ts, font) or 0
-                        local rbW   = distVisible and measureTextW("]", ts, font) or 0
+                        local rbW   = distVisible and _cachedRbW or 0
                         local pad = 6
                         local gap = (nameVisible and distVisible) and 5 or 0
                         local totalW = math.max(40, nameW + lbW + numW + rbW + gap + pad * 2)

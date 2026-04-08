@@ -47,8 +47,9 @@ local P = {
     INK_HI     = Color3.fromRGB(241, 241, 241),
     INK_MID    = Color3.fromRGB(177, 177, 177),
     INK_LOW    = Color3.fromRGB(104, 104, 104),
-    INK_BETA   = Color3.fromRGB(86,  198, 238),
-    INK_NEW    = Color3.fromRGB(198, 122, 255),
+    INK_BETA    = Color3.fromRGB(86,  198, 238),
+    INK_NEW     = Color3.fromRGB(198, 122, 255),
+    INK_PRIVATE = Color3.fromRGB(255, 160, 60),
     STATE_ON   = Color3.fromRGB(68, 192, 82),
     STATE_OFF  = Color3.fromRGB(212, 60, 65),
     CAUTION    = Color3.fromRGB(212, 168, 27),
@@ -1537,6 +1538,18 @@ function Spectrum.window(cfg)
             Badge.TextXAlignment     = Enum.TextXAlignment.Right; Badge.ZIndex = 3
         end
 
+        if cfg2.Private then
+            local Badge = Instance.new("TextLabel")
+            Badge.Name               = "Private"; Badge.Parent = Row
+            Badge.BackgroundTransparency = 1; Badge.BorderSizePixel = 0
+            Badge.AnchorPoint        = Vector2.new(1, 0.5)
+            Badge.Position           = UDim2.new(1, -6, 0.5, 0)
+            Badge.Size               = UDim2.new(0, 36, 0, 14)
+            Badge.Font               = FONT_VALUE; Badge.Text = "Private"
+            Badge.TextColor3         = P.INK_PRIVATE; Badge.TextSize = 8
+            Badge.TextXAlignment     = Enum.TextXAlignment.Right; Badge.ZIndex = 3
+        end
+
         local SubHolder = Instance.new("Frame")
         SubHolder.Name                   = "SubHolder"
         SubHolder.Parent                 = EntryHolder
@@ -1922,7 +1935,7 @@ function Spectrum.window(cfg)
             renderEntryVisuals(false)
             entry.RefreshMobileButton()
             local extra = type(cfg2.ExtraText) == "function" and cfg2.ExtraText() or cfg2.ExtraText
-            ModuleSync:Emit(cfg2.Name, extra, entry.Enabled, fromKey, panelId)
+            ModuleSync:Emit(cfg2.Name, extra, entry.Enabled, fromKey, panelId, cfg2.Private)
             if not skipCallback and cfg2.Function then task.spawn(cfg2.Function, entry.Enabled, fromKey) end
             if not skipToast then
                 Spectrum.toast(
@@ -3993,7 +4006,7 @@ function Spectrum.CreateArrayListWidget(cfg)
         floater.SetVisible(on)
     end
 
-    function widget.HandleEntry(name, extraText, enabled)
+    function widget.HandleEntry(name, extraText, enabled, isPrivate)
         if not enabled then
             local existing = widget.Objects[name]
             if existing then
@@ -4020,7 +4033,9 @@ function Spectrum.CreateArrayListWidget(cfg)
         lbl.Size = UDim2.new(0, 601, 0.0556832382, 0)
         lbl.Font = Enum.Font.GothamSemibold
         lbl.RichText = true
-        lbl.Text = name .. ((extraText and extraText ~= "") and (' <font color="rgb(200,200,200)">[' .. extraText .. ']</font>') or "")
+        lbl.Text = name
+            .. ((extraText and extraText ~= "") and (' <font color="rgb(200,200,200)">[' .. extraText .. ']</font>') or "")
+            .. (isPrivate and ' <font color="rgb(255,160,60)">[Private]</font>' or "")
         lbl.TextColor3 = kit:objectColor(lbl)
         lbl.TextScaled = true
         lbl.TextStrokeTransparency = 0.5
@@ -4048,8 +4063,8 @@ function Spectrum.CreateArrayListWidget(cfg)
         end
     end
 
-    kit:track(ModuleSync:Bind(function(name, extraText, enabled)
-        widget.HandleEntry(name, extraText, enabled)
+    kit:track(ModuleSync:Bind(function(name, extraText, enabled, _, _, isPrivate)
+        widget.HandleEntry(name, extraText, enabled, isPrivate)
     end))
 
     floater.CreateSlider({
