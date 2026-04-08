@@ -4623,17 +4623,14 @@ runcode(function()
     end
 
     local replaceLabel = function(label, nameList)
-        local t = label.Text
-        if t == "" then return end
-        local newT = t
+        local ok, t = pcall(function() return label.Text end)
+        if not ok or t == "" then return end
         for _, name in ipairs(nameList) do
-            if #name >= 3 then
-                if newT:lower() == name:lower() then newT = spoofName; break end
-                local plain = name:gsub("([%(%)%.%%%+%-%*%?%[%]%^%$])", "%%%1")
-                newT = newT:gsub(plain, spoofName):gsub(plain:upper(), spoofName)
+            if #name >= 3 and t:lower() == name:lower() then
+                pcall(function() label.Text = spoofName end)
+                return
             end
         end
-        if newT ~= t then label.Text = newT end
     end
 
     local cachedHidden = (hidden and hidden()) or nil
@@ -6025,8 +6022,12 @@ runcode(function()
     local _cachedLbW, _cachedRbW
     local _bedsConns = {}
     local function buildBedsCache()
+        for _, c in ipairs(_bedsConns) do pcall(function() c:Disconnect() end) end
+        _bedsConns = {}
         _bedsCache = {}
         local bedsFolder = workspace:FindFirstChild("Beds")
+            or workspace:FindFirstChild("BedsContainer")
+            or workspace:FindFirstChild("BedFolder")
         if bedsFolder then
             for _, b in ipairs(bedsFolder:GetChildren()) do
                 if b:IsA("Model") then _bedsCache[b] = true end
@@ -6039,12 +6040,14 @@ runcode(function()
             end))
         else
             for _, d in ipairs(workspace:GetDescendants()) do
-                if d.Name == "Bed" and d:IsA("Model") then _bedsCache[d] = true end
+                if (d.Name == "Bed" or d.Name:lower():find("bed")) and d:IsA("Model") then
+                    _bedsCache[d] = true
+                end
             end
         end
     end
     local function getBedModels()
-        if not _bedsCache then buildBedsCache() end
+        if not _bedsCache or next(_bedsCache) == nil then buildBedsCache() end
         local out = {}
         for b in pairs(_bedsCache) do out[#out+1] = b end
         return out
@@ -6205,6 +6208,10 @@ runcode(function()
                     if entry.bb and entry.bb.Parent then entry.bb:Destroy() end
                 end
                 bedEntries = {}
+                for _, c in ipairs(_bedsConns) do pcall(function() c:Disconnect() end) end
+                _bedsConns = {}
+                _bedsCache = nil
+                _bedInfoCache = {}
             end
         end
     })
