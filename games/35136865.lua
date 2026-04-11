@@ -44,7 +44,7 @@ local createNotification = GuiLibrary.toast
 local LongFly = {}
 local projFireAt = nil
 local PlayerUtility = phantom.module:Load("utility") or loadstring(readfile("Phantom/lib/Utility.lua"))()
-local Prediction    = phantom.module:Load("prediction") or loadstring(readfile("Phantom/lib/Prediction.lua"))()
+local Prediction = phantom.module:Load("prediction") or loadstring(readfile("Phantom/lib/Prediction.lua"))()
 local DrawLibrary = phantom.module:Load("fly") or loadstring(readfile("Phantom/lib/fly.lua"))()
 
 local data = {
@@ -95,8 +95,10 @@ local bedfight = {
 do -- anti-log
     local og
     og = hookmetamethod(game, "__namecall", function(self, ...)
-        if not checkcaller() and self == bedfight.remotes.SwordHit and select(3, ...) then
-            return nil
+        if not checkcaller() and self == bedfight.remotes.SwordHit and getnamecallmethod() == "FireServer" then
+            if not bedfight.modules.SwordsData[(select(1, ...))] or typeof(select(2, ...)) ~= "Instance" or select(3, ...) ~= nil then
+                return nil
+            end
         end
         return og(self, ...)
     end)
@@ -106,8 +108,8 @@ do -- anti-log
     end)
 end
 
-local rangedData  = bedfight.modules.RangedData
-local projData    = bedfight.modules.ProjectilesData
+local rangedData = bedfight.modules.RangedData
+local projData = bedfight.modules.ProjectilesData
 do
     local _PC = bedfight.modules.ProjectilesController
     local _PD = bedfight.modules.ProjectilesData
@@ -594,10 +596,10 @@ do
             end
         end
 
-        local gameConn     = Signals.Game:Connect(function() data.matchState = 2 end)
-        local resultConn   = Signals.GameResult:Connect(function() data.matchState = 0 end)
-        local setMapConn   = Signals.SetMap:Connect(function() data.matchState = 1 end)
-        local endGameConn  = Signals.EndGame:Connect(function() data.matchState = 0 end)
+        local gameConn = Signals.Game:Connect(function() data.matchState = 2 end)
+        local resultConn = Signals.GameResult:Connect(function() data.matchState = 0 end)
+        local setMapConn = Signals.SetMap:Connect(function() data.matchState = 1 end)
+        local endGameConn = Signals.EndGame:Connect(function() data.matchState = 0 end)
         RunLoops:BindToHeartbeat("matchState", evaluate, 0.7)
 
         funcs:onExit("matchStateLoop", function()
@@ -877,11 +879,11 @@ runcode(function()
     local Direction = {}
     local Mode = {}
     local HSHighSpeed = {Value = 32}
-    local HSLowSpeed  = {Value = 16}
-    local HSHighDur   = {Value = 0.5}
-    local HSLowDur    = {Value = 0.5}
-    local hsPhase     = "boost"
-    local hsTimer     = 0
+    local HSLowSpeed = {Value = 16}
+    local HSHighDur = {Value = 0.5}
+    local HSLowDur = {Value = 0.5}
+    local hsPhase = "boost"
+    local hsTimer = 0
 
     Speed = GuiLibrary.Registry.blatantPanel.API.CreateOptionsButton({
         Name = "Speed",
@@ -1606,7 +1608,8 @@ runcode(function()
     end
 
     local Strength = {}
-    local Velocity = {}; Velocity = GuiLibrary.Registry.combatPanel.API.CreateOptionsButton({
+    local Velocity = {}
+    Velocity = GuiLibrary.Registry.combatPanel.API.CreateOptionsButton({
         Name = "Velocity",
         Function = function(callback)
             if callback then
@@ -1657,13 +1660,13 @@ runcode(function()
     local wallParams = RaycastParams.new()
     wallParams.FilterType = Enum.RaycastFilterType.Exclude
 
-    local projLastFire    = 0
-    local projFakeLast    = 0
-    local projSwitching   = false
+    local projLastFire = 0
+    local projFakeLast = 0
+    local projSwitching = false
     local projPendingShot = false
-    local targetTrackers  = {}
-    local ProjRange       = {Value = 100}
-    local ProjWall        = {Enabled = true}
+    local targetTrackers = {}
+    local ProjRange = {Value = 100}
+    local ProjWall = {Enabled = true}
 
     projFireAt = function(targetRoot, targetChar, tracker)
         if projPendingShot then return end
@@ -1858,11 +1861,11 @@ runcode(function()
     local fov = {Value = 120}
     -- local hookedRangedData = require(ReplicatedStorage.Modules.DataModules.RangedData)
 
-    local Projectile    = {}
-    local rangedModule  = bedfight.modules.Ranged
+    local Projectile = {}
+    local rangedModule = bedfight.modules.Ranged
     local oldUpdateBeam = nil
     local targetTrackers = {}
-    local wallCheck     = {Enabled = true}
+    local wallCheck = {Enabled = true}
     local aimbotWallParams = RaycastParams.new()
     aimbotWallParams.FilterType = Enum.RaycastFilterType.Exclude
 
@@ -1886,12 +1889,12 @@ runcode(function()
         local weaponName = getRanged()
         local wData = weaponName and bedfight.modules.RangedData[weaponName]
         local offset = (wData and wData.Offset) or (self.Data and self.Data.Offset) or Vector3.new(1.5,1,0)
-        local cam    = workspace.CurrentCamera
+        local cam = workspace.CurrentCamera
         local origin = root.Position + cam.CFrame:VectorToWorldSpace(offset)
 
-        local lchar    = lplr.Character
+        local lchar = lplr.Character
         local rightArm = lchar and (lchar:FindFirstChild("RightHand") or lchar:FindFirstChild("Right Arm"))
-        local leftArm  = lchar and (lchar:FindFirstChild("LeftHand")  or lchar:FindFirstChild("Left Arm"))
+        local leftArm = lchar and (lchar:FindFirstChild("LeftHand")  or lchar:FindFirstChild("Left Arm"))
         if rightArm and rightArm:IsA("BasePart") and leftArm and leftArm:IsA("BasePart") then
             local armOrigin = (rightArm.Position + leftArm.Position) * 0.5
             origin = origin:Lerp(armOrigin + cam.CFrame:VectorToWorldSpace(offset * 0.35), 0.5)
@@ -1902,7 +1905,7 @@ runcode(function()
         local netPing = 0
         pcall(function() netPing = math.clamp(lplr:GetNetworkPing(), 0, 0.12) end)
 
-        local speed    = projData.Speed and projData.Speed.Max or 100
+        local speed = projData.Speed and projData.Speed.Max or 100
         local minSpeed = projData.Speed and projData.Speed.Min or speed
         local liveSpeed = tData.Velocity and tData.Velocity.Magnitude or 0
         if liveSpeed > 1 then speed = math.clamp(liveSpeed, minSpeed, speed) end
@@ -1937,15 +1940,15 @@ runcode(function()
             if wallHit then return nil,nil,nil end
         end
 
-        local launchVel      = aimPoint - origin
-        local solvedDir      = launchVel.Unit
+        local launchVel = aimPoint - origin
+        local solvedDir = launchVel.Unit
         local solvedIntercept = aimPart.Position + aimPart.AssemblyLinearVelocity * (flightTime or 0.5)
 
-        tData.Velocity       = launchVel
-        tData.Direction      = solvedDir
-        tData.AimDirection   = solvedDir
+        tData.Velocity = launchVel
+        tData.Direction = solvedDir
+        tData.AimDirection = solvedDir
         tData.TargetPosition = solvedIntercept
-        tData.HitPosition    = solvedIntercept
+        tData.HitPosition = solvedIntercept
         return launchVel, solvedDir, solvedIntercept
     end
 
@@ -2498,10 +2501,10 @@ runcode(function()
         Bold = Enum.FontWeight.Bold,
         Black = Enum.FontWeight.Heavy,
     }
-    local FONT_REGULAR  = Font.new("rbxasset://fonts/families/GothamSSm.json", Enum.FontWeight.Regular)
+    local FONT_REGULAR = Font.new("rbxasset://fonts/families/GothamSSm.json", Enum.FontWeight.Regular)
     local FONT_SEMIBOLD = Font.new("rbxasset://fonts/families/GothamSSm.json", Enum.FontWeight.SemiBold)
-    local FONT_BOLD     = Font.new("rbxasset://fonts/families/GothamSSm.json", Enum.FontWeight.Bold)
-    local FONT_BLACK    = Font.new("rbxasset://fonts/families/GothamSSm.json", Enum.FontWeight.Heavy)
+    local FONT_BOLD = Font.new("rbxasset://fonts/families/GothamSSm.json", Enum.FontWeight.Bold)
+    local FONT_BLACK = Font.new("rbxasset://fonts/families/GothamSSm.json", Enum.FontWeight.Heavy)
 
     local function getNameTagGui()
         if NameTagGui and NameTagGui.Parent then
@@ -2657,31 +2660,31 @@ runcode(function()
     end
 
     local function updateSubVis()
-        local showIcons  = (ShowArmorIcons and ShowArmorIcons.Enabled) or (ShowSwordIcons and ShowSwordIcons.Enabled)
+        local showIcons = (ShowArmorIcons and ShowArmorIcons.Enabled) or (ShowSwordIcons and ShowSwordIcons.Enabled)
         local showIconBg = showIcons and (IconBackground and IconBackground.Enabled)
-        local showSepBg  = showIconBg and (SeparateBackground and SeparateBackground.Enabled)
-        if IconBackground     and IconBackground.Instance     then IconBackground.Instance.Visible     = showIcons  end
-        if RoundedCorners     and RoundedCorners.Instance     then RoundedCorners.Instance.Visible     = showIconBg end
+        local showSepBg = showIconBg and (SeparateBackground and SeparateBackground.Enabled)
+        if IconBackground     and IconBackground.Instance     then IconBackground.Instance.Visible = showIcons  end
+        if RoundedCorners     and RoundedCorners.Instance     then RoundedCorners.Instance.Visible = showIconBg end
         if SeparateBackground and SeparateBackground.Instance then SeparateBackground.Instance.Visible = showIconBg end
-        if TagSize            and TagSize.Instance            then TagSize.Instance.Visible            = showIcons  end
-        if IconSpacing        and IconSpacing.Instance        then IconSpacing.Instance.Visible        = showSepBg  end
+        if TagSize            and TagSize.Instance            then TagSize.Instance.Visible = showIcons  end
+        if IconSpacing        and IconSpacing.Instance        then IconSpacing.Instance.Visible = showSepBg  end
     end
 
 
     local function applyTextLayout(entry, baseTagH, hasIcons)
-        local bounds    = entry.label.TextBounds
-        local bx        = math.max(1, bounds.X)
-        local by        = math.max(1, bounds.Y)
+        local bounds = entry.label.TextBounds
+        local bx = math.max(1, bounds.X)
+        local by = math.max(1, bounds.Y)
         local iconBandH = hasIcons and math.max(16, math.floor(baseTagH * 0.42)) or 0
-        local width     = bx + 10
-        local totalH    = by + iconBandH + 6
+        local width = bx + 10
+        local totalH = by + iconBandH + 6
 
         local boardChanged = entry.cBoardW ~= width or entry.cBoardH ~= totalH
         if boardChanged then
             entry.board.Size = UDim2.new(0, width, 0, totalH)
-            entry.bg.Size    = UDim2.new(1, 0, 1, 0)
-            entry.cBoardW    = width
-            entry.cBoardH    = totalH
+            entry.bg.Size = UDim2.new(1, 0, 1, 0)
+            entry.cBoardW = width
+            entry.cBoardH = totalH
         end
 
         local iconChanged = entry.cIconBandH ~= iconBandH
@@ -2689,17 +2692,17 @@ runcode(function()
             local lblW = bx + 6
             local lblH = by + 4
             if hasIcons then
-                entry.icons.Visible  = true
-                entry.icons.Size     = UDim2.new(1, 0, 0, iconBandH)
+                entry.icons.Visible = true
+                entry.icons.Size = UDim2.new(1, 0, 0, iconBandH)
                 entry.icons.Position = UDim2.new(0, 0, 0, 0)
                 entry.label.AnchorPoint = Vector2.new(0.5, 0)
-                entry.label.Position    = UDim2.new(0.5, 0, 0, iconBandH + 1)
-                entry.label.Size        = UDim2.new(0, lblW, 0, lblH)
+                entry.label.Position = UDim2.new(0.5, 0, 0, iconBandH + 1)
+                entry.label.Size = UDim2.new(0, lblW, 0, lblH)
             else
-                entry.icons.Visible  = false
+                entry.icons.Visible = false
                 entry.label.AnchorPoint = Vector2.new(0.5, 0)
-                entry.label.Position    = UDim2.new(0.5, 0, 0, 1)
-                entry.label.Size        = UDim2.new(0, lblW, 0, lblH)
+                entry.label.Position = UDim2.new(0.5, 0, 0, 1)
+                entry.label.Size = UDim2.new(0, lblW, 0, lblH)
             end
             entry.cIconBandH = iconBandH
         end
@@ -2957,10 +2960,10 @@ runcode(function()
                                 end
 
                                 if ShowHealth.Enabled then
-                                    local hp    = math.floor(hum.Health)
+                                    local hp = math.floor(hum.Health)
                                     local maxhp = math.max(hum.MaxHealth, 1)
-                                    local hc    = Color3.fromHSV(math.clamp(hp / maxhp, 0, 1) / 2.5, 0.89, 0.75)
-                                    local hStr  = 'rgb(' .. math.floor(hc.R*255) .. ',' .. math.floor(hc.G*255) .. ',' .. math.floor(hc.B*255) .. ')'
+                                    local hc = Color3.fromHSV(math.clamp(hp / maxhp, 0, 1) / 2.5, 0.89, 0.75)
+                                    local hStr = 'rgb(' .. math.floor(hc.R*255) .. ',' .. math.floor(hc.G*255) .. ',' .. math.floor(hc.B*255) .. ')'
                                     if ShowBrackets.Enabled then
                                         text = text .. ' <font color="' .. hStr .. '">[' .. hp .. ']</font>'
                                     else
@@ -2988,7 +2991,7 @@ runcode(function()
                                     entry.label.Text = text
                                 end
                                 if entry.cFont ~= targetFont.Family or entry.cFontW ~= targetFont.Weight then
-                                    entry.cFont  = targetFont.Family
+                                    entry.cFont = targetFont.Family
                                     entry.cFontW = targetFont.Weight
                                     entry.label.FontFace = targetFont
                                 end
@@ -3001,10 +3004,10 @@ runcode(function()
                                     entry.label.TextColor3 = color
                                 end
 
-                                local bgEnabled  = IconBackground.Enabled
+                                local bgEnabled = IconBackground.Enabled
                                 local sepEnabled = SeparateBackground.Enabled
                                 local rndEnabled = RoundedCorners.Enabled
-                                local iconGap    = sepEnabled and math.floor((IconSpacing and IconSpacing.Value) or 3) or 2
+                                local iconGap = sepEnabled and math.floor((IconSpacing and IconSpacing.Value) or 3) or 2
 
                                 local parts = {}
                                 for _, info in ipairs(items) do
@@ -3026,8 +3029,8 @@ runcode(function()
                                     end
 
                                     if hasIcons then
-                                        local iconBandH  = math.max(16, math.floor(baseTagH * 0.42))
-                                        local iconPx     = math.max(12, math.floor(iconBandH * 0.78))
+                                        local iconBandH = math.max(16, math.floor(baseTagH * 0.42))
+                                        local iconPx = math.max(12, math.floor(iconBandH * 0.78))
                                         local totalIconW = #items * iconPx + math.max(0, #items - 1) * iconGap
 
                                         local iconRow = Instance.new("Frame")
@@ -3265,7 +3268,7 @@ runcode(function()
     local espHLs = {}
     local espHurt = {}
     local espAimLines = {}
-    local espCAConns   = {}
+    local espCAConns = {}
 
     local ESPMode, ESPOutC, ESPFillC, ESPOutOp, ESPFillOp
     local ESPThick, ESPHurt, ESPHurtC, ESPHealth, ESPName
@@ -3282,14 +3285,14 @@ runcode(function()
     end
 
     local function bounds2D(hrp, hh)
-        local pos     = hrp.Position
-        local lv      = Camera.CFrame.LookVector
+        local pos = hrp.Position
+        local lv = Camera.CFrame.LookVector
         local rS, rVis, rZ = w2v(pos)
         if not rVis or rZ <= 0 then return nil end
         local tS = w2v((CFrame.lookAlong(pos,lv)*CFrame.new( 2,  hh,    0)).Position)
         local bS = w2v((CFrame.lookAlong(pos,lv)*CFrame.new(-2, -hh-1,  0)).Position)
-        local sw  = math.abs(tS.X - bS.X)
-        local sh  = math.abs(tS.Y - bS.Y)
+        local sw = math.abs(tS.X - bS.X)
+        local sh = math.abs(tS.Y - bS.Y)
         local top = math.min(tS.Y, bS.Y)
         local left= rS.X - sw/2
         return left, top, sw, sh
@@ -3306,25 +3309,40 @@ runcode(function()
     end
 
     local function mkLine(c, thick)
-        local d = Drawing.new("Line"); d.Thickness = thick or 1
-        d.Color = c; d.Visible = false; d.ZIndex = 2; return d
+        local d = Drawing.new("Line")
+        d.Thickness = thick or 1
+        d.Color = c
+        d.Visible = false
+        d.ZIndex = 2
+        return d
     end
     local function mkSquare(c, thick, filled)
-        local d = Drawing.new("Square"); d.Thickness = thick or 1
-        d.Color = c; d.Filled = filled or false; d.Visible = false; d.ZIndex = 2; return d
+        local d = Drawing.new("Square")
+        d.Thickness = thick or 1
+        d.Color = c
+        d.Filled = filled or false
+        d.Visible = false
+        d.ZIndex = 2
+        return d
     end
     local function mkText(c, sz)
-        local d = Drawing.new("Text"); d.Color = c; d.Size = sz or 14
-        d.Visible = false; d.Center = true; d.Outline = true
-        d.OutlineColor = Color3.new(0,0,0); d.ZIndex = 3
-        d.Font = Drawing.Fonts.UI; return d
+        local d = Drawing.new("Text")
+        d.Color = c
+        d.Size = sz or 14
+        d.Visible = false
+        d.Center = true
+        d.Outline = true
+        d.OutlineColor = Color3.new(0,0,0)
+        d.ZIndex = 3
+        d.Font = Drawing.Fonts.UI
+        return d
     end
 
     local function newEntry(mode, c, thick)
         local e = {mode=mode, objs={}}
         if mode == "Highlight" then
         elseif mode == "2D Box" then
-            e.box   = mkSquare(c, thick)
+            e.box = mkSquare(c, thick)
             e.boxBd = mkSquare(Color3.new(0,0,0), thick+1)
         elseif mode == "Corner Box" then
             for i=1,8 do e.objs[i] = mkLine(c, thick) end
@@ -3332,7 +3350,7 @@ runcode(function()
             for i=1,12 do e.objs[i] = mkLine(c, thick) end
         end
         e.hpBG = mkLine(Color3.fromRGB(25,25,25), 4)
-        e.hp   = mkLine(Color3.fromRGB(85,255,85), 2)
+        e.hp = mkLine(Color3.fromRGB(85,255,85), 2)
         e.name = mkText(c, 14)
         e.dist = mkText(c, 12)
         return e
@@ -3350,33 +3368,41 @@ runcode(function()
 
     local function hideEntry(e)
         if not e then return end
-        if e.box   then e.box.Visible   = false end
+        if e.box   then e.box.Visible = false end
         if e.boxBd then e.boxBd.Visible = false end
         for _, d in ipairs(e.objs) do d.Visible = false end
-        e.hpBG.Visible = false; e.hp.Visible = false
-        e.name.Visible = false; e.dist.Visible = false
+        e.hpBG.Visible = false
+        e.hp.Visible = false
+        e.name.Visible = false
+        e.dist.Visible = false
     end
 
     local function destroyHL(char)
         local h = espHLs[char]; if h and h.Parent then h:Destroy() end; espHLs[char]=nil
     end
     local function removeChar(char)
-        destroyEntry(espRef[char]); espRef[char]=nil; destroyHL(char)
+        destroyEntry(espRef[char])
+        espRef[char]=nil
+        destroyHL(char)
     end
 
     local function draw2D(e, left, top, sw, sh, c, thick)
         if not e.box then return end
-        e.boxBd.Color = Color3.new(0,0,0); e.boxBd.Thickness = thick+1
+        e.boxBd.Color = Color3.new(0,0,0)
+        e.boxBd.Thickness = thick+1
         e.boxBd.Position = Vector2.new(left-1, top-1)
-        e.boxBd.Size     = Vector2.new(sw+2, sh+2); e.boxBd.Visible = true
-        e.box.Color = c; e.box.Thickness = thick
+        e.boxBd.Size = Vector2.new(sw+2, sh+2)
+        e.boxBd.Visible = true
+        e.box.Color = c
+        e.box.Thickness = thick
         e.box.Position = Vector2.new(left, top)
-        e.box.Size     = Vector2.new(sw, sh); e.box.Visible = true
+        e.box.Size = Vector2.new(sw, sh)
+        e.box.Visible = true
     end
 
     local function drawCorner(objs, left, top, sw, sh, c, thick)
         local cw, ch = sw*0.25, sh*0.25
-        local r, b   = left+sw, top+sh
+        local r, b = left+sw, top+sh
         local segs = {
             {Vector2.new(left,    top),    Vector2.new(left+cw, top)},
             {Vector2.new(left,    top),    Vector2.new(left,    top+ch)},
@@ -3388,50 +3414,57 @@ runcode(function()
             {Vector2.new(r-cw,   b),      Vector2.new(r,       b)},
         }
         for i,s in ipairs(segs) do
-            objs[i].Color=c; objs[i].Thickness=thick
-            objs[i].From=s[1]; objs[i].To=s[2]; objs[i].Visible=true
+            objs[i].Color=c
+            objs[i].Thickness=thick
+            objs[i].From=s[1]
+            objs[i].To=s[2]
+            objs[i].Visible=true
         end
     end
 
     local function draw3D(objs, pts, c, thick)
         local edges={{1,2},{3,4},{5,6},{7,8},{1,3},{1,5},{5,7},{7,3},{2,4},{2,6},{6,8},{8,4}}
         for i,e in ipairs(edges) do
-            objs[i].Color=c; objs[i].Thickness=thick
-            objs[i].From=pts[e[1]]; objs[i].To=pts[e[2]]; objs[i].Visible=true
+            objs[i].Color=c
+            objs[i].Thickness=thick
+            objs[i].From=pts[e[1]]
+            objs[i].To=pts[e[2]]
+            objs[i].Visible=true
         end
     end
 
     local function updateOverlays(e, char, v, c, left, top, sw, sh, showHB, showN, showD)
-        local hum   = char:FindFirstChildOfClass("Humanoid")
-        local hp    = hum and hum.Health    or 0
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        local hp = hum and hum.Health    or 0
         local maxhp = hum and hum.MaxHealth or 100
         local ratio = math.clamp(hp/math.max(maxhp,1), 0, 1)
-        local bx    = left - 6
+        local bx = left - 6
 
         e.hpBG.Visible = showHB
-        e.hp.Visible   = showHB and hp > 0
+        e.hp.Visible = showHB and hp > 0
         if showHB then
-            e.hpBG.From = Vector2.new(bx, top);       e.hpBG.To = Vector2.new(bx, top+sh)
-            e.hp.Color  = Color3.fromHSV(ratio/3, 0.9, 0.85)
-            e.hp.From   = Vector2.new(bx, top + sh*(1-ratio))
-            e.hp.To     = Vector2.new(bx, top+sh)
+            e.hpBG.From = Vector2.new(bx, top)
+            e.hpBG.To = Vector2.new(bx, top+sh)
+            e.hp.Color = Color3.fromHSV(ratio/3, 0.9, 0.85)
+            e.hp.From = Vector2.new(bx, top + sh*(1-ratio))
+            e.hp.To = Vector2.new(bx, top+sh)
         end
 
         local myRoot = lplr.Character and lplr.Character:FindFirstChild("HumanoidRootPart")
-        local hrp    = char:FindFirstChild("HumanoidRootPart")
+        local hrp = char:FindFirstChild("HumanoidRootPart")
         e.name.Visible = showN
         if showN then
             local nameStr = v.DisplayName ~= "" and v.DisplayName or v.Name
-            e.name.Text     = nameStr
-            e.name.Color    = c
+            e.name.Text = nameStr
+            e.name.Color = c
             e.name.Position = Vector2.new(left+sw/2, top-16)
         end
 
         e.dist.Visible = showD
         if showD and myRoot and hrp then
             local d = math.floor((myRoot.Position-hrp.Position).Magnitude)
-            e.dist.Text     = d.."m"
-            e.dist.Color    = c
+            e.dist.Text = d.."m"
+            e.dist.Color = c
             e.dist.Position = Vector2.new(left+sw/2, top+sh+3)
         end
     end
@@ -3442,7 +3475,7 @@ runcode(function()
             if callback then
                 local function hookHurt(p)
                     local char = p.Character; if not char then return end
-                    local hum  = char:FindFirstChildOfClass("Humanoid"); if not hum then return end
+                    local hum = char:FindFirstChildOfClass("Humanoid"); if not hum then return end
                     local prevHp = hum.Health
                     local conn = hum.HealthChanged:Connect(function(hp)
                         if hp < prevHp then espHurt[char] = tick() end
@@ -3454,7 +3487,8 @@ runcode(function()
                     hookHurt(p)
                     if espCAConns[p] then espCAConns[p]:Disconnect() end
                     espCAConns[p] = p.CharacterAdded:Connect(function()
-                        task.wait(0.15); hookHurt(p)
+                        task.wait(0.15)
+                        hookHurt(p)
                     end)
                 end
                 local espPlayers = {}
@@ -3470,16 +3504,16 @@ runcode(function()
                     lqN += 1
                     if ESPLQMode and ESPLQMode.Enabled and lqN%3~=0 then return end
 
-                    local mode   = ESPMode   and ESPMode.Value   or "Highlight"
-                    local doHL   = mode == "Highlight"
-                    local outA   = ESPOutOp  and ESPOutOp.Value  or 0
-                    local fillA  = ESPFillOp and ESPFillOp.Value or 0.5
-                    local thick  = ESPThick  and ESPThick.Value  or 1
-                    local useT   = ESPTeam   and ESPTeam.Enabled
+                    local mode = ESPMode   and ESPMode.Value   or "Highlight"
+                    local doHL = mode == "Highlight"
+                    local outA = ESPOutOp  and ESPOutOp.Value  or 0
+                    local fillA = ESPFillOp and ESPFillOp.Value or 0.5
+                    local thick = ESPThick  and ESPThick.Value  or 1
+                    local useT = ESPTeam   and ESPTeam.Enabled
                     local showHB = ESPHealth and ESPHealth.Enabled
-                    local showN  = ESPName   and ESPName.Enabled
-                    local showD  = ESPDist   and ESPDist.Enabled
-                    local walls  = ESPWalls  and ESPWalls.Enabled
+                    local showN = ESPName   and ESPName.Enabled
+                    local showD = ESPDist   and ESPDist.Enabled
+                    local walls = ESPWalls  and ESPWalls.Enabled
                     local hurtOn = ESPHurt   and ESPHurt.Enabled
 
                     local seen = {}
@@ -3489,8 +3523,8 @@ runcode(function()
                         local isSelf = v == lplr
                         if isSelf and not (ESPSelf and ESPSelf.Enabled) then continue end
                         local char = v.Character; if not char then continue end
-                        local hrp  = char:FindFirstChild("HumanoidRootPart"); if not hrp then continue end
-                        local hum  = char:FindFirstChildOfClass("Humanoid")
+                        local hrp = char:FindFirstChild("HumanoidRootPart"); if not hrp then continue end
+                        local hum = char:FindFirstChildOfClass("Humanoid")
                         if hum and hum.Health <= 0 then removeChar(char); continue end
                         seen[char] = true
 
@@ -3502,18 +3536,23 @@ runcode(function()
 
                         if doHL then
                             if espRef[char] and espRef[char].mode ~= "Highlight" then
-                                destroyEntry(espRef[char]); espRef[char]=nil
+                                destroyEntry(espRef[char])
+                                espRef[char]=nil
                             end
                             local h = espHLs[char]
                             if not h then
-                                h = Instance.new("Highlight"); h.Name="PhantomESP"
+                                h = Instance.new("Highlight")
+                                h.Name="PhantomESP"
                                 h.Adornee=char
                                 h.DepthMode = walls and Enum.HighlightDepthMode.AlwaysOnTop
                                              or Enum.HighlightDepthMode.Occluded
-                                h.Parent=char; espHLs[char]=h
+                                h.Parent=char
+                                espHLs[char]=h
                             end
-                            h.OutlineColor=oc; h.OutlineTransparency=outA
-                            h.FillColor=pcol(ESPFillC); h.FillTransparency=fillA
+                            h.OutlineColor=oc
+                            h.OutlineTransparency=outA
+                            h.FillColor=pcol(ESPFillC)
+                            h.FillTransparency=fillA
                             local hh = getHH(char)
                             local left, top, sw, sh = bounds2D(hrp, hh)
                             local entry = espRef[char]
@@ -3528,7 +3567,7 @@ runcode(function()
                             end
                         else
                             destroyHL(char)
-                            local hh    = getHH(char)
+                            local hh = getHH(char)
                             local left, top, sw, sh = bounds2D(hrp, hh)
                             local entry = espRef[char]
 
@@ -3765,12 +3804,17 @@ runcode(function()
         end
     end
     local cleanupAudio = function()
-        audioState.thunderToken += 1; audioState.flashToken += 1
+        audioState.thunderToken += 1
+        audioState.flashToken += 1
         if audioState.roofHeartbeat then audioState.roofHeartbeat:Disconnect(); audioState.roofHeartbeat = nil end
         if audioState.flashGui then audioState.flashGui:Destroy() end
         if audioState.folder then audioState.folder:Destroy() end
-        audioState.folder=nil; audioState.rainInside=nil; audioState.rainOutside=nil
-        audioState.thunderLoop=nil; audioState.flashGui=nil; audioState.flashFrame=nil
+        audioState.folder=nil
+        audioState.rainInside=nil
+        audioState.rainOutside=nil
+        audioState.thunderLoop=nil
+        audioState.flashGui=nil
+        audioState.flashFrame=nil
     end
     local cleanupAll = function() cleanupSnow(); cleanupNight(); cleanupAudio() end
 
@@ -3805,26 +3849,59 @@ runcode(function()
     local ensureLightningFlash = function()
         if audioState.flashGui and audioState.flashFrame and audioState.flashGui.Parent then return audioState.flashFrame end
         local pgui = lplr:FindFirstChildOfClass("PlayerGui"); if not pgui then return nil end
-        local gui = Instance.new("ScreenGui"); gui.Name="WeatherLightningFlash"; gui.IgnoreGuiInset=true; gui.ResetOnSpawn=false; gui.DisplayOrder=999999; gui.ZIndexBehavior=Enum.ZIndexBehavior.Sibling; gui.Parent=pgui
-        local frame = Instance.new("Frame"); frame.Name="Flash"; frame.BackgroundColor3=Color3.new(1,1,1); frame.BorderSizePixel=0; frame.Size=UDim2.fromScale(1,1); frame.Position=UDim2.fromScale(0,0); frame.BackgroundTransparency=1; frame.Parent=gui
-        audioState.flashGui=gui; audioState.flashFrame=frame; return frame
+        local gui = Instance.new("ScreenGui")
+        gui.Name="WeatherLightningFlash"
+        gui.IgnoreGuiInset=true
+        gui.ResetOnSpawn=false
+        gui.DisplayOrder=999999
+        gui.ZIndexBehavior=Enum.ZIndexBehavior.Sibling
+        gui.Parent=pgui
+        local frame = Instance.new("Frame")
+        frame.Name="Flash"
+        frame.BackgroundColor3=Color3.new(1,1,1)
+        frame.BorderSizePixel=0
+        frame.Size=UDim2.fromScale(1,1)
+        frame.Position=UDim2.fromScale(0,0)
+        frame.BackgroundTransparency=1
+        frame.Parent=gui
+        audioState.flashGui=gui
+        audioState.flashFrame=frame
+        return frame
     end
 
     local playLightningFlash = function(power)
         local frame = ensureLightningFlash()
-        audioState.flashToken += 1; local token = audioState.flashToken
+        audioState.flashToken += 1
+        local token = audioState.flashToken
         power = math.clamp(power or 0.5, 0.08, 1)
-        local char = lplr.Character; local hrp = char and char:FindFirstChild("HumanoidRootPart")
+        local char = lplr.Character
+        local hrp = char and char:FindFirstChild("HumanoidRootPart")
         local lightPart, worldLight
         if hrp then
-            lightPart = Instance.new("Part"); lightPart.Name="LightningFlashHolder"; lightPart.Anchored=true; lightPart.CanCollide=false; lightPart.CanQuery=false; lightPart.CanTouch=false; lightPart.Transparency=1; lightPart.Size=Vector3.new(1,1,1); lightPart.CFrame=hrp.CFrame; lightPart.Parent=workspace
-            worldLight = Instance.new("PointLight"); worldLight.Name="LightningFlashLight"; worldLight.Color=Color3.fromRGB(220,235,255); worldLight.Brightness=0; worldLight.Range=0; worldLight.Shadows=true; worldLight.Parent=lightPart
+            lightPart = Instance.new("Part")
+            lightPart.Name="LightningFlashHolder"
+            lightPart.Anchored=true
+            lightPart.CanCollide=false
+            lightPart.CanQuery=false
+            lightPart.CanTouch=false
+            lightPart.Transparency=1
+            lightPart.Size=Vector3.new(1,1,1)
+            lightPart.CFrame=hrp.CFrame
+            lightPart.Parent=workspace
+            worldLight = Instance.new("PointLight")
+            worldLight.Name="LightningFlashLight"
+            worldLight.Color=Color3.fromRGB(220,235,255)
+            worldLight.Brightness=0
+            worldLight.Range=0
+            worldLight.Shadows=true
+            worldLight.Parent=lightPart
         end
         task.spawn(function()
             local steps = {{1-(power*0.34),1.7*power,40+(26*power),0.025},{1-(power*0.16),0.8*power,30+(18*power),0.035},{1-(power*0.48),2.5*power,52+(34*power),0.030},{1-(power*0.10),0.55*power,24+(14*power),0.060},{1,0,0,0.080}}
             for _, s in ipairs(steps) do
                 if audioState.flashToken ~= token then break end
-                local chr = lplr.Character; local h = chr and chr:FindFirstChild("HumanoidRootPart")
+                local chr = lplr.Character
+                local h = chr and chr:FindFirstChild("HumanoidRootPart")
                 if lightPart and lightPart.Parent and h then lightPart.CFrame = h.CFrame end
                 if frame and frame.Parent then frame.BackgroundTransparency = s[1] end
                 if worldLight and worldLight.Parent then worldLight.Brightness=s[2]; worldLight.Range=s[3] end
@@ -3837,23 +3914,43 @@ runcode(function()
 
     local ensureGameAudio = function()
         cleanupAudio()
-        local gameAudio = Instance.new("Folder"); gameAudio.Name="GameAudio"; gameAudio.Parent=workspace
-        local thunderSounds = Instance.new("Folder"); thunderSounds.Name="ThunderSounds"; thunderSounds.Parent=gameAudio
-        local closeFolder = Instance.new("Folder"); closeFolder.Name="Close"; closeFolder.Parent=thunderSounds
-        local farFolder = Instance.new("Folder"); farFolder.Name="Far"; farFolder.Parent=thunderSounds
-        local brewingFolder = Instance.new("Folder"); brewingFolder.Name="Brewing"; brewingFolder.Parent=thunderSounds
-        local rainFolder = Instance.new("Folder"); rainFolder.Name="Rain"; rainFolder.Parent=gameAudio
+        local gameAudio = Instance.new("Folder")
+        gameAudio.Name="GameAudio"
+        gameAudio.Parent=workspace
+        local thunderSounds = Instance.new("Folder")
+        thunderSounds.Name="ThunderSounds"
+        thunderSounds.Parent=gameAudio
+        local closeFolder = Instance.new("Folder")
+        closeFolder.Name="Close"
+        closeFolder.Parent=thunderSounds
+        local farFolder = Instance.new("Folder")
+        farFolder.Name="Far"
+        farFolder.Parent=thunderSounds
+        local brewingFolder = Instance.new("Folder")
+        brewingFolder.Name="Brewing"
+        brewingFolder.Parent=thunderSounds
+        local rainFolder = Instance.new("Folder")
+        rainFolder.Name="Rain"
+        rainFolder.Parent=gameAudio
         local makeSound = function(p,n,id,vol,looped,spd) local s=Instance.new("Sound"); s.Name=n; s.SoundId=id; s.Volume=vol; s.Looped=looped or false; s.RollOffMode=Enum.RollOffMode.Inverse; s.RollOffMinDistance=35; s.RollOffMaxDistance=100000; s.EmitterSize=80; s.PlaybackSpeed=spd or 1; s.Parent=p; return s end
         local makeMuffler = function(s) local eq=Instance.new("EqualizerSoundEffect"); eq.Name="AudioMuffler"; eq.Enabled=true; eq.HighGain=0; eq.MidGain=0; eq.LowGain=0; eq.Parent=s; return eq end
         local makeLayer = function(p,n,id,vol,spd) local s=makeSound(p,n,id,0,true,spd); s:SetAttribute("OriginalVolume",vol); return s end
-        local t1=makeSound(closeFolder,"Thunder1","rbxassetid://131300621",1.15,false,1); makeMuffler(t1)
-        local t2=makeSound(closeFolder,"Thunder2","rbxassetid://5246104843",1.1,false,1); makeMuffler(t2)
-        local t3=makeSound(closeFolder,"Thunder3","rbxassetid://6734470366",1.2,false,0.8); makeMuffler(t3)
-        local r1=makeSound(farFolder,"Rumble1","rbxassetid://7742650861",0.9,false,1); makeMuffler(r1)
-        local r2=makeSound(farFolder,"Rumble2","rbxassetid://4961240438",0.82,false,1); makeMuffler(r2)
-        local r3=makeSound(farFolder,"Rumble3","rbxassetid://9120016241",0.82,false,1); makeMuffler(r3)
-        local b1=makeSound(brewingFolder,"Rumble1","rbxassetid://4961240438",0.55,false,0.7); makeMuffler(b1)
-        local b2=makeSound(brewingFolder,"Rumble2","rbxassetid://83308742405412",0.9,false,1); makeMuffler(b2)
+        local t1=makeSound(closeFolder,"Thunder1","rbxassetid://131300621",1.15,false,1)
+        makeMuffler(t1)
+        local t2=makeSound(closeFolder,"Thunder2","rbxassetid://5246104843",1.1,false,1)
+        makeMuffler(t2)
+        local t3=makeSound(closeFolder,"Thunder3","rbxassetid://6734470366",1.2,false,0.8)
+        makeMuffler(t3)
+        local r1=makeSound(farFolder,"Rumble1","rbxassetid://7742650861",0.9,false,1)
+        makeMuffler(r1)
+        local r2=makeSound(farFolder,"Rumble2","rbxassetid://4961240438",0.82,false,1)
+        makeMuffler(r2)
+        local r3=makeSound(farFolder,"Rumble3","rbxassetid://9120016241",0.82,false,1)
+        makeMuffler(r3)
+        local b1=makeSound(brewingFolder,"Rumble1","rbxassetid://4961240438",0.55,false,0.7)
+        makeMuffler(b1)
+        local b2=makeSound(brewingFolder,"Rumble2","rbxassetid://83308742405412",0.9,false,1)
+        makeMuffler(b2)
         local hri=makeLayer(rainFolder,"HeavyRainInside","rbxassetid://97388832021513",0.42,1)
         local hro=makeLayer(rainFolder,"HeavyRainOutside","rbxassetid://9120551859",0.16,1)
         local lri=makeLayer(rainFolder,"LightRainInside","c",0.24,1.05)
@@ -3878,13 +3975,16 @@ runcode(function()
     local startWeatherAudio = function(mode)
         ensureGameAudio()
         local cfg = audioState.soundSets and audioState.soundSets[mode]; if not cfg then return end
-        audioState.rainInside=cfg.inside; audioState.rainOutside=cfg.outside
+        audioState.rainInside=cfg.inside
+        audioState.rainOutside=cfg.outside
         for _, s in ipairs({cfg.inside, cfg.outside}) do
             if s then s.Volume=0; s.TimePosition=0; if s.IsPlaying then s:Stop() end; s:Play() end
         end
-        local rayParams = RaycastParams.new(); rayParams.FilterType=Enum.RaycastFilterType.Exclude
+        local rayParams = RaycastParams.new()
+        rayParams.FilterType=Enum.RaycastFilterType.Exclude
         audioState.roofHeartbeat = RunService.Heartbeat:Connect(function(dt)
-            local char=lplr.Character; local hrp=char and char:FindFirstChild("HumanoidRootPart")
+            local char=lplr.Character
+            local hrp=char and char:FindFirstChild("HumanoidRootPart")
             if not hrp then
                 if cfg.inside then tweenVolume(cfg.inside,0,0.12) end
                 if cfg.outside then tweenVolume(cfg.outside,0,0.12) end; return
@@ -3899,22 +3999,29 @@ runcode(function()
             if cfg.outside then tweenVolume(cfg.outside,outsideTarget,step) end
         end)
         if cfg.thunderChance > 0 then
-            local token = audioState.thunderToken + 1; audioState.thunderToken = token
+            local token = audioState.thunderToken + 1
+            audioState.thunderToken = token
             task.spawn(function()
                 while audioState.thunderToken == token do
                     task.wait(math.random(cfg.minDelay*100, cfg.maxDelay*100)/100)
                     if audioState.thunderToken ~= token then break end
                     if math.random() > cfg.thunderChance then continue end
                     local tSounds=audioState.folder and audioState.folder:FindFirstChild("ThunderSounds")
-                    local cf=tSounds and tSounds:FindFirstChild("Close"); local ff=tSounds and tSounds:FindFirstChild("Far"); local bf=tSounds and tSounds:FindFirstChild("Brewing")
-                    local char=lplr.Character; local hrp=char and char:FindFirstChild("HumanoidRootPart")
+                    local cf=tSounds and tSounds:FindFirstChild("Close")
+                    local ff=tSounds and tSounds:FindFirstChild("Far")
+                    local bf=tSounds and tSounds:FindFirstChild("Brewing")
+                    local char=lplr.Character
+                    local hrp=char and char:FindFirstChild("HumanoidRootPart")
                     local insideBlend,underRoof=0,false
                     if hrp then local tr=RaycastParams.new(); tr.FilterType=Enum.RaycastFilterType.Exclude; tr.FilterDescendantsInstances={char,audioState.folder}; insideBlend,underRoof=getRoofAudioBlend(hrp,tr) end
                     local forcedClose=false
                     if bf and math.random()<0.55 then
                         local brewing=bf:GetChildren()
                         if #brewing>0 then
-                            local brew=brewing[math.random(1,#brewing)]; setMuffled(brew,underRoof or insideBlend>0.45); brew.TimePosition=0; brew:Play()
+                            local brew=brewing[math.random(1,#brewing)]
+                            setMuffled(brew,underRoof or insideBlend>0.45)
+                            brew.TimePosition=0
+                            brew:Play()
                             if math.random()<0.35 then task.wait(math.random(20,55)/100); if audioState.thunderToken~=token then break end; playLightningFlash(0.14) end
                             task.wait(math.random(140,320)/100); if audioState.thunderToken~=token then break end; forcedClose=true
                         end
@@ -3924,8 +4031,11 @@ runcode(function()
                     if src then
                         local list=src:GetChildren()
                         if #list>0 then
-                            local snd=list[math.random(1,#list)]; setMuffled(snd,underRoof or insideBlend>0.45); snd.TimePosition=0
-                            playLightningFlash(useClose and math.random(75,100)/100 or math.random(28,50)/100); snd:Play()
+                            local snd=list[math.random(1,#list)]
+                            setMuffled(snd,underRoof or insideBlend>0.45)
+                            snd.TimePosition=0
+                            playLightningFlash(useClose and math.random(75,100)/100 or math.random(28,50)/100)
+                            snd:Play()
                         end
                     end
                 end
@@ -3938,13 +4048,35 @@ runcode(function()
     local addSpotLight = function(part)
         if not part:IsA("BasePart") or not isCharacterPart(part) then return end
         local hf=getLightHolderFolder(); local hn=LIGHT_TAG.."_Holder_"..tostring(part:GetDebugId()); if hf:FindFirstChild(hn) then return end
-        local holder=Instance.new("Part"); holder.Name=hn; holder.Anchored=true; holder.CanCollide=false; holder.CanQuery=false; holder.CanTouch=false; holder.Transparency=1; holder.Size=Vector3.new(0.2,0.2,0.2); holder.CFrame=part.CFrame; holder.Parent=hf
-        local sl=Instance.new("SpotLight"); sl.Name=LIGHT_TAG.."_Spot"; sl.Brightness=0.1; sl.Range=35; sl.Angle=55; sl.Color=Color3.fromRGB(255,180,89); sl.Shadows=true; sl.Face=Enum.NormalId.Front; sl.Parent=holder
+        local holder=Instance.new("Part")
+        holder.Name=hn
+        holder.Anchored=true
+        holder.CanCollide=false
+        holder.CanQuery=false
+        holder.CanTouch=false
+        holder.Transparency=1
+        holder.Size=Vector3.new(0.2,0.2,0.2)
+        holder.CFrame=part.CFrame
+        holder.Parent=hf
+        local sl=Instance.new("SpotLight")
+        sl.Name=LIGHT_TAG.."_Spot"
+        sl.Brightness=0.1
+        sl.Range=35
+        sl.Angle=55
+        sl.Color=Color3.fromRGB(255,180,89)
+        sl.Shadows=true
+        sl.Face=Enum.NormalId.Front
+        sl.Parent=holder
         table.insert(nightConnections, RunService.Heartbeat:Connect(function() if not holder.Parent then return end; if not part.Parent then holder:Destroy(); return end; holder.CFrame=part.CFrame end))
     end
     local addPointLight = function(part)
         if not part:IsA("BasePart") or part:FindFirstChild(LIGHT_TAG.."_Point") or isCharacterPart(part) or part.Size.Magnitude<6 then return end
-        local pl=Instance.new("PointLight"); pl.Name=LIGHT_TAG.."_Point"; pl.Brightness=0.2; pl.Range=12; pl.Color=Color3.fromRGB(254,243,187); pl.Parent=part
+        local pl=Instance.new("PointLight")
+        pl.Name=LIGHT_TAG.."_Point"
+        pl.Brightness=0.2
+        pl.Range=12
+        pl.Color=Color3.fromRGB(254,243,187)
+        pl.Parent=part
     end
     local lightFolders = function()
         for _,child in ipairs(workspace:GetChildren()) do if child:IsA("Folder") then for _,d in ipairs(child:GetDescendants()) do addSpotLight(d); addPointLight(d) end end end
@@ -3954,8 +4086,35 @@ runcode(function()
     local buildRainScene = function(lplr, cam, folder, rainRate, dropletRate, mistRate, mistTransMin, mistTransMax)
         local conns = {}
         local makeWeatherPart = function(name, size, offset)
-            local p=Instance.new("Part",folder); p.Name=name; p.Anchored=true; p.CanCollide=false; p.Transparency=1; p.Color=Color3.fromRGB(255,0,0); p.Size=size; p.CFrame=CFrame.new(0,0,0)
-            local rain=Instance.new("ParticleEmitter",p); rain.Name="Rain"; rain.Texture="rbxassetid://1822883048"; rain.Rate=rainRate; rain.Lifetime=NumberRange.new(3,3); rain.Speed=NumberRange.new(100,100); rain.Drag=0; rain.Rotation=NumberRange.new(0,0); rain.RotSpeed=NumberRange.new(0,0); rain.VelocitySpread=2; rain.SpreadAngle=Vector2.new(2,2); rain.LightInfluence=0.38; rain.LightEmission=0.5; rain.ZOffset=0; rain.Acceleration=Vector3.new(0,0,0); rain.EmissionDirection=Enum.NormalId.Bottom; rain.Orientation=Enum.ParticleOrientation.FacingCameraWorldUp; rain.Shape=Enum.ParticleEmitterShape.Box; rain.ShapeStyle=Enum.ParticleEmitterShapeStyle.Volume; rain.ShapeInOut=Enum.ParticleEmitterShapeInOut.Outward; rain.Enabled=true
+            local p=Instance.new("Part",folder)
+            p.Name=name
+            p.Anchored=true
+            p.CanCollide=false
+            p.Transparency=1
+            p.Color=Color3.fromRGB(255,0,0)
+            p.Size=size
+            p.CFrame=CFrame.new(0,0,0)
+            local rain=Instance.new("ParticleEmitter",p)
+            rain.Name="Rain"
+            rain.Texture="rbxassetid://1822883048"
+            rain.Rate=rainRate
+            rain.Lifetime=NumberRange.new(3,3)
+            rain.Speed=NumberRange.new(100,100)
+            rain.Drag=0
+            rain.Rotation=NumberRange.new(0,0)
+            rain.RotSpeed=NumberRange.new(0,0)
+            rain.VelocitySpread=2
+            rain.SpreadAngle=Vector2.new(2,2)
+            rain.LightInfluence=0.38
+            rain.LightEmission=0.5
+            rain.ZOffset=0
+            rain.Acceleration=Vector3.new(0,0,0)
+            rain.EmissionDirection=Enum.NormalId.Bottom
+            rain.Orientation=Enum.ParticleOrientation.FacingCameraWorldUp
+            rain.Shape=Enum.ParticleEmitterShape.Box
+            rain.ShapeStyle=Enum.ParticleEmitterShapeStyle.Volume
+            rain.ShapeInOut=Enum.ParticleEmitterShapeInOut.Outward
+            rain.Enabled=true
             rain.Color=ColorSequence.new({ColorSequenceKeypoint.new(0,Color3.new(0.760784,0.823529,1)),ColorSequenceKeypoint.new(1,Color3.new(0.760784,0.823529,1))})
             rain.Size=NumberSequence.new({NumberSequenceKeypoint.new(0,11),NumberSequenceKeypoint.new(1,11)})
             rain.Transparency=NumberSequence.new({NumberSequenceKeypoint.new(0,0.85),NumberSequenceKeypoint.new(0.367,0.894),NumberSequenceKeypoint.new(0.395,1),NumberSequenceKeypoint.new(1,1)})
@@ -3963,13 +4122,65 @@ runcode(function()
             p.AncestryChanged:Connect(function() if not p.Parent then for _,c in ipairs(conns) do c:Disconnect() end end end)
             return p, rain
         end
-        local droplets=Instance.new("Part",folder); droplets.Name="Droplets"; droplets.Anchored=true; droplets.CanCollide=false; droplets.Transparency=1; droplets.Size=Vector3.new(50,1,50); droplets.CFrame=CFrame.new(0,0,0)
-        local de=Instance.new("ParticleEmitter",droplets); de.Name="Emitter"; de.Texture="rbxassetid://241576804"; de.Rate=dropletRate; de.Lifetime=NumberRange.new(0.5,0.5); de.Speed=NumberRange.new(3,3); de.Drag=0; de.Rotation=NumberRange.new(-20,-20); de.RotSpeed=NumberRange.new(0,0); de.VelocitySpread=0; de.SpreadAngle=Vector2.new(0,0); de.LightInfluence=0; de.LightEmission=0.5; de.ZOffset=0; de.Acceleration=Vector3.new(0,-30,0); de.EmissionDirection=Enum.NormalId.Top; de.Orientation=Enum.ParticleOrientation.FacingCamera; de.Shape=Enum.ParticleEmitterShape.Box; de.ShapeStyle=Enum.ParticleEmitterShapeStyle.Volume; de.ShapeInOut=Enum.ParticleEmitterShapeInOut.Outward; de.Enabled=false
+        local droplets=Instance.new("Part",folder)
+        droplets.Name="Droplets"
+        droplets.Anchored=true
+        droplets.CanCollide=false
+        droplets.Transparency=1
+        droplets.Size=Vector3.new(50,1,50)
+        droplets.CFrame=CFrame.new(0,0,0)
+        local de=Instance.new("ParticleEmitter",droplets)
+        de.Name="Emitter"
+        de.Texture="rbxassetid://241576804"
+        de.Rate=dropletRate
+        de.Lifetime=NumberRange.new(0.5,0.5)
+        de.Speed=NumberRange.new(3,3)
+        de.Drag=0
+        de.Rotation=NumberRange.new(-20,-20)
+        de.RotSpeed=NumberRange.new(0,0)
+        de.VelocitySpread=0
+        de.SpreadAngle=Vector2.new(0,0)
+        de.LightInfluence=0
+        de.LightEmission=0.5
+        de.ZOffset=0
+        de.Acceleration=Vector3.new(0,-30,0)
+        de.EmissionDirection=Enum.NormalId.Top
+        de.Orientation=Enum.ParticleOrientation.FacingCamera
+        de.Shape=Enum.ParticleEmitterShape.Box
+        de.ShapeStyle=Enum.ParticleEmitterShapeStyle.Volume
+        de.ShapeInOut=Enum.ParticleEmitterShapeInOut.Outward
+        de.Enabled=false
         de.Color=ColorSequence.new({ColorSequenceKeypoint.new(0,Color3.new(1,1,1)),ColorSequenceKeypoint.new(1,Color3.new(1,1,1))})
         de.Size=NumberSequence.new({NumberSequenceKeypoint.new(0,0),NumberSequenceKeypoint.new(1,1.0625)})
         de.Transparency=NumberSequence.new({NumberSequenceKeypoint.new(0,1),NumberSequenceKeypoint.new(0.1,0),NumberSequenceKeypoint.new(0.55,0.75),NumberSequenceKeypoint.new(1,1)})
-        local mistPart=Instance.new("Part",folder); mistPart.Name="MistPart"; mistPart.Anchored=true; mistPart.CanCollide=false; mistPart.Transparency=1; mistPart.Size=Vector3.new(100,1,100); mistPart.CFrame=CFrame.new(0,0,0)
-        local mist=Instance.new("ParticleEmitter",mistPart); mist.Name="Mist"; mist.Texture="rbxassetid://135522315481814"; mist.Rate=mistRate; mist.Lifetime=NumberRange.new(6,10); mist.Speed=NumberRange.new(1,4); mist.Drag=0.8; mist.Rotation=NumberRange.new(0,360); mist.RotSpeed=NumberRange.new(-10,10); mist.VelocitySpread=360; mist.SpreadAngle=Vector2.new(20,20); mist.LightInfluence=1; mist.LightEmission=0; mist.ZOffset=0; mist.Acceleration=Vector3.new(-0.1,0,0); mist.EmissionDirection=Enum.NormalId.Top; mist.Orientation=Enum.ParticleOrientation.FacingCamera; mist.Shape=Enum.ParticleEmitterShape.Box; mist.ShapeStyle=Enum.ParticleEmitterShapeStyle.Volume; mist.ShapeInOut=Enum.ParticleEmitterShapeInOut.Outward; mist.Enabled=true
+        local mistPart=Instance.new("Part",folder)
+        mistPart.Name="MistPart"
+        mistPart.Anchored=true
+        mistPart.CanCollide=false
+        mistPart.Transparency=1
+        mistPart.Size=Vector3.new(100,1,100)
+        mistPart.CFrame=CFrame.new(0,0,0)
+        local mist=Instance.new("ParticleEmitter",mistPart)
+        mist.Name="Mist"
+        mist.Texture="rbxassetid://135522315481814"
+        mist.Rate=mistRate
+        mist.Lifetime=NumberRange.new(6,10)
+        mist.Speed=NumberRange.new(1,4)
+        mist.Drag=0.8
+        mist.Rotation=NumberRange.new(0,360)
+        mist.RotSpeed=NumberRange.new(-10,10)
+        mist.VelocitySpread=360
+        mist.SpreadAngle=Vector2.new(20,20)
+        mist.LightInfluence=1
+        mist.LightEmission=0
+        mist.ZOffset=0
+        mist.Acceleration=Vector3.new(-0.1,0,0)
+        mist.EmissionDirection=Enum.NormalId.Top
+        mist.Orientation=Enum.ParticleOrientation.FacingCamera
+        mist.Shape=Enum.ParticleEmitterShape.Box
+        mist.ShapeStyle=Enum.ParticleEmitterShapeStyle.Volume
+        mist.ShapeInOut=Enum.ParticleEmitterShapeInOut.Outward
+        mist.Enabled=true
         mist.Color=ColorSequence.new({ColorSequenceKeypoint.new(0,Color3.new(0.78,0.81,0.85)),ColorSequenceKeypoint.new(1,Color3.new(0.78,0.81,0.85))})
         mist.Size=NumberSequence.new({NumberSequenceKeypoint.new(0,4),NumberSequenceKeypoint.new(0.4,8),NumberSequenceKeypoint.new(1,3)})
         mist.Transparency=NumberSequence.new({NumberSequenceKeypoint.new(0,1),NumberSequenceKeypoint.new(0.1,mistTransMin),NumberSequenceKeypoint.new(0.9,mistTransMax),NumberSequenceKeypoint.new(1,1)})
@@ -3978,25 +4189,56 @@ runcode(function()
         local _,r3=makeWeatherPart("WeatherPart",Vector3.new(100,1,100),Vector3.new(30,5,-30))
         local _,r4=makeWeatherPart("WeatherPart",Vector3.new(100,1,100),Vector3.new(-30,5,30))
         local rainEmitters={r1,r2,r3,r4}
-        local edgeFolder=Instance.new("Folder",folder); edgeFolder.Name="EdgeRain"
+        local edgeFolder=Instance.new("Folder",folder)
+        edgeFolder.Name="EdgeRain"
         local edgeOffsets={Vector3.new(8,0,0),Vector3.new(-8,0,0),Vector3.new(0,0,8),Vector3.new(0,0,-8),Vector3.new(6,0,6),Vector3.new(-6,0,6),Vector3.new(6,0,-6),Vector3.new(-6,0,-6)}
         local edgeEmitters={}
         for _,offset in ipairs(edgeOffsets) do
-            local ep=Instance.new("Part",edgeFolder); ep.Name="EdgePart"; ep.Anchored=true; ep.CanCollide=false; ep.Transparency=1; ep.Size=Vector3.new(6,1,6); ep.CFrame=CFrame.new(0,0,0)
-            local ee=Instance.new("ParticleEmitter",ep); ee.Name="EdgeRain"; ee.Texture="rbxassetid://1822883048"; ee.Rate=rainRate*0.35; ee.Lifetime=NumberRange.new(2,3); ee.Speed=NumberRange.new(80,100); ee.Drag=0; ee.Rotation=NumberRange.new(0,0); ee.RotSpeed=NumberRange.new(0,0); ee.VelocitySpread=3; ee.SpreadAngle=Vector2.new(3,3); ee.LightInfluence=0.38; ee.LightEmission=0.5; ee.ZOffset=0; ee.Acceleration=Vector3.new(0,0,0); ee.EmissionDirection=Enum.NormalId.Bottom; ee.Orientation=Enum.ParticleOrientation.FacingCameraWorldUp; ee.Shape=Enum.ParticleEmitterShape.Box; ee.ShapeStyle=Enum.ParticleEmitterShapeStyle.Volume; ee.ShapeInOut=Enum.ParticleEmitterShapeInOut.Outward; ee.Enabled=false
+            local ep=Instance.new("Part",edgeFolder)
+            ep.Name="EdgePart"
+            ep.Anchored=true
+            ep.CanCollide=false
+            ep.Transparency=1
+            ep.Size=Vector3.new(6,1,6)
+            ep.CFrame=CFrame.new(0,0,0)
+            local ee=Instance.new("ParticleEmitter",ep)
+            ee.Name="EdgeRain"
+            ee.Texture="rbxassetid://1822883048"
+            ee.Rate=rainRate*0.35
+            ee.Lifetime=NumberRange.new(2,3)
+            ee.Speed=NumberRange.new(80,100)
+            ee.Drag=0
+            ee.Rotation=NumberRange.new(0,0)
+            ee.RotSpeed=NumberRange.new(0,0)
+            ee.VelocitySpread=3
+            ee.SpreadAngle=Vector2.new(3,3)
+            ee.LightInfluence=0.38
+            ee.LightEmission=0.5
+            ee.ZOffset=0
+            ee.Acceleration=Vector3.new(0,0,0)
+            ee.EmissionDirection=Enum.NormalId.Bottom
+            ee.Orientation=Enum.ParticleOrientation.FacingCameraWorldUp
+            ee.Shape=Enum.ParticleEmitterShape.Box
+            ee.ShapeStyle=Enum.ParticleEmitterShapeStyle.Volume
+            ee.ShapeInOut=Enum.ParticleEmitterShapeInOut.Outward
+            ee.Enabled=false
             ee.Color=ColorSequence.new({ColorSequenceKeypoint.new(0,Color3.new(0.760784,0.823529,1)),ColorSequenceKeypoint.new(1,Color3.new(0.760784,0.823529,1))})
             ee.Size=NumberSequence.new({NumberSequenceKeypoint.new(0,8),NumberSequenceKeypoint.new(1,8)})
             ee.Transparency=NumberSequence.new({NumberSequenceKeypoint.new(0,0.85),NumberSequenceKeypoint.new(0.367,0.894),NumberSequenceKeypoint.new(0.395,1),NumberSequenceKeypoint.new(1,1)})
             table.insert(edgeEmitters,{part=ep,emitter=ee,offset=offset})
         end
-        local rayParams=RaycastParams.new(); rayParams.FilterType=Enum.RaycastFilterType.Exclude
+        local rayParams=RaycastParams.new()
+        rayParams.FilterType=Enum.RaycastFilterType.Exclude
         table.insert(conns, RunService.Heartbeat:Connect(function()
-            local char=lplr.Character; local hrp=char and char:FindFirstChild("HumanoidRootPart")
+            local char=lplr.Character
+            local hrp=char and char:FindFirstChild("HumanoidRootPart")
             if not hrp then de.Enabled=false; mist.Enabled=false; for _,e in ipairs(rainEmitters) do e.Enabled=true end; for _,d in ipairs(edgeEmitters) do d.emitter.Enabled=false end; return end
             rayParams.FilterDescendantsInstances={char,folder,audioState.folder}
-            local roofResult=workspace:Raycast(hrp.Position,Vector3.new(0,80,0),rayParams); local underRoof=roofResult~=nil
+            local roofResult=workspace:Raycast(hrp.Position,Vector3.new(0,80,0),rayParams)
+            local underRoof=roofResult~=nil
             for _,e in ipairs(rainEmitters) do e.Enabled=not underRoof end
-            de.Enabled=false; mist.Enabled=false
+            de.Enabled=false
+            mist.Enabled=false
             if underRoof then
                 for _,d in ipairs(edgeEmitters) do
                     local ewp=hrp.Position+d.offset
@@ -4009,17 +4251,41 @@ runcode(function()
                 if floorResult and floorResult.Normal.Y>0.7 and floorResult.Position.Y<=hrp.Position.Y then
                     droplets.CFrame=CFrame.new(hrp.Position.X,floorResult.Position.Y,hrp.Position.Z)
                     mistPart.CFrame=CFrame.new(hrp.Position.X,floorResult.Position.Y+1,hrp.Position.Z)
-                    de.Enabled=true; mist.Enabled=true
+                    de.Enabled=true
+                    mist.Enabled=true
                 end
             end
         end))
     end
 
     local makeSnowPart = function(name, rate, lifetime, speed, sizeKF, transKF, accel, folder, trackCam)
-        local part=Instance.new("Part",folder); part.Name=name; part.Anchored=true; part.CanCollide=false; part.Transparency=1
-        local e=Instance.new("ParticleEmitter",part); e.Name="Particle"; e.Texture="rbxassetid://127302768524882"; e.Rate=rate; e.Lifetime=lifetime; e.Speed=speed; e.Drag=0; e.VelocitySpread=trackCam and 5 or 18; e.SpreadAngle=trackCam and Vector2.new(5,5) or Vector2.new(12,12); e.LightInfluence=1; e.LightEmission=0; e.ZOffset=0; e.Acceleration=accel; e.EmissionDirection=Enum.NormalId.Front; e.Orientation=Enum.ParticleOrientation.FacingCamera; e.Shape=Enum.ParticleEmitterShape.Box; e.ShapeStyle=Enum.ParticleEmitterShapeStyle.Volume; e.ShapeInOut=Enum.ParticleEmitterShapeInOut.Outward; e.Enabled=true
+        local part=Instance.new("Part",folder)
+        part.Name=name
+        part.Anchored=true
+        part.CanCollide=false
+        part.Transparency=1
+        local e=Instance.new("ParticleEmitter",part)
+        e.Name="Particle"
+        e.Texture="rbxassetid://127302768524882"
+        e.Rate=rate
+        e.Lifetime=lifetime
+        e.Speed=speed
+        e.Drag=0
+        e.VelocitySpread=trackCam and 5 or 18
+        e.SpreadAngle=trackCam and Vector2.new(5,5) or Vector2.new(12,12)
+        e.LightInfluence=1
+        e.LightEmission=0
+        e.ZOffset=0
+        e.Acceleration=accel
+        e.EmissionDirection=Enum.NormalId.Front
+        e.Orientation=Enum.ParticleOrientation.FacingCamera
+        e.Shape=Enum.ParticleEmitterShape.Box
+        e.ShapeStyle=Enum.ParticleEmitterShapeStyle.Volume
+        e.ShapeInOut=Enum.ParticleEmitterShapeInOut.Outward
+        e.Enabled=true
         e.Color=ColorSequence.new({ColorSequenceKeypoint.new(0,Color3.new(1,1,1)),ColorSequenceKeypoint.new(1,Color3.new(1,1,1))})
-        e.Size=NumberSequence.new(sizeKF); e.Transparency=NumberSequence.new(transKF)
+        e.Size=NumberSequence.new(sizeKF)
+        e.Transparency=NumberSequence.new(transKF)
         if trackCam then
             part.Size=Vector3.new(100,80,1)
             local conn=RunService.Heartbeat:Connect(function() local hrp=lplr.Character and lplr.Character:FindFirstChild("HumanoidRootPart"); if hrp then part.CFrame=CFrame.new(hrp.Position+Vector3.new(0,0,50)) end end)
@@ -4064,7 +4330,8 @@ runcode(function()
         Blizzard = function()
             cleanupAll()
             applyLighting([[local L=game:GetService('Lighting');L:ClearAllChildren();task.wait(0.3);L.Ambient=Color3.new(0,0,0);L.Brightness=1;L.ColorShift_Bottom=Color3.new(0,0,0);L.ColorShift_Top=Color3.new(0,0,0);L.OutdoorAmbient=Color3.new(0.576471,0.6,0.760784);L.FogColor=Color3.new(0.576471,0.6,0.760784);L.FogEnd=300;L.FogStart=15;L.GlobalShadows=true;L.GeographicLatitude=23.5;L.ExposureCompensation=0;L.EnvironmentDiffuseScale=0.4;L.EnvironmentSpecularScale=0.6;L.ClockTime=12;L.TimeOfDay='12:00:00';L.ShadowSoftness=0.07;L.Technology=Enum.Technology.Future;local sky=Instance.new('Sky',L);sky.Name='Sky';sky.CelestialBodiesShown=false;sky.SkyboxBk='http://www.roblox.com/asset/?id=4514139911';sky.SkyboxDn='http://www.roblox.com/asset/?id=4514139911';sky.SkyboxFt='http://www.roblox.com/asset/?id=4514139911';sky.SkyboxLf='http://www.roblox.com/asset/?id=4514139911';sky.SkyboxRt='http://www.roblox.com/asset/?id=4514139911';sky.SkyboxUp='http://www.roblox.com/asset/?id=4514139911';sky.StarCount=3000;local atm=Instance.new('Atmosphere',L);atm.Name='Blizzard_Atmosphere';atm.Density=0.531;atm.Offset=0.281;atm.Color=Color3.new(0.686275,0.733333,0.780392);atm.Decay=Color3.new(0.619608,0.666667,0.784314);atm.Glare=2.69;atm.Haze=10]])
-            local folder=Instance.new("Folder",workspace); folder.Name="Snowfall_Client"
+            local folder=Instance.new("Folder",workspace)
+            folder.Name="Snowfall_Client"
             makeSnowPart("Blizzard",5000,NumberRange.new(6,8),NumberRange.new(20,50),
                 {NumberSequenceKeypoint.new(0,1.875),NumberSequenceKeypoint.new(0.374999,1.25),NumberSequenceKeypoint.new(1,0)},
                 {NumberSequenceKeypoint.new(0,1),NumberSequenceKeypoint.new(0.501247,0.4375),NumberSequenceKeypoint.new(1,0)},
@@ -4074,7 +4341,8 @@ runcode(function()
         LightSnow = function()
             cleanupAll()
             applyLighting([[local L=game:GetService('Lighting');L:ClearAllChildren();task.wait(0.3);L.Ambient=Color3.new(0.15,0.15,0.15);L.Brightness=1.7;L.ColorShift_Bottom=Color3.new(0,0,0);L.ColorShift_Top=Color3.new(0,0,0);L.OutdoorAmbient=Color3.new(0.68,0.72,0.78);L.FogColor=Color3.new(0.76,0.8,0.86);L.FogEnd=850;L.FogStart=35;L.GlobalShadows=true;L.GeographicLatitude=23.5;L.ExposureCompensation=0;L.EnvironmentDiffuseScale=0.5;L.EnvironmentSpecularScale=0.65;L.ClockTime=12.3;L.TimeOfDay='12:18:00';L.ShadowSoftness=0.05;L.Technology=Enum.Technology.Future;local sky=Instance.new('Sky',L);sky.Name='Sky';sky.CelestialBodiesShown=false;sky.SkyboxBk='http://www.roblox.com/asset/?id=4514139911';sky.SkyboxDn='http://www.roblox.com/asset/?id=4514139911';sky.SkyboxFt='http://www.roblox.com/asset/?id=4514139911';sky.SkyboxLf='http://www.roblox.com/asset/?id=4514139911';sky.SkyboxRt='http://www.roblox.com/asset/?id=4514139911';sky.SkyboxUp='http://www.roblox.com/asset/?id=4514139911';sky.StarCount=3000;local atm=Instance.new('Atmosphere',L);atm.Name='LightSnow_Atmosphere';atm.Density=0.4;atm.Offset=0.12;atm.Color=Color3.new(0.8,0.84,0.89);atm.Decay=Color3.new(0.7,0.74,0.81);atm.Glare=0.7;atm.Haze=2.4;local col=Instance.new('ColorCorrectionEffect',L);col.Name='ColorCorrection';col.Enabled=true;col.Brightness=-0.01;col.Contrast=0.04;col.Saturation=-0.1;col.TintColor=Color3.new(0.96,0.98,1)]])
-            local folder=Instance.new("Folder",workspace); folder.Name="Snowfall_Client"
+            local folder=Instance.new("Folder",workspace)
+            folder.Name="Snowfall_Client"
             makeSnowPart("LightSnow",450,NumberRange.new(7,10),NumberRange.new(6,14),
                 {NumberSequenceKeypoint.new(0,0.45),NumberSequenceKeypoint.new(0.7,0.32),NumberSequenceKeypoint.new(1,0.18)},
                 {NumberSequenceKeypoint.new(0,0.35),NumberSequenceKeypoint.new(0.8,0.5),NumberSequenceKeypoint.new(1,1)},
@@ -4083,7 +4351,8 @@ runcode(function()
         ChillMorning = function()
             cleanupAll()
             applyLighting([[local L=game:GetService('Lighting');L:ClearAllChildren();task.wait(0.3);L.Ambient=Color3.new(0,0,0);L.Brightness=2.2;L.ColorShift_Bottom=Color3.new(0.9,0.95,1);L.ColorShift_Top=Color3.new(0.972549,0.537255,0.152941);L.OutdoorAmbient=Color3.new(0.62,0.66,0.74);L.FogColor=Color3.new(0.82,0.87,0.93);L.FogEnd=680;L.FogStart=30;L.GlobalShadows=true;L.GeographicLatitude=40;L.ExposureCompensation=0.55;L.EnvironmentDiffuseScale=0.6;L.EnvironmentSpecularScale=0.75;L.ClockTime=7.2;L.TimeOfDay='07:12:00';L.ShadowSoftness=0.04;L.Technology=Enum.Technology.Future;local sky=Instance.new('Sky',L);sky.Name='ChillMorningSky';sky.CelestialBodiesShown=true;sky.SunAngularSize=5;sky.MoonAngularSize=1.5;sky.SkyboxBk='rbxassetid://6973550206';sky.SkyboxDn='rbxassetid://6973550815';sky.SkyboxFt='rbxassetid://6973549125';sky.SkyboxLf='rbxassetid://6973549670';sky.SkyboxRt='rbxassetid://9089057892';sky.SkyboxUp='rbxassetid://6973551204';sky.StarCount=2000;sky.SunTextureId='rbxassetid://1084351190';sky.MoonTextureId='rbxassetid://1075087760';local atm=Instance.new('Atmosphere',L);atm.Name='ChillMorning_Atmosphere';atm.Density=0.38;atm.Offset=0.18;atm.Color=Color3.new(0.78,0.82,0.88);atm.Decay=Color3.new(0.68,0.72,0.80);atm.Glare=0.9;atm.Haze=2.0;local blo=Instance.new('BloomEffect',L);blo.Name='Bloom';blo.Enabled=true;blo.Intensity=0.85;blo.Size=48;blo.Threshold=2.7;local col=Instance.new('ColorCorrectionEffect',L);col.Name='ColorCorrection';col.Enabled=true;col.Brightness=0.02;col.Contrast=0.08;col.Saturation=0.05;col.TintColor=Color3.new(0.96,0.98,1);local sun=Instance.new('SunRaysEffect',L);sun.Name='SunRays';sun.Enabled=true;sun.Intensity=0.003;sun.Spread=0.035]])
-            local folder=Instance.new("Folder",workspace); folder.Name="Snowfall_Client"
+            local folder=Instance.new("Folder",workspace)
+            folder.Name="Snowfall_Client"
             makeSnowPart("ChillMorning",320,NumberRange.new(8,12),NumberRange.new(4,10),
                 {NumberSequenceKeypoint.new(0,0.40),NumberSequenceKeypoint.new(0.7,0.28),NumberSequenceKeypoint.new(1,0.14)},
                 {NumberSequenceKeypoint.new(0,0.28),NumberSequenceKeypoint.new(0.8,0.48),NumberSequenceKeypoint.new(1,1)},
@@ -4092,16 +4361,19 @@ runcode(function()
         LightRain = function()
             cleanupAll()
             applyLighting([[local L=game:GetService('Lighting');L:ClearAllChildren();task.wait(0.3);L.Ambient=Color3.new(0,0,0);L.Brightness=1.4;L.ColorShift_Bottom=Color3.new(0,0,0);L.ColorShift_Top=Color3.new(0.6,0.6,0.6);L.OutdoorAmbient=Color3.new(0.3,0.32,0.36);L.FogColor=Color3.new(0.72,0.74,0.78);L.FogEnd=800;L.FogStart=40;L.GlobalShadows=true;L.GeographicLatitude=40;L.ExposureCompensation=0;L.EnvironmentDiffuseScale=0.8;L.EnvironmentSpecularScale=0.6;L.ClockTime=13;L.TimeOfDay='15:00:00';L.ShadowSoftness=0.05;L.Technology=Enum.Technology.Future;local sky=Instance.new('Sky',L);sky.Name='Sky';sky.CelestialBodiesShown=false;sky.SkyboxBk='http://www.roblox.com/asset/?id=4514139911';sky.SkyboxDn='http://www.roblox.com/asset/?id=4514139911';sky.SkyboxFt='http://www.roblox.com/asset/?id=4514139911';sky.SkyboxLf='http://www.roblox.com/asset/?id=4514139911';sky.SkyboxRt='http://www.roblox.com/asset/?id=4514139911';sky.SkyboxUp='http://www.roblox.com/asset/?id=4514139911';sky.StarCount=0;local atm=Instance.new('Atmosphere',L);atm.Name='LightRain_Atmosphere';atm.Density=0.38;atm.Offset=0.08;atm.Color=Color3.new(0.74,0.76,0.80);atm.Decay=Color3.new(0.60,0.62,0.66);atm.Glare=0.3;atm.Haze=1.8;local col=Instance.new('ColorCorrectionEffect',L);col.Name='ColorCorrection';col.Enabled=true;col.Brightness=-0.02;col.Contrast=0.03;col.Saturation=-0.15;col.TintColor=Color3.new(0.94,0.96,1)]])
-            local folder=Instance.new("Folder",workspace); folder.Name="Snowfall_Client"
+            local folder=Instance.new("Folder",workspace)
+            folder.Name="Snowfall_Client"
             buildRainScene(lplr,workspace.CurrentCamera,folder,28,38,6,0.94,0.97)
             startWeatherAudio("LightRain")
         end,
         HeavyRain = function()
             cleanupAll()
             applyLighting([[local L=game:GetService('Lighting');L:ClearAllChildren();task.wait(0.3);L.Ambient=Color3.new(0.168627,0.168627,0.168627);L.Brightness=1;L.ColorShift_Bottom=Color3.new(0,0,0);L.ColorShift_Top=Color3.new(0,0,0);L.OutdoorAmbient=Color3.new(0.168627,0.168627,0.168627);L.FogColor=Color3.new(0.752941,0.752941,0.752941);L.FogEnd=100000;L.FogStart=0;L.GlobalShadows=true;L.GeographicLatitude=0;L.ExposureCompensation=0;L.EnvironmentDiffuseScale=1;L.EnvironmentSpecularScale=1;L.ClockTime=0;L.TimeOfDay='2:00:00';L.ShadowSoftness=0.2;L.Technology=Enum.Technology.ShadowMap;local atm=Instance.new('Atmosphere',L);atm.Name='Atmosphere';atm.Density=0.6;atm.Offset=0;atm.Color=Color3.new(0.780392,0.780392,0.780392);atm.Decay=Color3.new(0.415686,0.439216,0.490196);atm.Glare=0;atm.Haze=0;local col=Instance.new('ColorCorrectionEffect',L);col.Name='ColorCorrection';col.Enabled=true;col.Brightness=0;col.Contrast=0;col.Saturation=0.5;col.TintColor=Color3.new(1,1,1);local sky=Instance.new('Sky',L);sky.Name='Sky';sky.CelestialBodiesShown=true;sky.SunAngularSize=11;sky.MoonAngularSize=11;sky.SkyboxBk='rbxassetid://6444884337';sky.SkyboxDn='rbxassetid://6444884785';sky.SkyboxFt='rbxassetid://6444884337';sky.SkyboxLf='rbxassetid://6444884337';sky.SkyboxRt='rbxassetid://6444884337';sky.SkyboxUp='rbxassetid://6412503613';sky.StarCount=3000;sky.SunTextureId='rbxassetid://6196665106';sky.MoonTextureId='rbxassetid://5076043799';local dep=Instance.new('DepthOfFieldEffect',L);dep.Name='DepthOfField';dep.Enabled=true;dep.FarIntensity=0.75;dep.FocusDistance=0.05;dep.InFocusRadius=75;dep.NearIntensity=0]])
-            local folder=Instance.new("Folder",workspace); folder.Name="Snowfall_Client"
+            local folder=Instance.new("Folder",workspace)
+            folder.Name="Snowfall_Client"
             buildRainScene(lplr,workspace.CurrentCamera,folder,82,50,18,0.88,0.93)
-            startWeatherAudio("HeavyRain"); lightFolders()
+            startWeatherAudio("HeavyRain")
+            lightFolders()
         end,
         BloodMoon = function()
             cleanupAll()
@@ -4111,8 +4383,21 @@ runcode(function()
             cleanupAll()
             applyLighting([[local L=game:GetService('Lighting');L:ClearAllChildren();task.wait(0.3);L.Ambient=Color3.new(0.168627,0.168627,0.168627);L.Brightness=1;L.ColorShift_Bottom=Color3.new(0,0,0);L.ColorShift_Top=Color3.new(0,0,0);L.OutdoorAmbient=Color3.new(0.168627,0.168627,0.168627);L.FogColor=Color3.new(0.752941,0.752941,0.752941);L.FogEnd=100000;L.FogStart=0;L.GlobalShadows=true;L.GeographicLatitude=0;L.ExposureCompensation=0;L.EnvironmentDiffuseScale=1;L.EnvironmentSpecularScale=1;L.ClockTime=0;L.TimeOfDay='00:00:00';L.ShadowSoftness=0.2;L.Technology=Enum.Technology.Future;local sky=Instance.new('Sky',L);sky.Name='Sky';sky.CelestialBodiesShown=true;sky.SunAngularSize=11;sky.MoonAngularSize=11;sky.SkyboxBk='rbxassetid://6444884337';sky.SkyboxDn='rbxassetid://6444884785';sky.SkyboxFt='rbxassetid://6444884337';sky.SkyboxLf='rbxassetid://6444884337';sky.SkyboxRt='rbxassetid://6444884337';sky.SkyboxUp='rbxassetid://6412503613';sky.StarCount=3000;sky.SunTextureId='rbxassetid://6196665106';sky.MoonTextureId='rbxassetid://5076043799';local dep=Instance.new('DepthOfFieldEffect',L);dep.Name='DepthOfField';dep.Enabled=false;dep.FarIntensity=0;dep.FocusDistance=0.05;dep.InFocusRadius=30;dep.NearIntensity=0;local col=Instance.new('ColorCorrectionEffect',L);col.Name='ColorCorrection';col.Enabled=true;col.Brightness=0;col.Contrast=0;col.Saturation=0;col.TintColor=Color3.new(1,1,1);local atm=Instance.new('Atmosphere',L);atm.Name='Atmosphere';atm.Density=0.6;atm.Offset=0;atm.Color=Color3.new(0.780392,0.780392,0.780392);atm.Decay=Color3.new(0.415686,0.439216,0.490196);atm.Glare=0;atm.Haze=0]])
             setupNightLights()
-            local gameAudio=Instance.new("Folder"); gameAudio.Name="GameAudio"; gameAudio.Parent=workspace; audioState.folder=gameAudio
-            local bgSound=Instance.new("Sound"); bgSound.Name="OutsideNightAmbient"; bgSound.SoundId="rbxassetid://9112764891"; bgSound.Looped=true; bgSound.Volume=0.1; bgSound.RollOffMode=Enum.RollOffMode.Inverse; bgSound.RollOffMinDistance=35; bgSound.RollOffMaxDistance=100000; bgSound.EmitterSize=80; bgSound.Parent=gameAudio; bgSound:Play()
+            local gameAudio=Instance.new("Folder")
+            gameAudio.Name="GameAudio"
+            gameAudio.Parent=workspace
+            audioState.folder=gameAudio
+            local bgSound=Instance.new("Sound")
+            bgSound.Name="OutsideNightAmbient"
+            bgSound.SoundId="rbxassetid://9112764891"
+            bgSound.Looped=true
+            bgSound.Volume=0.1
+            bgSound.RollOffMode=Enum.RollOffMode.Inverse
+            bgSound.RollOffMinDistance=35
+            bgSound.RollOffMaxDistance=100000
+            bgSound.EmitterSize=80
+            bgSound.Parent=gameAudio
+            bgSound:Play()
         end,
         Foggy = function()
             cleanupAll()
@@ -4140,12 +4425,42 @@ runcode(function()
         end,
         TimeCycle = function()
             cleanupAll()
-            local L=game:GetService("Lighting"); L:ClearAllChildren(); L.Technology=Enum.Technology.Future; L.GlobalShadows=true; L.GeographicLatitude=40; L.ShadowSoftness=0.25; L.FogEnd=100000; L.FogStart=0; L.EnvironmentDiffuseScale=1; L.EnvironmentSpecularScale=1
-            local sky=Instance.new("Sky",L); sky.Name="60"; sky.CelestialBodiesShown=true; sky.SunAngularSize=5; sky.MoonAngularSize=1.5; sky.SkyboxBk="rbxassetid://6973550206"; sky.SkyboxDn="rbxassetid://6973550815"; sky.SkyboxFt="rbxassetid://6973549125"; sky.SkyboxLf="rbxassetid://6973549670"; sky.SkyboxRt="rbxassetid://9089057892"; sky.SkyboxUp="rbxassetid://6973551204"; sky.StarCount=5000; sky.SunTextureId="rbxassetid://1084351190"; sky.MoonTextureId="rbxassetid://1075087760"
+            local L=game:GetService("Lighting")
+            L:ClearAllChildren()
+            L.Technology=Enum.Technology.Future
+            L.GlobalShadows=true
+            L.GeographicLatitude=40
+            L.ShadowSoftness=0.25
+            L.FogEnd=100000
+            L.FogStart=0
+            L.EnvironmentDiffuseScale=1
+            L.EnvironmentSpecularScale=1
+            local sky=Instance.new("Sky",L)
+            sky.Name="60"
+            sky.CelestialBodiesShown=true
+            sky.SunAngularSize=5
+            sky.MoonAngularSize=1.5
+            sky.SkyboxBk="rbxassetid://6973550206"
+            sky.SkyboxDn="rbxassetid://6973550815"
+            sky.SkyboxFt="rbxassetid://6973549125"
+            sky.SkyboxLf="rbxassetid://6973549670"
+            sky.SkyboxRt="rbxassetid://9089057892"
+            sky.SkyboxUp="rbxassetid://6973551204"
+            sky.StarCount=5000
+            sky.SunTextureId="rbxassetid://1084351190"
+            sky.MoonTextureId="rbxassetid://1075087760"
             local atm=Instance.new("Atmosphere",L)
-            local bloom=Instance.new("BloomEffect",L); bloom.Name="Bloom"; bloom.Enabled=true
-            local cc=Instance.new("ColorCorrectionEffect",L); cc.Name="ColorCorrection"; cc.Enabled=true
-            local sun=Instance.new("SunRaysEffect",L); sun.Name="SunRays"; sun.Enabled=true; sun.Intensity=0.004; sun.Spread=0.04
+            local bloom=Instance.new("BloomEffect",L)
+            bloom.Name="Bloom"
+            bloom.Enabled=true
+            local cc=Instance.new("ColorCorrectionEffect",L)
+            cc.Name="ColorCorrection"
+            cc.Enabled=true
+            local sun=Instance.new("SunRaysEffect",L)
+            sun.Name="SunRays"
+            sun.Enabled=true
+            sun.Intensity=0.004
+            sun.Spread=0.04
             local KF={
                 {clock=7,   brightness=3,   exposure=0.7, shadowSoftness=0.25, csTop=Color3.new(0.972549,0.537255,0.152941), csBot=Color3.new(1,1,1),               ambient=Color3.new(0,0,0),             outdoorAmbient=Color3.new(0,0,0),             atmDensity=0.325,atmOffset=1,   atmColor=Color3.new(0,0,0),             atmDecay=Color3.new(0,0,0),             atmGlare=0,atmHaze=0.05, bloomI=1,bloomS=56,bloomT=2.9,ccContrast=0.1, ccSat=0.2, ccTint=Color3.new(1,1,1)},
                 {clock=14,  brightness=3,   exposure=0.4, shadowSoftness=0.15, csTop=Color3.new(1,0.941176,0.803922),         csBot=Color3.new(1,1,1),               ambient=Color3.new(0,0,0),             outdoorAmbient=Color3.new(0,0,0),             atmDensity=0.3,  atmOffset=0.9,  atmColor=Color3.new(0.101961,0.109804,0.152941),atmDecay=Color3.new(0.101961,0.109804,0.152941),atmGlare=0,atmHaze=0,    bloomI=1,bloomS=56,bloomT=2.9,ccContrast=0.05,ccSat=0.1, ccTint=Color3.new(1,1,1)},
@@ -4153,18 +4468,36 @@ runcode(function()
                 {clock=27,  brightness=1,   exposure=2.1, shadowSoftness=0.35, csTop=Color3.new(1,1,1),                        csBot=Color3.new(0,0,0),               ambient=Color3.new(0.098,0.098,0.098),outdoorAmbient=Color3.new(0.098,0.098,0.098),atmDensity=0.35, atmOffset=0.93, atmColor=Color3.new(0.133333,0.0901961,0.152941),atmDecay=Color3.new(0.133333,0.0901961,0.152941),atmGlare=0,atmHaze=0.05, bloomI=1,bloomS=56,bloomT=2.9,ccContrast=0.05,ccSat=-0.1,ccTint=Color3.new(1,1,1)},
             }
             local SEG_W={7/24,3.6/24,9.4/24,4/24}; local SEG_S={0}; for i=1,3 do SEG_S[i+1]=SEG_S[i]+SEG_W[i] end
-            local CYCLE_DURATION=300; local cycleStart=tick()
+            local CYCLE_DURATION=300
+            local cycleStart=tick()
             timeCycleConn=RunService.Heartbeat:Connect(function()
                 local t=(tick()-cycleStart)%CYCLE_DURATION/CYCLE_DURATION
                 local seg=4; for i=3,1,-1 do if t<SEG_S[i+1] then seg=i end end
-                local a=KF[seg]; local b=KF[seg%4+1]; local st=math.clamp((t-SEG_S[seg])/SEG_W[seg],0,1)
+                local a=KF[seg]
+                local b=KF[seg%4+1]
+                local st=math.clamp((t-SEG_S[seg])/SEG_W[seg],0,1)
                 local lerp = function(x,y) return x+(y-x)*st end
                 local clockB=(seg==4) and (KF[1].clock+24) or b.clock
-                L.ClockTime=(a.clock+(clockB-a.clock)*st)%24; L.Brightness=lerp(a.brightness,b.brightness); L.ExposureCompensation=lerp(a.exposure,b.exposure)
-                L.ColorShift_Top=a.csTop:Lerp(b.csTop,st); L.ColorShift_Bottom=a.csBot:Lerp(b.csBot,st); L.Ambient=a.ambient:Lerp(b.ambient,st); L.OutdoorAmbient=a.outdoorAmbient:Lerp(b.outdoorAmbient,st)
-                atm.Density=lerp(a.atmDensity,b.atmDensity); atm.Offset=lerp(a.atmOffset,b.atmOffset); atm.Color=a.atmColor:Lerp(b.atmColor,st); atm.Decay=a.atmDecay:Lerp(b.atmDecay,st); atm.Glare=lerp(a.atmGlare,b.atmGlare); atm.Haze=lerp(a.atmHaze,b.atmHaze)
-                bloom.Intensity=lerp(a.bloomI,b.bloomI); bloom.Size=lerp(a.bloomS,b.bloomS); bloom.Threshold=lerp(a.bloomT,b.bloomT)
-                cc.Contrast=lerp(a.ccContrast,b.ccContrast); cc.Saturation=lerp(a.ccSat,b.ccSat); cc.TintColor=a.ccTint:Lerp(b.ccTint,st); L.ShadowSoftness=lerp(a.shadowSoftness,b.shadowSoftness)
+                L.ClockTime=(a.clock+(clockB-a.clock)*st)%24
+                L.Brightness=lerp(a.brightness,b.brightness)
+                L.ExposureCompensation=lerp(a.exposure,b.exposure)
+                L.ColorShift_Top=a.csTop:Lerp(b.csTop,st)
+                L.ColorShift_Bottom=a.csBot:Lerp(b.csBot,st)
+                L.Ambient=a.ambient:Lerp(b.ambient,st)
+                L.OutdoorAmbient=a.outdoorAmbient:Lerp(b.outdoorAmbient,st)
+                atm.Density=lerp(a.atmDensity,b.atmDensity)
+                atm.Offset=lerp(a.atmOffset,b.atmOffset)
+                atm.Color=a.atmColor:Lerp(b.atmColor,st)
+                atm.Decay=a.atmDecay:Lerp(b.atmDecay,st)
+                atm.Glare=lerp(a.atmGlare,b.atmGlare)
+                atm.Haze=lerp(a.atmHaze,b.atmHaze)
+                bloom.Intensity=lerp(a.bloomI,b.bloomI)
+                bloom.Size=lerp(a.bloomS,b.bloomS)
+                bloom.Threshold=lerp(a.bloomT,b.bloomT)
+                cc.Contrast=lerp(a.ccContrast,b.ccContrast)
+                cc.Saturation=lerp(a.ccSat,b.ccSat)
+                cc.TintColor=a.ccTint:Lerp(b.ccTint,st)
+                L.ShadowSoftness=lerp(a.shadowSoftness,b.shadowSoftness)
             end)
         end,
     }
@@ -4187,7 +4520,7 @@ runcode(function()
 end)
 
 runcode(function()
-    local pg  = lplr:FindFirstChild("PlayerGui")
+    local pg = lplr:FindFirstChild("PlayerGui")
 
     local HIDE_GUIS = {
         "KitPopupsGui",
@@ -4210,13 +4543,13 @@ runcode(function()
 
     local HIDE_TOPBAR = { "UpdateLog", "Codes" }
 
-    local origEnabled   = {}
-    local origTopbar    = {}
+    local origEnabled = {}
+    local origTopbar = {}
     local origHealthBGT = nil
     local origStatusBGT = nil
-    local origStroke    = nil
-    local cleanLoop     = nil
-    local snapshotDone  = false
+    local origStroke = nil
+    local cleanLoop = nil
+    local snapshotDone = false
 
     local snapshot = function()
         if snapshotDone then return end
@@ -4353,7 +4686,7 @@ end)
 runcode(function()
     local BlockRange = {}
     local BlockRangeSlider = {}
-    local rangeVal  = {Value = 50}
+    local rangeVal = {Value = 50}
     local infRange = false
     local origRange = bedfight.modules.BlocksData.Default.Range
     BlockRange = GuiLibrary.Registry.utillityPanel.API.CreateOptionsButton({
@@ -4615,7 +4948,8 @@ runcode(function()
         for _, plr in ipairs(Players:GetPlayers()) do
             for _, n in ipairs({plr.Name, plr.DisplayName}) do
                 if n and n ~= "" and not seen[n] then
-                    seen[n] = true; table.insert(list, n)
+                    seen[n] = true
+                    table.insert(list, n)
                 end
             end
         end
@@ -4662,7 +4996,8 @@ runcode(function()
                 if not boardInjectActive then return end
                 for _, c in ipairs(lf:GetChildren()) do
                     if (c:IsA("Frame") or c:IsA("ImageLabel")) and c.Name ~= "__spoofEntry" then
-                        tmpl = c; break
+                        tmpl = c
+                        break
                     end
                 end
                 if tmpl then break end
@@ -4675,14 +5010,14 @@ runcode(function()
             if not entry then return end
             entry.Name = "__spoofEntry"
             entry.LayoutOrder = (BiRankPos and BiRankPos.Value or 1) - 1
-            local score    = BiScore    and BiScore.Value    or 9999
+            local score = BiScore    and BiScore.Value    or 9999
             local iconName = BiRankDrop and BiRankDrop.Value or RanksData.GetRank(score)
             local rankData = RanksData.UnorderedRanks[iconName]
-            pcall(function() entry.UsernameLabel.Text    = "@" .. spoofName end)
+            pcall(function() entry.UsernameLabel.Text = "@" .. spoofName end)
             pcall(function() entry.DisplayNameLabel.Text = spoofName end)
-            pcall(function() entry.RankPointsLabel.Text  = tostring(score) end)
-            pcall(function() entry.RankLabel.Text        = "#" .. (BiRankPos and BiRankPos.Value or 1) end)
-            pcall(function() entry.RankIcon.Image        = rankData and rankData.Image or "" end)
+            pcall(function() entry.RankPointsLabel.Text = tostring(score) end)
+            pcall(function() entry.RankLabel.Text = "#" .. (BiRankPos and BiRankPos.Value or 1) end)
+            pcall(function() entry.RankIcon.Image = rankData and rankData.Image or "" end)
             entry.Parent = lf
             table.insert(biEntries, entry)
         end)
@@ -4710,10 +5045,10 @@ runcode(function()
                         if e then
                             e.Name = eName
                             e.LayoutOrder = -9999
-                            local pos   = BiRankPos and BiRankPos.Value or 1
+                            local pos = BiRankPos and BiRankPos.Value or 1
                             local score = BiScore   and BiScore.Value   or 9999
-                            pcall(function() e.NameLabel.Text  = spoofName end)
-                            pcall(function() e.RankLabel.Text  = "#" .. pos end)
+                            pcall(function() e.NameLabel.Text = spoofName end)
+                            pcall(function() e.RankLabel.Text = "#" .. pos end)
                             pcall(function() e.ValueLabel.Text = tostring(score) end)
                             e.Parent = sf
                             table.insert(biEntries, e)
@@ -4724,7 +5059,7 @@ runcode(function()
                 botFrame = botFrame and botFrame:FindFirstChild("BottomGui")
                 botFrame = botFrame and botFrame:FindFirstChild("Frame")
                 if botFrame then
-                    local pos   = BiRankPos and BiRankPos.Value or 1
+                    local pos = BiRankPos and BiRankPos.Value or 1
                     local score = BiScore   and BiScore.Value   or 9999
                     pcall(function() botFrame.TextLabel.Text = "#" .. pos .. " You:" end)
                     pcall(function() botFrame.ValueLabel.Text = tostring(score) end)
@@ -5131,8 +5466,8 @@ runcode(function()
     end
 
     local serverListFolder = "Phantom/configs"
-    local serverListPath   = serverListFolder .. "/" .. tostring(game.PlaceId)
-    local _cacheIndex      = 0
+    local serverListPath = serverListFolder .. "/" .. tostring(game.PlaceId)
+    local _cacheIndex = 0
 
     local saveServerCache = function(jobId, servers)
         pcall(function()
@@ -5140,9 +5475,9 @@ runcode(function()
                 makefolder(serverListFolder)
             end
             local entry = {
-                jobId   = jobId,
+                jobId = jobId,
                 servers = servers,
-                saved   = os.time(),
+                saved = os.time(),
             }
             writefile(serverListPath, HttpService:JSONEncode(entry))
         end)
@@ -5174,7 +5509,7 @@ runcode(function()
     end
 
     local lowPingEnabled = {Value = false}
-    local LOW_PING_MAX   = 80
+    local LOW_PING_MAX = 80
 
     local doHop = function()
         local available = {}
@@ -5331,7 +5666,7 @@ end)
 
 -- runcode(function()
 --     local CFspeed = 50
---     local CFloop  = nil
+--     local CFloop = nil
 
 --     local _findPos = function()
 --         local char = lplr.Character
@@ -5381,11 +5716,11 @@ end)
 
 --     GuiLibrary.Registry.blatantPanel.API.CreateOptionsButton({
 --         Name = "Creative(blocks)",
---         New  = true,
+--         New = true,
 --         Function = function(callback)
 --             local char = lplr.Character
 --             if not char then return end
---             local hum  = char:FindFirstChildOfClass("Humanoid")
+--             local hum = char:FindFirstChildOfClass("Humanoid")
 --             local Head = char:FindFirstChild("Head")
 --             if not hum or not Head then return end
 --             if callback then
@@ -5400,11 +5735,11 @@ end)
 --                 Head.Anchored = true
 --                 if CFloop then CFloop:Disconnect() end
 --                 CFloop = RunService.Heartbeat:Connect(function(dt)
---                     local moveDir   = hum.MoveDirection * (CFspeed * dt)
---                     local hCF       = Head.CFrame
---                     local cam       = Camera.CFrame
---                     local offset    = hCF:ToObjectSpace(cam).Position
---                     local flatCam   = cam * CFrame.new(-offset.X, -offset.Y, -offset.Z + 1)
+--                     local moveDir = hum.MoveDirection * (CFspeed * dt)
+--                     local hCF = Head.CFrame
+--                     local cam = Camera.CFrame
+--                     local offset = hCF:ToObjectSpace(cam).Position
+--                     local flatCam = cam * CFrame.new(-offset.X, -offset.Y, -offset.Z + 1)
 --                     local vel = CFrame.new(flatCam.Position, Vector3.new(hCF.Position.X, flatCam.Position.Y, hCF.Position.Z)):VectorToObjectSpace(moveDir)
 --                     Head.CFrame = CFrame.new(hCF.Position) * (flatCam - flatCam.Position) * CFrame.new(vel)
 --                 end)
@@ -5420,9 +5755,9 @@ end)
 runcode(function()
     local Knockback = {}
 
-    local KBPower    = {Value = 80}
+    local KBPower = {Value = 80}
     local KBDuration = {Value = 0.15}
-    local KBMode     = {Value = "Backward"}
+    local KBMode = {Value = "Backward"}
 
     Knockback = GuiLibrary.Registry.utillityPanel.API.CreateOptionsButton({
         Name = "Knockback",
@@ -5496,23 +5831,33 @@ runcode(function()
     end
     local function makeBB(model, sz)
         local bb = Instance.new("BillboardGui")
-        bb.Name = "PhantomItemESP"; bb.AlwaysOnTop = true
+        bb.Name = "PhantomItemESP"
+        bb.AlwaysOnTop = true
         bb.StudsOffset = Vector3.new(0, 2.5, 0)
         local bg = Instance.new("Frame")
-        bg.Size = UDim2.fromScale(1,1); bg.BorderSizePixel = 0
-        bg.BackgroundColor3 = Color3.fromRGB(10,10,10); bg.BackgroundTransparency = 1
-        local bgcr = Instance.new("UICorner", bg); bgcr.CornerRadius = UDim.new(0, 5)
+        bg.Size = UDim2.fromScale(1,1)
+        bg.BorderSizePixel = 0
+        bg.BackgroundColor3 = Color3.fromRGB(10,10,10)
+        bg.BackgroundTransparency = 1
+        local bgcr = Instance.new("UICorner", bg)
+        bgcr.CornerRadius = UDim.new(0, 5)
         bg.Parent = bb
         local nameLbl = Instance.new("TextLabel")
-        nameLbl.BackgroundTransparency = 1; nameLbl.BorderSizePixel = 0
-        nameLbl.Font = Enum.Font.GothamSemibold; nameLbl.TextSize = 11
-        nameLbl.TextStrokeTransparency = 0.5; nameLbl.TextColor3 = Color3.new(1,1,1)
+        nameLbl.BackgroundTransparency = 1
+        nameLbl.BorderSizePixel = 0
+        nameLbl.Font = Enum.Font.GothamSemibold
+        nameLbl.TextSize = 11
+        nameLbl.TextStrokeTransparency = 0.5
+        nameLbl.TextColor3 = Color3.new(1,1,1)
         nameLbl.TextXAlignment = Enum.TextXAlignment.Left
         nameLbl.Parent = bg
         local distLbl = Instance.new("TextLabel")
-        distLbl.BackgroundTransparency = 1; distLbl.BorderSizePixel = 0
-        distLbl.Font = Enum.Font.GothamSemibold; distLbl.TextSize = 11
-        distLbl.TextStrokeTransparency = 0.5; distLbl.TextColor3 = Color3.new(1,1,1)
+        distLbl.BackgroundTransparency = 1
+        distLbl.BorderSizePixel = 0
+        distLbl.Font = Enum.Font.GothamSemibold
+        distLbl.TextSize = 11
+        distLbl.TextStrokeTransparency = 0.5
+        distLbl.TextColor3 = Color3.new(1,1,1)
         distLbl.TextXAlignment = Enum.TextXAlignment.Right
         distLbl.Parent = bg
         bb.Parent = model
@@ -5537,11 +5882,11 @@ runcode(function()
                 RunLoops:BindToHeartbeat("ItemESP", function()
                     lqN += 1; if lqN % 2 ~= 0 then return end
                     local myRoot = lplr.Character and lplr.Character:FindFirstChild("HumanoidRootPart")
-                    local maxD  = ItemMaxDist  and ItemMaxDist.Value  or 100
-                    local showN  = ItemShowName and ItemShowName.Enabled
-                    local showD  = ItemShowDist and ItemShowDist.Enabled
+                    local maxD = ItemMaxDist  and ItemMaxDist.Value  or 100
+                    local showN = ItemShowName and ItemShowName.Enabled
+                    local showD = ItemShowDist and ItemShowDist.Enabled
                     local showId = ItemShowId   and ItemShowId.Enabled
-                    local sz    = ItemSize     and ItemSize.Value      or 100
+                    local sz = ItemSize     and ItemSize.Value      or 100
                     local seen = {}
 
                     for model in pairs(itemTracked) do
@@ -5553,7 +5898,8 @@ runcode(function()
                             local old = itemBBs[model]
                             local bb2 = type(old) == "table" and old.bb or old
                             if bb2 and bb2.Parent then bb2:Destroy() end
-                            itemBBs[model] = nil; continue
+                            itemBBs[model] = nil
+                            continue
                         end
                         seen[model] = true
 
@@ -5566,7 +5912,8 @@ runcode(function()
                         local ts = math.clamp(math.floor(sz / 9), 9, 16)
                         entry.bg.BackgroundTransparency = (ItemBg and ItemBg.Enabled) and 0.35 or 1
                         entry.bgcr.CornerRadius = UDim.new(0, (ItemCorner and ItemCorner.Value == "Square") and 0 or 5)
-                        entry.nameLbl.TextSize = ts; entry.distLbl.TextSize = ts
+                        entry.nameLbl.TextSize = ts
+                        entry.distLbl.TextSize = ts
                         entry.nameLbl.TextColor3 = col
 
                         local font = Enum.Font.GothamSemibold
@@ -5576,7 +5923,8 @@ runcode(function()
                         local distStr = showD and ("["..math.floor(dist).."m]") or ""
                         local nameW = showN and measureTextW(nameStr, ts, font) or 0
                         local distW = showD and measureTextW(distStr, ts, font) or 0
-                        local pad = 6; local gap = (showN and showD) and 5 or 0
+                        local pad = 6
+                        local gap = (showN and showD) and 5 or 0
                         local totalW = math.max(40, nameW + distW + gap + pad * 2)
                         local h = ts + 8
                         entry.nameLbl.Visible = showN
@@ -5585,7 +5933,8 @@ runcode(function()
                         entry.distLbl.Visible = showD
                         entry.distLbl.Size = UDim2.new(0, distW, 1, 0)
                         entry.distLbl.Position = UDim2.new(0, pad + nameW + gap, 0, 0)
-                        entry.nameLbl.Text = nameStr; entry.distLbl.Text = distStr
+                        entry.nameLbl.Text = nameStr
+                        entry.distLbl.Text = distStr
                         entry.bb.Size = UDim2.fromOffset(totalW, h)
                     end
                     for model, entry in pairs(itemBBs) do
@@ -5669,8 +6018,10 @@ runcode(function()
         Name = "AntiVision",
         Function = function(callback)
             if callback then
-                origFogEnd = Lighting.FogEnd; origFogStart = Lighting.FogStart
-                origFogColor = Lighting.FogColor; origBright = Lighting.Brightness
+                origFogEnd = Lighting.FogEnd
+                origFogStart = Lighting.FogStart
+                origFogColor = Lighting.FogColor
+                origBright = Lighting.Brightness
                 origAmbient = Lighting.Ambient
                 local atm = Lighting:FindFirstChildOfClass("Atmosphere")
                 if atm then origAtmDen = atm.Density; origAtmHaze = atm.Haze end
@@ -5678,7 +6029,8 @@ runcode(function()
                 RunLoops:BindToHeartbeat("AntiVision", function()
                     local fogEnd = AVFogEnd and AVFogEnd.Value or 100000
                     if AVFog and AVFog.Enabled then
-                        Lighting.FogEnd   = fogEnd; Lighting.FogStart = fogEnd - 10
+                        Lighting.FogEnd = fogEnd
+                        Lighting.FogStart = fogEnd - 10
                         Lighting.FogColor = Color3.fromRGB(0,0,0)
                     end
                     if AVAtmos and AVAtmos.Enabled then
@@ -5686,19 +6038,21 @@ runcode(function()
                         if atm then atm.Density = 0; atm.Haze = 0 end
                     end
                     if AVBoost and AVBoost.Enabled then
-                        Lighting.Brightness = 5; Lighting.Ambient = Color3.fromRGB(150,150,150)
+                        Lighting.Brightness = 5
+                        Lighting.Ambient = Color3.fromRGB(150,150,150)
                     end
                 end)
             else
                 RunLoops:UnbindFromHeartbeat("AntiVision")
-                Lighting.FogEnd = origFogEnd or 100000; Lighting.FogStart = origFogStart or 0
+                Lighting.FogEnd = origFogEnd or 100000
+                Lighting.FogStart = origFogStart or 0
                 if origFogColor then Lighting.FogColor = origFogColor end
                 if origBright   then Lighting.Brightness = origBright  end
-                if origAmbient  then Lighting.Ambient    = origAmbient  end
+                if origAmbient  then Lighting.Ambient = origAmbient  end
                 local atm = Lighting:FindFirstChildOfClass("Atmosphere")
                 if atm then
                     if origAtmDen  ~= nil then atm.Density = origAtmDen  end
-                    if origAtmHaze ~= nil then atm.Haze    = origAtmHaze end
+                    if origAtmHaze ~= nil then atm.Haze = origAtmHaze end
                 end
             end
         end
@@ -5737,14 +6091,17 @@ runcode(function()
             if callback then
                 local pgui = lplr:FindFirstChildOfClass("PlayerGui")
                 warnGui = Instance.new("ScreenGui")
-                warnGui.Name = "PhantomNearby"; warnGui.ResetOnSpawn = false
-                warnGui.IgnoreGuiInset = true; warnGui.DisplayOrder = 999998
+                warnGui.Name = "PhantomNearby"
+                warnGui.ResetOnSpawn = false
+                warnGui.IgnoreGuiInset = true
+                warnGui.DisplayOrder = 999998
                 warnGui.Parent = pgui or game.CoreGui
 
                 warnFrame = Instance.new("Frame", warnGui)
                 warnFrame.Size = UDim2.fromScale(1,1)
                 warnFrame.BackgroundColor3 = Color3.fromRGB(255,50,50)
-                warnFrame.BackgroundTransparency = 1; warnFrame.BorderSizePixel = 0
+                warnFrame.BackgroundTransparency = 1
+                warnFrame.BorderSizePixel = 0
 
                 warnLabel = Instance.new("TextLabel", warnGui)
                 warnLabel.Size = UDim2.fromOffset(250, 32)
@@ -5753,11 +6110,15 @@ runcode(function()
                 warnLabel.BackgroundColor3 = Color3.fromRGB(12,12,12)
                 warnLabel.BackgroundTransparency = 0.2
                 warnLabel.TextColor3 = Color3.fromRGB(255,80,80)
-                warnLabel.Font = Enum.Font.GothamSemibold; warnLabel.TextSize = 14
-                warnLabel.Text = "! ENEMY NEARBY (fuck him up) !"; warnLabel.Visible = false
-                local corner = Instance.new("UICorner", warnLabel); corner.CornerRadius = UDim.new(0,6)
+                warnLabel.Font = Enum.Font.GothamSemibold
+                warnLabel.TextSize = 14
+                warnLabel.Text = "! ENEMY NEARBY (fuck him up) !"
+                warnLabel.Visible = false
+                local corner = Instance.new("UICorner", warnLabel)
+                corner.CornerRadius = UDim.new(0,6)
                 local stroke = Instance.new("UIStroke", warnLabel)
-                stroke.Color = Color3.fromRGB(180,40,40); stroke.Thickness = 1.5
+                stroke.Color = Color3.fromRGB(180,40,40)
+                stroke.Thickness = 1.5
 
                 local flashAlpha = 0
                 RunLoops:BindToHeartbeat("NearbyWarn", function(dt)
@@ -5771,8 +6132,8 @@ runcode(function()
                         if v.Team and v.Team == lplr.Team then continue end
                         if not PlayerUtility.IsAlive(v) then continue end
                         local char = v.Character; if not char then continue end
-                        local hrp  = char:FindFirstChild("HumanoidRootPart"); if not hrp then continue end
-                        local d    = (myRoot.Position - hrp.Position).Magnitude
+                        local hrp = char:FindFirstChild("HumanoidRootPart"); if not hrp then continue end
+                        local d = (myRoot.Position - hrp.Position).Magnitude
                         if d < dist and d < closestD then closest = v; closestD = d end
                     end
 
@@ -5793,13 +6154,15 @@ runcode(function()
                         else warnLabel.Visible = false end
                     else
                         flashAlpha = math.max(flashAlpha - dt*4, 0)
-                        warnFrame.BackgroundTransparency = 1; warnLabel.Visible = false
+                        warnFrame.BackgroundTransparency = 1
+                        warnLabel.Visible = false
                     end
                 end)
             else
                 RunLoops:UnbindFromHeartbeat("NearbyWarn")
                 if warnGui then warnGui:Destroy(); warnGui = nil end
-                warnFrame = nil; warnLabel = nil
+                warnFrame = nil
+                warnLabel = nil
             end
         end
     })
@@ -5840,11 +6203,11 @@ end)
 
 runcode(function()
     local tntEntries = {}
-    local tntSpawn  = {}
+    local tntSpawn = {}
     local tntTracked = {}
-    local tntConns   = {}
+    local tntConns = {}
     local TNTBtn, TNTColor, TNTMaxDist, TNTShowName, TNTShowDist, TNTBg, TNTCorner
-    local TNT_FUSE  = 4.2
+    local TNT_FUSE = 4.2
 
     local TNT_KEYS = {"tnt","bomb","fireball","explosive","smoke"}
     local function isTNT(name)
@@ -5886,8 +6249,8 @@ runcode(function()
                 RunLoops:BindToHeartbeat("TNTDetector", function()
                     lqN += 1; if lqN % 3 ~= 0 then return end
                     local myRoot = lplr.Character and lplr.Character:FindFirstChild("HumanoidRootPart")
-                    local maxD  = TNTMaxDist  and TNTMaxDist.Value  or 200
-                    local c     = pcol(TNTColor)
+                    local maxD = TNTMaxDist  and TNTMaxDist.Value  or 200
+                    local c = pcol(TNTColor)
                     local showN = TNTShowName and TNTShowName.Enabled
                     local showD = TNTShowDist and TNTShowDist.Enabled
                     local seen = {}
@@ -5899,62 +6262,89 @@ runcode(function()
                         if not tntSpawn[obj] then tntSpawn[obj] = tick() end
                         if not tntEntries[obj] then
                                 local h = Instance.new("Highlight")
-                                h.Adornee = obj; h.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-                                h.FillColor = c; h.FillTransparency = 0.35
-                                h.OutlineColor = c; h.OutlineTransparency = 0; h.Parent = workspace
+                                h.Adornee = obj
+                                h.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+                                h.FillColor = c
+                                h.FillTransparency = 0.35
+                                h.OutlineColor = c
+                                h.OutlineTransparency = 0
+                                h.Parent = workspace
                                 local bb = Instance.new("BillboardGui")
-                                bb.Name = "PhantomTNT"; bb.AlwaysOnTop = true
+                                bb.Name = "PhantomTNT"
+                                bb.AlwaysOnTop = true
                                 bb.StudsOffset = Vector3.new(0, 3.5, 0)
                                 local bg = Instance.new("Frame")
-                                bg.Size = UDim2.fromScale(1,1); bg.BorderSizePixel = 0
-                                bg.BackgroundColor3 = Color3.fromRGB(10,10,10); bg.BackgroundTransparency = 1
-                                local tcr = Instance.new("UICorner", bg); tcr.CornerRadius = UDim.new(0, 5)
+                                bg.Size = UDim2.fromScale(1,1)
+                                bg.BorderSizePixel = 0
+                                bg.BackgroundColor3 = Color3.fromRGB(10,10,10)
+                                bg.BackgroundTransparency = 1
+                                local tcr = Instance.new("UICorner", bg)
+                                tcr.CornerRadius = UDim.new(0, 5)
                                 bg.Parent = bb
                                 local nameLbl = Instance.new("TextLabel")
-                                nameLbl.BackgroundTransparency = 1; nameLbl.BorderSizePixel = 0
-                                nameLbl.Font = Enum.Font.GothamSemibold; nameLbl.TextSize = 12
-                                nameLbl.TextStrokeTransparency = 0.5; nameLbl.TextColor3 = Color3.fromRGB(255,80,80)
-                                nameLbl.TextXAlignment = Enum.TextXAlignment.Left; nameLbl.Parent = bg
+                                nameLbl.BackgroundTransparency = 1
+                                nameLbl.BorderSizePixel = 0
+                                nameLbl.Font = Enum.Font.GothamSemibold
+                                nameLbl.TextSize = 12
+                                nameLbl.TextStrokeTransparency = 0.5
+                                nameLbl.TextColor3 = Color3.fromRGB(255,80,80)
+                                nameLbl.TextXAlignment = Enum.TextXAlignment.Left
+                                nameLbl.Parent = bg
                                 local timerLbl = Instance.new("TextLabel")
-                                timerLbl.BackgroundTransparency = 1; timerLbl.BorderSizePixel = 0
-                                timerLbl.Font = Enum.Font.GothamSemibold; timerLbl.TextSize = 12
-                                timerLbl.TextStrokeTransparency = 0.5; timerLbl.TextColor3 = Color3.new(1,1,1)
-                                timerLbl.TextXAlignment = Enum.TextXAlignment.Left; timerLbl.Parent = bg
+                                timerLbl.BackgroundTransparency = 1
+                                timerLbl.BorderSizePixel = 0
+                                timerLbl.Font = Enum.Font.GothamSemibold
+                                timerLbl.TextSize = 12
+                                timerLbl.TextStrokeTransparency = 0.5
+                                timerLbl.TextColor3 = Color3.new(1,1,1)
+                                timerLbl.TextXAlignment = Enum.TextXAlignment.Left
+                                timerLbl.Parent = bg
                                 local distLbl = Instance.new("TextLabel")
-                                distLbl.BackgroundTransparency = 1; distLbl.BorderSizePixel = 0
-                                distLbl.Font = Enum.Font.GothamSemibold; distLbl.TextSize = 12
-                                distLbl.TextStrokeTransparency = 0.5; distLbl.TextColor3 = Color3.new(1,1,1)
-                                distLbl.TextXAlignment = Enum.TextXAlignment.Left; distLbl.Parent = bg
+                                distLbl.BackgroundTransparency = 1
+                                distLbl.BorderSizePixel = 0
+                                distLbl.Font = Enum.Font.GothamSemibold
+                                distLbl.TextSize = 12
+                                distLbl.TextStrokeTransparency = 0.5
+                                distLbl.TextColor3 = Color3.new(1,1,1)
+                                distLbl.TextXAlignment = Enum.TextXAlignment.Left
+                                distLbl.Parent = bg
                                 bb.Parent = obj
                                 tntEntries[obj] = {h=h, bb=bb, bg=bg, tcr=tcr, nameLbl=nameLbl, timerLbl=timerLbl, distLbl=distLbl}
                             end
                             local entry = tntEntries[obj]
-                            entry.h.FillColor = c; entry.h.OutlineColor = c
+                            entry.h.FillColor = c
+                            entry.h.OutlineColor = c
                             entry.bg.BackgroundTransparency = (TNTBg and TNTBg.Enabled) and 0.35 or 1
                             entry.tcr.CornerRadius = UDim.new(0, (TNTCorner and TNTCorner.Value == "Square") and 0 or 5)
                             do
                                 local dist = myRoot and math.floor((myRoot.Position - pos).Magnitude) or 0
-                                local elapsed   = tick() - (tntSpawn[obj] or tick())
+                                local elapsed = tick() - (tntSpawn[obj] or tick())
                                 local remaining = math.max(0, TNT_FUSE - elapsed)
                                 local timerC = Color3.fromHSV(math.clamp(remaining/TNT_FUSE,0,1)/3, 0.9, 1)
-                                local ts = 12; local font = Enum.Font.GothamSemibold
-                                local pad = 6; local gap = 4
-                                local nameStr  = showN and obj.Name or ""
+                                local ts = 12
+                                local font = Enum.Font.GothamSemibold
+                                local pad = 6
+                                local gap = 4
+                                local nameStr = showN and obj.Name or ""
                                 local timerStr = string.format("%.1fs", remaining)
-                                local distStr  = showD and ("["..dist.."m]") or ""
-                                local nameW  = showN and measureTextW(nameStr, ts, font) or 0
+                                local distStr = showD and ("["..dist.."m]") or ""
+                                local nameW = showN and measureTextW(nameStr, ts, font) or 0
                                 local timerW = measureTextW(timerStr, ts, font)
-                                local distW  = showD and measureTextW(distStr, ts, font) or 0
+                                local distW = showD and measureTextW(distStr, ts, font) or 0
                                 local totalW = math.max(50, nameW + (nameW>0 and gap or 0) + timerW + (distW>0 and gap or 0) + distW + pad*2)
                                 local x = pad
                                 entry.nameLbl.Visible = showN
-                                entry.nameLbl.Size = UDim2.new(0, nameW, 1, 0); entry.nameLbl.Position = UDim2.new(0, x, 0, 0)
+                                entry.nameLbl.Size = UDim2.new(0, nameW, 1, 0)
+                                entry.nameLbl.Position = UDim2.new(0, x, 0, 0)
                                 entry.nameLbl.Text = nameStr; if showN then x += nameW + gap end
                                 entry.timerLbl.TextColor3 = timerC
-                                entry.timerLbl.Size = UDim2.new(0, timerW, 1, 0); entry.timerLbl.Position = UDim2.new(0, x, 0, 0)
-                                entry.timerLbl.Text = timerStr; x += timerW + (distW>0 and gap or 0)
+                                entry.timerLbl.Size = UDim2.new(0, timerW, 1, 0)
+                                entry.timerLbl.Position = UDim2.new(0, x, 0, 0)
+                                entry.timerLbl.Text = timerStr
+                                x += timerW + (distW>0 and gap or 0)
                                 entry.distLbl.Visible = showD
-                                entry.distLbl.Size = UDim2.new(0, distW, 1, 0); entry.distLbl.Position = UDim2.new(0, x, 0, 0)
+                                entry.distLbl.Size = UDim2.new(0, distW, 1, 0)
+                                entry.distLbl.Position = UDim2.new(0, x, 0, 0)
                                 entry.distLbl.Text = distStr
                                 entry.bb.Size = UDim2.fromOffset(totalW, ts + 8)
                             end
@@ -5963,7 +6353,8 @@ runcode(function()
                         if not seen[obj] or not obj.Parent then
                             if entry.h  and entry.h.Parent  then entry.h:Destroy()  end
                             if entry.bb and entry.bb.Parent then entry.bb:Destroy() end
-                            tntEntries[obj] = nil; tntSpawn[obj] = nil
+                            tntEntries[obj] = nil
+                            tntSpawn[obj] = nil
                         end
                     end
                 end)
@@ -5973,9 +6364,11 @@ runcode(function()
                     if e.h  and e.h.Parent  then e.h:Destroy()  end
                     if e.bb and e.bb.Parent then e.bb:Destroy() end
                 end
-                tntEntries = {}; tntSpawn = {}
+                tntEntries = {}
+                tntSpawn = {}
                 for _, c in ipairs(tntConns) do pcall(function() c:Disconnect() end) end
-                table.clear(tntConns); table.clear(tntTracked)
+                table.clear(tntConns)
+                table.clear(tntTracked)
             end
         end
     })
@@ -6103,13 +6496,13 @@ runcode(function()
                 RunLoops:BindToHeartbeat("BedESP", function()
                     bedN += 1; if bedN % 10 ~= 0 then return end
                     local myRoot = lplr.Character and lplr.Character:FindFirstChild("HumanoidRootPart")
-                    local eOnly  = BedEnemyOnly and BedEnemyOnly.Enabled
-                    local showD  = BedShowDist  and BedShowDist.Enabled
-                    local showT  = BedShowTeam  and BedShowTeam.Enabled
-                    local filA   = BedFillOp    and BedFillOp.Value or 0.5
-                    local outA   = BedOutOp     and BedOutOp.Value  or 0
-                    local ec     = pcol(BedColor)
-                    local seen   = {}
+                    local eOnly = BedEnemyOnly and BedEnemyOnly.Enabled
+                    local showD = BedShowDist  and BedShowDist.Enabled
+                    local showT = BedShowTeam  and BedShowTeam.Enabled
+                    local filA = BedFillOp    and BedFillOp.Value or 0.5
+                    local outA = BedOutOp     and BedOutOp.Value  or 0
+                    local ec = pcol(BedColor)
+                    local seen = {}
 
                     for _, bed in ipairs(getBedModels()) do
                         if not bed or not bed.Parent then continue end
@@ -6118,34 +6511,46 @@ runcode(function()
                         seen[bed] = true
                         if not bedEntries[bed] then
                             local h = Instance.new("Highlight")
-                            h.Adornee = bed; h.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+                            h.Adornee = bed
+                            h.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
                             h.Parent = workspace
                             local bb = Instance.new("BillboardGui")
-                            bb.Name = "PhantomBedESP"; bb.AlwaysOnTop = true
+                            bb.Name = "PhantomBedESP"
+                            bb.AlwaysOnTop = true
                             bb.StudsOffset = Vector3.new(0, 4.5, 0)
                             local bg = Instance.new("Frame")
-                            bg.Size = UDim2.fromScale(1,1); bg.BorderSizePixel = 0
-                            bg.BackgroundColor3 = Color3.fromRGB(10,10,10); bg.BackgroundTransparency = 1
-                            local bcr = Instance.new("UICorner", bg); bcr.CornerRadius = UDim.new(0, 5)
+                            bg.Size = UDim2.fromScale(1,1)
+                            bg.BorderSizePixel = 0
+                            bg.BackgroundColor3 = Color3.fromRGB(10,10,10)
+                            bg.BackgroundTransparency = 1
+                            local bcr = Instance.new("UICorner", bg)
+                            bcr.CornerRadius = UDim.new(0, 5)
                             bg.Parent = bb
                             local nameLbl = Instance.new("TextLabel")
-                            nameLbl.BackgroundTransparency = 1; nameLbl.BorderSizePixel = 0
-                            nameLbl.Font = Enum.Font.GothamSemibold; nameLbl.TextSize = 12
-                            nameLbl.TextStrokeTransparency = 0.5; nameLbl.TextColor3 = Color3.new(1,1,1)
+                            nameLbl.BackgroundTransparency = 1
+                            nameLbl.BorderSizePixel = 0
+                            nameLbl.Font = Enum.Font.GothamSemibold
+                            nameLbl.TextSize = 12
+                            nameLbl.TextStrokeTransparency = 0.5
+                            nameLbl.TextColor3 = Color3.new(1,1,1)
                             nameLbl.TextXAlignment = Enum.TextXAlignment.Left
                             nameLbl.Parent = bg
                             local function makeLbl(color)
                                 local l = Instance.new("TextLabel")
-                                l.BackgroundTransparency = 1; l.BorderSizePixel = 0
-                                l.Font = Enum.Font.GothamSemibold; l.TextSize = 12
-                                l.TextStrokeTransparency = 0.5; l.TextColor3 = color
-                                l.TextXAlignment = Enum.TextXAlignment.Left; l.Parent = bg
+                                l.BackgroundTransparency = 1
+                                l.BorderSizePixel = 0
+                                l.Font = Enum.Font.GothamSemibold
+                                l.TextSize = 12
+                                l.TextStrokeTransparency = 0.5
+                                l.TextColor3 = color
+                                l.TextXAlignment = Enum.TextXAlignment.Left
+                                l.Parent = bg
                                 return l
                             end
                             local green = Color3.fromRGB(85, 255, 127)
-                            local lbLbl      = makeLbl(green)      lbLbl.Text = "["
+                            local lbLbl = makeLbl(green)      lbLbl.Text = "["
                             local distNumLbl = makeLbl(Color3.new(1,1,1))
-                            local rbLbl      = makeLbl(green)      rbLbl.Text = "]"
+                            local rbLbl = makeLbl(green)      rbLbl.Text = "]"
                             bb.Parent = bed
                             bedEntries[bed] = {h=h, bb=bb, bg=bg, bcr=bcr, nameLbl=nameLbl, lbLbl=lbLbl, distNumLbl=distNumLbl, rbLbl=rbLbl}
                         end
@@ -6153,14 +6558,17 @@ runcode(function()
                         local autoMode = BedColor and BedColor.Value == "Auto"
                         local teamLabel, teamColor = getBedTeamInfo(bed)
                         local bc = autoMode and teamColor or ec
-                        entry.h.FillColor = bc; entry.h.FillTransparency = filA
-                        entry.h.OutlineColor = bc; entry.h.OutlineTransparency = outA
+                        entry.h.FillColor = bc
+                        entry.h.FillTransparency = filA
+                        entry.h.OutlineColor = bc
+                        entry.h.OutlineTransparency = outA
                         entry.bg.BackgroundTransparency = (BedBg and BedBg.Enabled) and 0.35 or 1
                         entry.bcr.CornerRadius = UDim.new(0, (BedCorner and BedCorner.Value == "Square") and 0 or 5)
                         entry.nameLbl.TextColor3 = bc
                         local ok, cf = pcall(function() return bed:GetModelCFrame() end)
                         local bpos = ok and cf.Position or Vector3.zero
-                        local ts = 12; local font = Enum.Font.GothamSemibold
+                        local ts = 12
+                        local font = Enum.Font.GothamSemibold
                         if not _cachedLbW then
                             _cachedLbW = measureTextW("[", ts, font)
                             _cachedRbW = measureTextW("]", ts, font)
@@ -6168,11 +6576,11 @@ runcode(function()
                         local nameVisible = showT
                         local distVisible = showD and myRoot ~= nil
                         local nameStr = nameVisible and teamLabel or ""
-                        local numStr  = distVisible and (myRoot and math.floor((myRoot.Position - bpos).Magnitude).."m" or "0m") or ""
+                        local numStr = distVisible and (myRoot and math.floor((myRoot.Position - bpos).Magnitude).."m" or "0m") or ""
                         local nameW = nameVisible and measureTextW(nameStr, ts, font) or 0
-                        local lbW   = distVisible and _cachedLbW or 0
-                        local numW  = distVisible and measureTextW(numStr, ts, font) or 0
-                        local rbW   = distVisible and _cachedRbW or 0
+                        local lbW = distVisible and _cachedLbW or 0
+                        local numW = distVisible and measureTextW(numStr, ts, font) or 0
+                        local rbW = distVisible and _cachedRbW or 0
                         local pad = 6
                         local gap = (nameVisible and distVisible) and 5 or 0
                         local totalW = math.max(40, nameW + lbW + numW + rbW + gap + pad * 2)
@@ -6272,9 +6680,9 @@ runcode(function()
         Function = function(callback)
             if callback then
                 fcActive = true
-                local lv    = Camera.CFrame.LookVector
+                local lv = Camera.CFrame.LookVector
                 local pitch = math.asin(math.clamp(lv.Y, -1, 1))
-                local yaw   = math.atan2(-lv.X, -lv.Z)
+                local yaw = math.atan2(-lv.X, -lv.Z)
                 local camPos= Camera.CFrame.Position
 
                 UIS.MouseBehavior = Enum.MouseBehavior.LockCenter
@@ -6286,8 +6694,8 @@ runcode(function()
                     end
 
                     local speed = FCSpeed and FCSpeed.Value or 30
-                    local fast  = UIS:IsKeyDown(Enum.KeyCode.LeftShift) and 3 or 1
-                    local move  = Vector3.zero
+                    local fast = UIS:IsKeyDown(Enum.KeyCode.LeftShift) and 3 or 1
+                    local move = Vector3.zero
                     if UIS:IsKeyDown(Enum.KeyCode.W) then move += Vector3.new(0,0,-1) end
                     if UIS:IsKeyDown(Enum.KeyCode.S) then move += Vector3.new(0,0, 1) end
                     if UIS:IsKeyDown(Enum.KeyCode.A) then move += Vector3.new(-1,0,0) end
@@ -6335,9 +6743,9 @@ runcode(function()
     local XRBtn, XROpacity, XRBlocks, XRWool
 
     local function processXray(on)
-        local transp   = XROpacity and XROpacity.Value or 0.88
+        local transp = XROpacity and XROpacity.Value or 0.88
         local doBlocks = XRBlocks  and XRBlocks.Enabled
-        local doWool   = XRWool    and XRWool.Enabled
+        local doWool = XRWool    and XRWool.Enabled
         local function process(container, enabled)
             if not container then return end
             for _, p in ipairs(container:GetDescendants()) do
@@ -6360,7 +6768,8 @@ runcode(function()
                     processXray(true)
                 end)
             else
-                RunLoops:UnbindFromHeartbeat("Xray"); processXray(false)
+                RunLoops:UnbindFromHeartbeat("Xray")
+                processXray(false)
             end
         end
     })
@@ -6387,8 +6796,8 @@ runcode(function()
 
     local hudGui, hudFrame = nil, nil
     local iconLabels = {}
-    local lastSig    = ""
-    local FALLBACK   = "rbxassetid://130674868309232"
+    local lastSig = ""
+    local FALLBACK = "rbxassetid://130674868309232"
 
     local SLOT_KEYS = {"helmet","chestplate","leggings","boots"}
 
@@ -6427,7 +6836,7 @@ runcode(function()
             for _, entry in ipairs(hook.items) do
                 local obj = entry.item
                 local iName = obj and obj.Name or ""
-                local cls   = entry.class or ""
+                local cls = entry.class or ""
                 if (entry.inventory or ""):lower() == "armor"
                     or getArmorSlot(iName, cls)
                 then
@@ -6445,7 +6854,7 @@ runcode(function()
             if armorInv then
                 for _, slot in ipairs(armorInv.Items) do
                     local iName = slot.Name or ""
-                    local cls   = slot:GetAttribute("Class") or ""
+                    local cls = slot:GetAttribute("Class") or ""
                     if iName ~= "" then
                         local slotKey = getArmorSlot(iName, cls)
                         if slotKey and not slots[slotKey] then
@@ -6475,7 +6884,7 @@ runcode(function()
         if not hudFrame then return end
 
         local totalH = 0
-        local count  = 0
+        local count = 0
         for _, k in ipairs(SLOT_KEYS) do
             if slots[k] then count += 1 end
         end
@@ -6505,12 +6914,12 @@ runcode(function()
             local info = slots[k]
             if info then
                 local img = Instance.new("ImageLabel", hudFrame)
-                img.Size              = UDim2.fromOffset(sz, sz)
-                img.Position          = UDim2.fromOffset(4, yOff)
+                img.Size = UDim2.fromOffset(sz, sz)
+                img.Position = UDim2.fromOffset(4, yOff)
                 img.BackgroundTransparency = 1
-                img.BorderSizePixel   = 0
-                img.Image             = info.image
-                img.ScaleType         = Enum.ScaleType.Fit
+                img.BorderSizePixel = 0
+                img.Image = info.image
+                img.ScaleType = Enum.ScaleType.Fit
                 iconLabels[#iconLabels+1] = img
                 yOff += sz + pad
             end
@@ -6527,8 +6936,10 @@ runcode(function()
 
                 local pgui = lplr:FindFirstChildOfClass("PlayerGui")
                 hudGui = Instance.new("ScreenGui")
-                hudGui.Name = "PhantomArmorHUD"; hudGui.ResetOnSpawn = false
-                hudGui.IgnoreGuiInset = true; hudGui.DisplayOrder = 999990
+                hudGui.Name = "PhantomArmorHUD"
+                hudGui.ResetOnSpawn = false
+                hudGui.IgnoreGuiInset = true
+                hudGui.DisplayOrder = 999990
                 hudGui.Parent = pgui or game.CoreGui
 
                 hudFrame = Instance.new("Frame", hudGui)
@@ -6543,19 +6954,19 @@ runcode(function()
                 RunLoops:BindToHeartbeat("ArmorHUD", function()
                     lqN += 1; if lqN % 6 ~= 0 then return end
 
-                    local sz      = AHSize    and math.floor(AHSize.Value)    or 40
-                    local pad     = AHPadding and math.floor(AHPadding.Value) or 4
-                    local bgOn    = AHBg      and AHBg.Enabled
-                    local cStyle  = AHCorner  and AHCorner.Value or "Rounded"
-                    local op      = AHOpacity and AHOpacity.Value or 0.4
+                    local sz = AHSize    and math.floor(AHSize.Value)    or 40
+                    local pad = AHPadding and math.floor(AHPadding.Value) or 4
+                    local bgOn = AHBg      and AHBg.Enabled
+                    local cStyle = AHCorner  and AHCorner.Value or "Rounded"
+                    local op = AHOpacity and AHOpacity.Value or 0.4
 
                     hudFrame.Visible = bgOn
                     hudFrame.BackgroundTransparency = op
                     hCorner.CornerRadius = UDim.new(0, cStyle == "Square" and 0 or 6)
 
                     local slots = buildSlots()
-                    local posV  = AHPos and AHPos.Value or "Bottom Left"
-                    local sig   = buildSig(slots) .. "|sz=" .. sz .. "|pad=" .. pad .. "|pos=" .. posV
+                    local posV = AHPos and AHPos.Value or "Bottom Left"
+                    local sig = buildSig(slots) .. "|sz=" .. sz .. "|pad=" .. pad .. "|pos=" .. posV
                     local hasAny = next(slots) ~= nil
                     hudFrame.Visible = bgOn and hasAny
                     for _, lbl2 in ipairs(iconLabels) do
@@ -6569,7 +6980,9 @@ runcode(function()
             else
                 RunLoops:UnbindFromHeartbeat("ArmorHUD")
                 if hudGui then hudGui:Destroy(); hudGui = nil end
-                hudFrame = nil; iconLabels = {}; lastSig = ""
+                hudFrame = nil
+                iconLabels = {}
+                lastSig = ""
             end
         end
     })
