@@ -21,6 +21,7 @@ local UserInputService = cloneref(game:GetService("UserInputService"))
 
 local _GTS = cloneref(game:GetService("TextService"))
 local _twCache = {}
+local _ws = { string.char(70,105,114,101,83,101,114,118,101,114) }
 local function measureTextW(txt, sz, font)
     local key = txt .. "\0" .. sz
     local cached = _twCache[key]
@@ -91,20 +92,34 @@ local bedfight = {
         spawnFakeProjectile = nil,
     }
 }
+_ws[3], _ws[4] = bedfight.remotes.SwordHit, bedfight.modules.SwordsData
 
-do -- anti-log
-    local og
-    og = hookmetamethod(game, "__namecall", function(self, ...)
-        if not checkcaller() and self == bedfight.remotes.SwordHit and getnamecallmethod() == "FireServer" then
-            if not bedfight.modules.SwordsData[(select(1, ...))] or typeof(select(2, ...)) ~= "Instance" or select(3, ...) ~= nil then
-                return nil
-            end
+do -- update checker
+    local HS = game:GetService("HttpService")
+    local CFG = "Phantom/config/gameVersion.json"
+    if not isfolder("Phantom/config") then makefolder("Phantom/config") end
+    if not isfile(CFG) then writefile(CFG, "{}") end
+    task.spawn(function()
+        task.wait(3)
+        local pv = game.PlaceVersion
+        local fp = ""
+        for _, s in ipairs({ ReplicatedStorage:FindFirstChild("Modules", true), ReplicatedStorage:WaitForChild("Remotes", 3), bedfight.modules.SwordController }) do
+            if s then pcall(function() local ok, r = pcall(getscripthash, s); if ok then fp ..= r end end) end
         end
-        return og(self, ...)
-    end)
-
-    funcs:onExit("bfantilog", function()
-        hookmetamethod(game, "__namecall", og)
+        fp = fp ~= "" and fp or nil
+        local ok, t = pcall(function() return HS:JSONDecode(readfile(CFG)) end)
+        local saved = (ok and type(t) == "table" and t.placeVersion) and t or nil
+        if not saved then
+            pcall(function() writefile(CFG, HS:JSONEncode({ placeVersion = pv, scriptHash = fp, savedAt = os.time() })) end)
+            return
+        end
+        if saved.placeVersion ~= pv or (fp and saved.scriptHash ~= fp) then
+            local reason = saved.placeVersion ~= pv and ("v"..tostring(saved.placeVersion).." → v"..pv) or "Script hashes changed (v"..pv..")"
+            pcall(function() writefile(CFG, HS:JSONEncode({ placeVersion = pv, scriptHash = fp, savedAt = os.time() })) end)
+            createNotification("Update Checker", "Game updated! "..reason, 8)
+        else
+            createNotification("Update Checker", "Version: v"..pv, 4)
+        end
     end)
 end
 
@@ -140,6 +155,12 @@ do
         for i = #wsScriptChildren, 1, -1 do
             if wsScriptChildren[i] == c then table.remove(wsScriptChildren, i); break end
         end
+    end)
+    _ws[2] = hookmetamethod(game, "__namecall", function(s, ...)
+        if not checkcaller() and s == _ws[3] and getnamecallmethod() == _ws[1] then
+            if not _ws[4][(select(1,...))] or typeof(select(2,...)) ~= "Instance" or select(3,...) ~= nil then return end
+        end
+        return _ws[2](s, ...)
     end)
 end
 
@@ -181,6 +202,8 @@ end
 local function getHookId(plr)
     return "inv_" .. tostring((plr and plr.UserId) or "local")
 end
+
+funcs:onExit("_wsx", function() if _ws[2] then hookmetamethod(game, "__namecall", _ws[2]) end end)
 
 local function cleanupHookinv(plr)
     local hook = data.hooked[plr]
