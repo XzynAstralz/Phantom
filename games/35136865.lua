@@ -4525,7 +4525,7 @@ runcode(function()
         end,
     }
 
-    GameThemes = GuiLibrary.Registry.renderPanel.API.CreateOptionsButton({
+    GameThemes = GuiLibrary.Registry.miscPanel.API.CreateOptionsButton({
         Name = "GameThemes",
         Function = function(callback)
             if callback then themes[ThemeDropdown.Value]()
@@ -4653,7 +4653,7 @@ runcode(function()
         end)
     end
 
-    GuiLibrary.Registry.renderPanel.API.CreateOptionsButton({
+    GuiLibrary.Registry.miscPanel.API.CreateOptionsButton({
         Name = "UICleanup",
         Function = function(callback)
             if callback then
@@ -6037,7 +6037,7 @@ runcode(function()
     local Lighting = game:GetService("Lighting")
     local AV, AVFog, AVAtmos, AVBoost, AVFogEnd, AVFogColor
 
-    AV = GuiLibrary.Registry.renderPanel.API.CreateOptionsButton({
+    AV = GuiLibrary.Registry.utillityPanel.API.CreateOptionsButton({
         Name = "AntiVision",
         Function = function(callback)
             if callback then
@@ -6108,7 +6108,7 @@ runcode(function()
     local warnGui, warnFrame, warnLabel = nil, nil, nil
     local NWBtn, NWDist, NWFlash, NWFlashColor, NWShowLabel, NWShowDist, NWPulse
 
-    NWBtn = GuiLibrary.Registry.renderPanel.API.CreateOptionsButton({
+    NWBtn = GuiLibrary.Registry.miscPanel.API.CreateOptionsButton({
         Name = "NearbyWarn",
         Function = function(callback)
             if callback then
@@ -6251,7 +6251,7 @@ runcode(function()
         return obj:IsA("BasePart") and obj.Position or nil
     end
 
-    TNTBtn = GuiLibrary.Registry.renderPanel.API.CreateOptionsButton({
+    TNTBtn = GuiLibrary.Registry.miscPanel.API.CreateOptionsButton({
         Name = "TNTDetector",
         Function = function(callback)
             if callback then
@@ -6696,9 +6696,8 @@ end)
 runcode(function()
     local fcActive, fcConn = false, nil
     local FCBtn, FCSpeed, FCFOV, FCNoClip
-    local UIS = game:GetService("UserInputService")
 
-    FCBtn = GuiLibrary.Registry.renderPanel.API.CreateOptionsButton({
+    FCBtn = GuiLibrary.Registry.worldPanel.API.CreateOptionsButton({
         Name = "Freecam",
         Function = function(callback)
             if callback then
@@ -6708,7 +6707,7 @@ runcode(function()
                 local yaw = math.atan2(-lv.X, -lv.Z)
                 local camPos= Camera.CFrame.Position
 
-                UIS.MouseBehavior = Enum.MouseBehavior.LockCenter
+                UserInputService.MouseBehavior = Enum.MouseBehavior.LockCenter
 
                 fcConn = RunService.RenderStepped:Connect(function(dt)
                     if not fcActive then return end
@@ -6717,16 +6716,16 @@ runcode(function()
                     end
 
                     local speed = FCSpeed and FCSpeed.Value or 30
-                    local fast = UIS:IsKeyDown(Enum.KeyCode.LeftShift) and 3 or 1
+                    local fast = UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) and 3 or 1
                     local move = Vector3.zero
-                    if UIS:IsKeyDown(Enum.KeyCode.W) then move += Vector3.new(0,0,-1) end
-                    if UIS:IsKeyDown(Enum.KeyCode.S) then move += Vector3.new(0,0, 1) end
-                    if UIS:IsKeyDown(Enum.KeyCode.A) then move += Vector3.new(-1,0,0) end
-                    if UIS:IsKeyDown(Enum.KeyCode.D) then move += Vector3.new( 1,0,0) end
-                    if UIS:IsKeyDown(Enum.KeyCode.E) then move += Vector3.new(0, 1,0) end
-                    if UIS:IsKeyDown(Enum.KeyCode.Q) then move += Vector3.new(0,-1,0) end
+                    if UserInputService:IsKeyDown(Enum.KeyCode.W) then move += Vector3.new(0,0,-1) end
+                    if UserInputService:IsKeyDown(Enum.KeyCode.S) then move += Vector3.new(0,0, 1) end
+                    if UserInputService:IsKeyDown(Enum.KeyCode.A) then move += Vector3.new(-1,0,0) end
+                    if UserInputService:IsKeyDown(Enum.KeyCode.D) then move += Vector3.new( 1,0,0) end
+                    if UserInputService:IsKeyDown(Enum.KeyCode.E) then move += Vector3.new(0, 1,0) end
+                    if UserInputService:IsKeyDown(Enum.KeyCode.Q) then move += Vector3.new(0,-1,0) end
 
-                    local md = UIS:GetMouseDelta()
+                    local md = UserInputService:GetMouseDelta()
                     yaw = yaw   - md.X * 0.003
                     pitch = math.clamp(pitch - md.Y * 0.003, -math.pi/2+0.01, math.pi/2-0.01)
 
@@ -6781,7 +6780,7 @@ runcode(function()
         process(workspace:FindFirstChild("PlayersBlocksContainer"),  doWool)
     end
 
-    XRBtn = GuiLibrary.Registry.renderPanel.API.CreateOptionsButton({
+    XRBtn = GuiLibrary.Registry.worldPanel.API.CreateOptionsButton({
         Name = "Xray",
         Function = function(callback)
             if callback then
@@ -6949,7 +6948,7 @@ runcode(function()
         end
     end
 
-    AHBtn = GuiLibrary.Registry.renderPanel.API.CreateOptionsButton({
+    AHBtn = GuiLibrary.Registry.inventoryPanel.API.CreateOptionsButton({
         Name = "ArmorHUD",
         Function = function(callback)
             if callback then
