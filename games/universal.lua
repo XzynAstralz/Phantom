@@ -16,6 +16,8 @@ local RunService = cloneref(services.RunService)
 local ReplicatedStorage = cloneref(services.ReplicatedStorage)
 local Lighting = cloneref(services.Lighting)
 local inputservice = cloneref(services.UserInputService)
+local Teams = services.Teams and cloneref(services.Teams) or game:FindFirstChildOfClass("Teams")
+local VirtualUser = services.VirtualUser and cloneref(services.VirtualUser) or game:GetService("VirtualUser")
 local lplr = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
 local mouse = lplr:GetMouse()
@@ -36,7 +38,7 @@ gameData.blockRaycast.FilterType = Enum.RaycastFilterType.Include
 
 gameData.blockRaycast.FilterDescendantsInstances = services.Workspace:GetDescendants()
 
-services.Workspace.ChildAdded:Connect(function(child)
+services.Workspace.DescendantAdded:Connect(function(child)
     table.insert(gameData.blockRaycast.FilterDescendantsInstances, child)
 end)
 
@@ -49,18 +51,63 @@ repeat
     task.wait()
 until lplr.Character
 
-local mouseoverPlr = function(enemy)
-    if not (enemy and enemy.Character) then
+function PlayerUtility.GetCharacter(plr)
+    return (plr or lplr).Character
+end
+
+function PlayerUtility.GetHumanoid(plr)
+    local character = PlayerUtility.GetCharacter(plr)
+    return character and character:FindFirstChildOfClass("Humanoid") or nil
+end
+
+function PlayerUtility.GetRoot(plr)
+    local character = PlayerUtility.GetCharacter(plr)
+    return character and character:FindFirstChild("HumanoidRootPart") or nil
+end
+
+function PlayerUtility.IsAlive(plr)
+    local humanoid = PlayerUtility.GetHumanoid(plr)
+    local rootPart = PlayerUtility.GetRoot(plr)
+    return humanoid ~= nil and rootPart ~= nil and humanoid.Health > 0 and humanoid:GetState() ~= Enum.HumanoidStateType.Dead
+end
+
+function PlayerUtility.IsEnemy(plr)
+    if not plr or plr == lplr then
         return false
     end
 
-    local rootPart = enemy.Character:FindFirstChild("HumanoidRootPart")
+    if not Teams or #Teams:GetChildren() == 0 then
+        return true
+    end
+
+    local myTeam = lplr.Team
+    local otherTeam = plr.Team
+    if not myTeam or not otherTeam then
+        return true
+    end
+
+    return myTeam.TeamColor ~= otherTeam.TeamColor
+end
+
+function PlayerUtility.GetCharacterHeight()
+    local rootPart = PlayerUtility.GetRoot()
+    return rootPart and (rootPart.Size.Y * 1.5) or 3
+end
+
+local mouseoverPlr = function(enemy)
+    if not (enemy and PlayerUtility.IsAlive(enemy)) then
+        return false
+    end
+
+    local rootPart = PlayerUtility.GetRoot(enemy)
     if not rootPart then
         return false
     end
 
     local rayCheck = RaycastParams.new()
-    rayCheck.FilterDescendantsInstances = {lplr.Character, Camera}
+    rayCheck.FilterType = Enum.RaycastFilterType.Exclude
+    rayCheck.IgnoreWater = true
+    rayCheck.FilterDescendantsInstances = {PlayerUtility.GetCharacter(), Camera}
 
     local ray = workspace:Raycast(Camera.CFrame.Position, Camera.CFrame.LookVector * 1000, rayCheck)
 
@@ -75,37 +122,40 @@ local mouseoverPlr = function(enemy)
     return false
 end
 
-PlayerUtility.EnemyToMouse = function(wallcheck, MouseOverEnemy)
+PlayerUtility.EnemyToMouse = function(wallcheck, MouseOverEnemy, maxDistance)
     local closestEnemy = nil
-    local closestDistance = math.huge
+    local closestDistance = maxDistance or math.huge
     local mousePosition = inputservice:GetMouseLocation()
 
     for _, v in pairs(Players:GetPlayers()) do
-        if v ~= lplr and v.Character then
-            local character = v.Character
-            local rootPart = character:FindFirstChild("HumanoidRootPart")
-            local teamcheck = lplr.Team ~= v.Team
-            if rootPart then
-                local screenPoint = Camera:WorldToViewportPoint(rootPart.Position)
-                local distanceFromMouse = (Vector2.new(screenPoint.X, screenPoint.Y) - mousePosition).Magnitude
+        if v ~= lplr and PlayerUtility.IsAlive(v) and PlayerUtility.IsEnemy(v) then
+            local character = PlayerUtility.GetCharacter(v)
+            local rootPart = PlayerUtility.GetRoot(v)
+            if character and rootPart then
+                local screenPoint, onScreen = Camera:WorldToViewportPoint(rootPart.Position)
+                if onScreen then
+                    local distanceFromMouse = (Vector2.new(screenPoint.X, screenPoint.Y) - mousePosition).Magnitude
 
-                local isObstructed = false
-                if wallcheck then
-                    local rayParams = RaycastParams.new()
-                    rayParams.FilterDescendantsInstances = {lplr.Character, character}
+                    local isObstructed = false
+                    if wallcheck then
+                        local rayParams = RaycastParams.new()
+                        rayParams.FilterType = Enum.RaycastFilterType.Exclude
+                        rayParams.IgnoreWater = true
+                        rayParams.FilterDescendantsInstances = {PlayerUtility.GetCharacter(), character}
 
-                    local rayOrigin = Camera.CFrame.Position
-                    local rayDirection = (rootPart.Position - rayOrigin)
-                    local ray = workspace:Raycast(rayOrigin, rayDirection, rayParams)
+                        local rayOrigin = Camera.CFrame.Position
+                        local rayDirection = (rootPart.Position - rayOrigin)
+                        local ray = workspace:Raycast(rayOrigin, rayDirection, rayParams)
 
-                    isObstructed = ray and ray.Instance
-                end
+                        isObstructed = ray ~= nil
+                    end
 
-                local isMouseOver = not MouseOverEnemy or mouseoverPlr(v)
+                    local isMouseOver = not MouseOverEnemy or mouseoverPlr(v)
 
-                if distanceFromMouse < closestDistance and (game.Teams and #game.Teams:GetChildren() > 0 or teamcheck) and not isObstructed and isMouseOver then
-                    closestDistance = distanceFromMouse
-                    closestEnemy = v
+                    if distanceFromMouse < closestDistance and not isObstructed and isMouseOver then
+                        closestDistance = distanceFromMouse
+                        closestEnemy = v
+                    end
                 end
             end
         end
@@ -115,14 +165,21 @@ PlayerUtility.EnemyToMouse = function(wallcheck, MouseOverEnemy)
 end
 
 local bodyVel
+local deathConnection
+local function cleanupBodyVelocity()
+    if bodyVel then
+        bodyVel:Destroy()
+        bodyVel = nil
+    end
+end
+
 local createBodyVel = function()
-    if PlayerUtility.lplrIsAlive then
+    local rootPart = PlayerUtility.GetRoot()
+    if PlayerUtility.IsAlive() and rootPart then
         if not bodyVel or not bodyVel.Parent or not bodyVel.Parent.Parent then
-            if bodyVel then
-                bodyVel:Destroy()
-            end
+            cleanupBodyVelocity()
             
-            bodyVel = Instance.new("BodyVelocity", lplr.Character.HumanoidRootPart)
+            bodyVel = Instance.new("BodyVelocity", rootPart)
             bodyVel.P = math.huge
             bodyVel.MaxForce = Vector3.new(bodyVel.P, bodyVel.P, bodyVel.P)
             bodyVel.Velocity = Vector3.zero
@@ -136,22 +193,44 @@ local createBodyVel = function()
     end
 end
 
-lplr.Character:WaitForChild("Humanoid").Died:Connect(function()
+local function bindCharacter(character)
     PlayerUtility.lplrIsAlive = false
-    if bodyVel then
-        bodyVel:Destroy()
-        bodyVel = nil
+
+    if deathConnection then
+        deathConnection:Disconnect()
+        deathConnection = nil
     end
+
+    cleanupBodyVelocity()
+
+    local humanoid = character:FindFirstChildOfClass("Humanoid") or character:WaitForChild("Humanoid", 5)
+    local rootPart = character:FindFirstChild("HumanoidRootPart") or character:WaitForChild("HumanoidRootPart", 5)
+    PlayerUtility.lplrIsAlive = humanoid ~= nil and rootPart ~= nil and humanoid.Health > 0
+
+    if humanoid then
+        deathConnection = humanoid.Died:Connect(function()
+            PlayerUtility.lplrIsAlive = false
+            cleanupBodyVelocity()
+        end)
+    end
+end
+
+bindCharacter(lplr.Character)
+
+lplr.CharacterAdded:Connect(function(character)
+    bindCharacter(character)
 end)
 
-lplr.CharacterAdded:Connect(function()
-    PlayerUtility.lplrIsAlive = true
+lplr.CharacterRemoving:Connect(function()
+    PlayerUtility.lplrIsAlive = false
+    cleanupBodyVelocity()
 end)
 
 local function getTools()
     local tools = {}
-    if PlayerUtility.lplrIsAlive then
-        for _, v in ipairs(lplr.Character:GetChildren()) do
+    local character = PlayerUtility.GetCharacter()
+    if PlayerUtility.IsAlive() and character then
+        for _, v in ipairs(character:GetChildren()) do
             if v:IsA("Tool") then
                 table.insert(tools, v)
             end
@@ -169,16 +248,23 @@ runcode(function()
             if callback then
                 local lastClickTime = tick()
                 RunLoops:BindToHeartbeat("AutoClicker", function()
+                    if not PlayerUtility.IsAlive() then
+                        return
+                    end
+
                     local tools = getTools() 
+                    local cps = math.max(CPSSlider.Value, 0.1)
                     for _, tool in ipairs(tools) do
                         if inputservice:IsMouseButtonPressed(Enum.UserInputType.MouseButton1) then
-                            if tick() - lastClickTime >= 0.1 / CPSSlider.Value then
+                            if tick() - lastClickTime >= 0.1 / cps then
                                 lastClickTime = tick()
                                 tool:Activate()
                             end
                         end
                     end
                 end)
+            else
+                RunLoops:UnbindFromHeartbeat("AutoClicker")
             end
         end
     })
@@ -195,13 +281,14 @@ runcode(function()
     local slider = {}
     local aimAssist = {}
     local hitPart = {}
+    local aimFOV = {}
 
     aimAssist = lib.Registry.combatPanel.API.CreateOptionsButton({
         Name = "AimAssist",
         Function = function(callback)
             if callback then
                 RunLoops:BindToHeartbeat("AimAssist", function()
-                    local target = PlayerUtility.EnemyToMouse(true, false)
+                    local target = PlayerUtility.EnemyToMouse(true, false, aimFOV.Value)
                                     
                     if target and target.Character and target.Character:FindFirstChild(hitPart.Value) then
                         local targetPart = target.Character[hitPart.Value]
@@ -210,11 +297,11 @@ runcode(function()
                 
                         local distance = (Vector2.new(targetPos.X, targetPos.Y) - mousePos).Magnitude
                 
-                        if onScreen and distance < 50 then
+                        if onScreen and distance < aimFOV.Value then
                             local direction = (targetPart.Position - workspace.CurrentCamera.CFrame.Position).unit
                             local targetCFrame = CFrame.new(workspace.CurrentCamera.CFrame.Position, workspace.CurrentCamera.CFrame.Position + direction)
                             
-                            workspace.CurrentCamera.CFrame = workspace.CurrentCamera.CFrame:Lerp(targetCFrame, slider["Value"] * (1 - distance / 50))
+                            workspace.CurrentCamera.CFrame = workspace.CurrentCamera.CFrame:Lerp(targetCFrame, slider.Value * (1 - distance / aimFOV.Value))
                         end
                     end
                 end)
@@ -236,12 +323,19 @@ runcode(function()
         Default = "HumanoidRootPart",
         List = {"HumanoidRootPart", "Head"},
     })
+    aimFOV = aimAssist.CreateSlider({
+        Name = "FOV",
+        Min = 25,
+        Max = 300,
+        Default = 75,
+        Round = 1,
+    })
 end)
-
 
 runcode(function()
     local TriggerBot = {}
     local shootDelay = {}
+    local triggerFOV = {}
     local shootTime = 0
     local Clicked = false
 
@@ -252,7 +346,7 @@ runcode(function()
                 RunLoops:BindToHeartbeat("TriggerBot", function()
                     local currentTime = tick()
                     if (isrbxactive or iswindowactive)() and currentTime - shootTime >= shootDelay.Value then
-                        local closestEnemy = PlayerUtility.EnemyToMouse(false, true, 100)
+                        local closestEnemy = PlayerUtility.EnemyToMouse(false, true, triggerFOV.Value)
                         
                         if closestEnemy and not Clicked then
                             mouse1press()
@@ -266,6 +360,10 @@ runcode(function()
                 end)
             else
                 RunLoops:UnbindFromHeartbeat("TriggerBot")
+                if Clicked then
+                    mouse1release()
+                    Clicked = false
+                end
             end
         end
     })
@@ -274,6 +372,13 @@ runcode(function()
         Min = 0,
         Max = 1,
         Default = 0,
+        Round = 1,
+    })
+    triggerFOV = TriggerBot.CreateSlider({
+        Name = "FOV",
+        Min = 25,
+        Max = 300,
+        Default = 90,
         Round = 1,
     })
 end)
@@ -292,8 +397,10 @@ runcode(function()
         Function = function(callback)
             if callback then
                 RunLoops:BindToHeartbeat("Speed", function(dt)
-                    if PlayerUtility.lplrIsAlive and lplr.Character.Humanoid.MoveDirection.Magnitude > 0 then
-                        local moveDirection = lplr.Character.Humanoid.MoveDirection
+                    local humanoid = PlayerUtility.GetHumanoid()
+                    local rootPart = PlayerUtility.GetRoot()
+                    if PlayerUtility.IsAlive() and humanoid and rootPart and humanoid.MoveDirection.Magnitude > 0 then
+                        local moveDirection = humanoid.MoveDirection
 
                        --[[ if SlowdownAnim.Enabled then
                             for _, anim in lplr.Character.Humanoid:GetPlayingAnimationTracks() do
@@ -303,11 +410,11 @@ runcode(function()
                             end
                         end--]]
 
-                        local newCFrame = lplr.Character.HumanoidRootPart.CFrame
+                        local newCFrame = rootPart.CFrame
 
                         if not Fly.Enabled then
                             local speedVelocity = moveDirection * (SpeedSlider.Value)
-                            speedVelocity /= (1 / dt)
+                            speedVelocity = speedVelocity / (1 / dt)
                             newCFrame = newCFrame + speedVelocity
 
                             createBodyVel()
@@ -315,19 +422,19 @@ runcode(function()
                                 bodyVel.MaxForce = Vector3.new(bodyVel.P, 0, bodyVel.P)
                             end
                         end
-                        lplr.Character.HumanoidRootPart.CFrame = newCFrame
+                        rootPart.CFrame = newCFrame
 
-                        if AutoJump.Enabled and lplr.Character.Humanoid.FloorMaterial ~= Enum.Material.Air then
-                            lplr.Character.Humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+                        if AutoJump.Enabled and humanoid.FloorMaterial ~= Enum.Material.Air then
+                            humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
                         end
                     end
                 end)
             else
-                lplr.Character.Humanoid.AutoRotate = true
-                if bodyVel then
-                    bodyVel:Destroy()
-                    bodyVel = nil
+                local humanoid = PlayerUtility.GetHumanoid()
+                if humanoid then
+                    humanoid.AutoRotate = true
                 end
+                cleanupBodyVelocity()
                 RunLoops:UnbindFromHeartbeat("Speed")
             end
         end
@@ -349,10 +456,8 @@ runcode(function()
     --})
 end)
 
-local height = lplr.Character.HumanoidRootPart.Size.Y * 1.5
 runcode(function()
     local FlyValue = {}
-    local FlyVertical = {}
     local FlyVerticalValue = {}
 
     Fly = lib.Registry.blatantPanel.API.CreateOptionsButton({
@@ -362,10 +467,17 @@ runcode(function()
             local verticalVelocity = 0
             if callback then
                 RunLoops:BindToHeartbeat("Fly", function(dt)
-                    local moveDirection = lplr.Character.Humanoid.MoveDirection
+                    local humanoid = PlayerUtility.GetHumanoid()
+                    local rootPart = PlayerUtility.GetRoot()
+                    if not PlayerUtility.IsAlive() or not humanoid or not rootPart then
+                        return
+                    end
+
+                    i = i + (dt * 4)
+                    local moveDirection = humanoid.MoveDirection
 
                     local flyVelocity = moveDirection * (FlyValue.Value)
-                    flyVelocity /= (1 / dt)
+                    flyVelocity = flyVelocity / (1 / dt)
                     
                     local bounceVelocity = math.sin(i * math.pi) * 0.01
     
@@ -381,7 +493,7 @@ runcode(function()
                     end
 
                     createBodyVel()
-                    lplr.Character.HumanoidRootPart.CFrame = lplr.Character.HumanoidRootPart.CFrame + flyVelocity
+                    rootPart.CFrame = rootPart.CFrame + flyVelocity
                     if not infFlyVel then
                         bodyVel.MaxForce = Vector3.new(bodyVel.P, bodyVel.P, bodyVel.P)
                     end
@@ -582,7 +694,23 @@ runcode(function()
     local connection
 
     local function createTrail(character)
-        local root = PlayerUtility.lplrIsAlive and lplr.Character.HumanoidRootPart
+        local root = character and (character:FindFirstChild("HumanoidRootPart") or character:WaitForChild("HumanoidRootPart", 5))
+        if not root then
+            return
+        end
+
+        if breadcrumbTrail then
+            breadcrumbTrail:Destroy()
+            breadcrumbTrail = nil
+        end
+
+        if breadcrumbAttachmentTop then
+            breadcrumbAttachmentTop:Destroy()
+        end
+
+        if breadcrumbAttachmentBottom then
+            breadcrumbAttachmentBottom:Destroy()
+        end
 
         breadcrumbAttachmentTop = Instance.new("Attachment")
         breadcrumbAttachmentTop.Position = Vector3.new(0, 0.07 - 2.7, 0)
@@ -605,6 +733,24 @@ runcode(function()
         end
     end
 
+    local function cleanupTrail()
+        if breadcrumbTrail then
+            breadcrumbTrail.Enabled = false
+            breadcrumbTrail:Destroy()
+            breadcrumbTrail = nil
+        end
+
+        if breadcrumbAttachmentTop then
+            breadcrumbAttachmentTop:Destroy()
+            breadcrumbAttachmentTop = nil
+        end
+
+        if breadcrumbAttachmentBottom then
+            breadcrumbAttachmentBottom:Destroy()
+            breadcrumbAttachmentBottom = nil
+        end
+    end
+
     local colors = {
         color1 = Color3.new(253 / 255, 195 / 255, 47 / 255),
         color2 = Color3.new(252 / 255, 67 / 255, 229 / 255)
@@ -615,7 +761,9 @@ runcode(function()
         Function = function(callback)
             if callback then
                 createTrail(lplr.Character)
-                breadcrumbTrail.Enabled = true
+                if breadcrumbTrail then
+                    breadcrumbTrail.Enabled = true
+                end
 
                 RunLoops:BindToHeartbeat("BreadCrumbs", function()
                     if not breadcrumbTrail then return end
@@ -630,21 +778,17 @@ runcode(function()
                 end)
 
                 connection = lplr.CharacterAdded:Connect(function(character)
-                    if breadcrumbTrail then
-                        breadcrumbTrail.Enabled = false
-                        breadcrumbTrail:Destroy()
-                        breadcrumbTrail = nil
-                    end
-                
-                    task.wait(1)
-                
-                    if PlayerUtility.lplrIsAlive and character then
+                    cleanupTrail()
+
+                    if character then
                         createTrail(character)
-                        breadcrumbTrail.Enabled = true
+                        if breadcrumbTrail then
+                            breadcrumbTrail.Enabled = true
+                        end
                     end
                 end)
             else
-                if breadcrumbTrail then breadcrumbTrail.Enabled = false end
+                cleanupTrail()
                 RunLoops:UnbindFromHeartbeat("BreadCrumbs")
                 if connection then
                     connection:Disconnect()
@@ -670,13 +814,121 @@ end)
 
 runcode(function()
     local ESP = {}
+    local ESPFill = {}
+    local ESPOutline = {}
+    local TeamCheck = {}
+    local UseTeamColor = {}
+    local highlights = {}
+    local addedConnection
+    local removingConnection
+
+    local function removeHighlight(player)
+        local highlight = highlights[player]
+        if highlight then
+            highlight:Destroy()
+            highlights[player] = nil
+        end
+    end
+
+    local function getHighlight(player)
+        if player == lplr then
+            return nil
+        end
+
+        if not highlights[player] then
+            local highlight = Instance.new("Highlight")
+            highlight.Name = "PhantomESP"
+            highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+            highlight.Parent = workspace
+            highlights[player] = highlight
+        end
+
+        return highlights[player]
+    end
+
+    local function shouldShow(player)
+        if not PlayerUtility.IsAlive(player) then
+            return false
+        end
+
+        return not TeamCheck.Enabled or PlayerUtility.IsEnemy(player)
+    end
+
     ESP = lib.Registry.blatantPanel.API.CreateOptionsButton({
         Name = "ESP",
         Function = function(callback)
             if callback then
-                
+                addedConnection = Players.PlayerAdded:Connect(function(player)
+                    if player ~= lplr then
+                        getHighlight(player)
+                    end
+                end)
+
+                removingConnection = Players.PlayerRemoving:Connect(function(player)
+                    removeHighlight(player)
+                end)
+
+                RunLoops:BindToHeartbeat("ESP", function()
+                    for _, player in ipairs(Players:GetPlayers()) do
+                        if player ~= lplr then
+                            local highlight = getHighlight(player)
+                            if highlight then
+                                if shouldShow(player) then
+                                    local playerColor = UseTeamColor.Enabled and player.Team and player.Team.TeamColor.Color or lib.kit:activeColor()
+                                    highlight.Adornee = PlayerUtility.GetCharacter(player)
+                                    highlight.FillColor = playerColor
+                                    highlight.OutlineColor = playerColor
+                                    highlight.FillTransparency = ESPFill.Value
+                                    highlight.OutlineTransparency = ESPOutline.Value
+                                    highlight.Enabled = true
+                                else
+                                    highlight.Enabled = false
+                                    highlight.Adornee = nil
+                                end
+                            end
+                        end
+                    end
+                end)
+            else
+                RunLoops:UnbindFromHeartbeat("ESP")
+
+                if addedConnection then
+                    addedConnection:Disconnect()
+                    addedConnection = nil
+                end
+
+                if removingConnection then
+                    removingConnection:Disconnect()
+                    removingConnection = nil
+                end
+
+                for player in pairs(highlights) do
+                    removeHighlight(player)
+                end
             end
         end
+    })
+    ESPFill = ESP.CreateSlider({
+        Name = "Fill",
+        Min = 0,
+        Max = 1,
+        Default = 0.55,
+        Round = 1,
+    })
+    ESPOutline = ESP.CreateSlider({
+        Name = "Outline",
+        Min = 0,
+        Max = 1,
+        Default = 0,
+        Round = 1,
+    })
+    TeamCheck = ESP.CreateToggle({
+        Name = "TeamCheck",
+        Default = true,
+    })
+    UseTeamColor = ESP.CreateToggle({
+        Name = "TeamColor",
+        Default = false,
     })
 end)
 
@@ -689,8 +941,8 @@ runcode(function()
         Function = function(callback)
             if callback then
                 afk = lplr.Idled:Connect(function()
-                    services.VirtualUserService:CaptureController()
-                    services.VirtualUserService:ClickButton2(Vector2.new())
+                    VirtualUser:CaptureController()
+                    VirtualUser:ClickButton2(Vector2.new())
                 end)
             else
                 if afk then
@@ -705,43 +957,69 @@ end)
 runcode(function()
     local Antideath = {}
     local connection
+    local characterConnection
     local tped = false
     local lastDamageTime
     local lastHealth
+
+    local function disconnectHumanoid()
+        if connection then
+            connection:Disconnect()
+            connection = nil
+        end
+    end
+
+    local function bindHumanoid(character)
+        disconnectHumanoid()
+
+        local humanoid = character and (character:FindFirstChildOfClass("Humanoid") or character:WaitForChild("Humanoid", 5))
+        if not humanoid then
+            return
+        end
+
+        lastHealth = humanoid.Health
+        connection = humanoid.HealthChanged:Connect(function(newHealth)
+            local currentTime = tick()
+            local dmg = lastHealth - newHealth
+            local rootPart = PlayerUtility.GetRoot()
+            if PlayerUtility.IsAlive() and rootPart and (currentTime - lastDamageTime) > 0.5 and not tped then
+                if dmg > 0 and math.ceil(newHealth / math.max(dmg, 1)) <= 1 then
+                    rootPart.CFrame = rootPart.CFrame + Vector3.new(0, 200, 0)
+                    tped = true
+                    lastDamageTime = currentTime
+
+                    task.delay(1, function()
+                        tped = false
+                    end)
+                end
+                lastDamageTime = currentTime
+            end
+            lastHealth = newHealth
+        end)
+    end
     
     Antideath = lib.Registry.utillityPanel.API.CreateOptionsButton({
         Name = "Antideath",
         Function = function(callback)
             if callback then
                 lastDamageTime = 0
-                lastHealth = 0
-                connection = lplr.Character.Humanoid.HealthChanged:Connect(function(newHealth)
-                    local currentTime = tick()
-                    local dmg = lastHealth - newHealth
-                    if PlayerUtility.lplrIsAlive and (currentTime - lastDamageTime) > 0.5 and not tped then
-                        if dmg > 0 and math.ceil(newHealth / math.max(dmg, 1)) <= 1 then
-                            lplr.Character.HumanoidRootPart.CFrame = lplr.Character.HumanoidRootPart.CFrame + Vector3.new(0, 200, 0)
-                            tped = true
-                            lastDamageTime = currentTime
-
-                            task.delay(1, function()
-                                tped = false
-                            end)
-                        end
-                        lastDamageTime = currentTime
-                    end
-                    lastHealth = newHealth
+                tped = false
+                bindHumanoid(lplr.Character)
+                characterConnection = lplr.CharacterAdded:Connect(function(character)
+                    bindHumanoid(character)
                 end)
                 funcs:onExit("Antideath", function()
-                    if connection then
-                        connection:Disconnect()
-                        connection = nil
+                    disconnectHumanoid()
+                    if characterConnection then
+                        characterConnection:Disconnect()
+                        characterConnection = nil
                     end
                 end)
             else
-                if connection then
-                    connection:Disconnect()
-                    connection = nil
+                disconnectHumanoid()
+                if characterConnection then
+                    characterConnection:Disconnect()
+                    characterConnection = nil
                 end
                 tped = false
             end
@@ -761,10 +1039,6 @@ runcode(function()
         Name = "AntiFall",
         Function = function(callback)
             if callback then
-                repeat
-                    task.wait()
-                until PlayerUtility.lplrIsAlive
-
                 if not lowestBlock then
                     local lowestY = 9e9
                     for _, v in services.Workspace:GetDescendants() do
@@ -775,29 +1049,42 @@ runcode(function()
                     end
                 end
 
-               repeat
-                    if not PlayerUtility.lplrIsAlive then return end
+                RunLoops:BindToHeartbeat("AntiFall", function()
+                    local rootPart = PlayerUtility.GetRoot()
+                    if not PlayerUtility.IsAlive() or not rootPart or not lowestBlock then
+                        return
+                    end
 
-                    local ray = workspace:Raycast(lplr.Character.HumanoidRootPart.Position, Vector3.new(0, -1000), gameData.blockRaycast)
-                    lastGround = ray and ray.Position or lastGround
-
-                    if not ray and lplr.Character.HumanoidRootPart.Position.Y < (lowestBlock.Position.Y - YOffset.Value) then
-                        if addTp.Enabled and lastGround then
-                            local isSafe = workspace:Raycast(Vector3.new(lplr.Character.HumanoidRootPart.Position.X, lastGround.Y, lplr.Character.HumanoidRootPart.Position.Z), Vector3.zero, gameData.blockRaycast)
-                            local args = {lplr.Character.HumanoidRootPart.CFrame:GetComponents()}
-                            args[2] = (not isSafe and lastGround and (lastGround.Y + height)) or args[2]
-    
-                            lplr.Character.HumanoidRootPart.CFrame = CFrame.new(unpack(args))
-                        elseif cooldown >= tick() then
+                    if not lowestBlock.Parent then
+                        lowestBlock = nil
+                        local lowestY = 9e9
+                        for _, v in services.Workspace:GetDescendants() do
+                            if v:IsA("BasePart") and lowestY > v.Position.Y then
+                                lowestY = v.Position.Y
+                                lowestBlock = v
+                            end
+                        end
+                        if not lowestBlock then
                             return
                         end
-                        cooldown = tick() + .1
-                        lplr.Character.HumanoidRootPart.Velocity = Vector3.new(lplr.Character.HumanoidRootPart.Velocity.X, -lplr.Character.HumanoidRootPart.Velocity.Y, lplr.Character.HumanoidRootPart.Velocity.Z)
                     end
-                    task.wait(.01)
-                until not AntiFall.Enabled
+
+                    local ray = workspace:Raycast(rootPart.Position, Vector3.new(0, -1000), gameData.blockRaycast)
+                    lastGround = ray and ray.Position or lastGround
+
+                    if not ray and rootPart.Position.Y < (lowestBlock.Position.Y - YOffset.Value) then
+                        if addTp.Enabled and lastGround then
+                            local args = {rootPart.CFrame:GetComponents()}
+                            args[2] = lastGround.Y + PlayerUtility.GetCharacterHeight()
+                            rootPart.CFrame = CFrame.new(table.unpack(args))
+                        elseif cooldown < tick() then
+                            cooldown = tick() + .1
+                            rootPart.Velocity = Vector3.new(rootPart.Velocity.X, math.abs(rootPart.Velocity.Y), rootPart.Velocity.Z)
+                        end
+                    end
+                end)
             else
-                RunLoops:UnbindFromHeartbeat("AntiVoid")
+                RunLoops:UnbindFromHeartbeat("AntiFall")
             end
         end
     })
