@@ -101,6 +101,14 @@ do -- update checker
     if not isfile(CFG) then writefile(CFG, "{}") end
     task.spawn(function()
         task.wait(3)
+        local mode = "Unknown"
+        pcall(function()
+            local gi = ReplicatedStorage:WaitForChild("GameInfo", 5)
+            if gi then
+                local gm = gi:WaitForChild("GameMode", 5)
+                if gm and gm.Value ~= "" then mode = gm.Value end
+            end
+        end)
         local pv = game.PlaceVersion
         local fp = ""
         for _, s in ipairs({ ReplicatedStorage:FindFirstChild("Modules", true), ReplicatedStorage:WaitForChild("Remotes", 3), bedfight.modules.SwordController }) do
@@ -108,17 +116,24 @@ do -- update checker
         end
         fp = fp ~= "" and fp or nil
         local ok, t = pcall(function() return HS:JSONDecode(readfile(CFG)) end)
-        local saved = (ok and type(t) == "table" and t.placeVersion) and t or nil
+        local allModes = (ok and type(t) == "table") and t or {}
+        if allModes.placeVersion then allModes = {} end
+        local saved = allModes[mode]
+        local entry = { placeVersion = pv, scriptHash = fp, savedAt = os.time() }
         if not saved then
-            pcall(function() writefile(CFG, HS:JSONEncode({ placeVersion = pv, scriptHash = fp, savedAt = os.time() })) end)
+            allModes[mode] = entry
+            pcall(function() writefile(CFG, HS:JSONEncode(allModes)) end)
             return
         end
         if saved.placeVersion ~= pv or (fp and saved.scriptHash ~= fp) then
-            local reason = saved.placeVersion ~= pv and ("v"..tostring(saved.placeVersion).." → v"..pv) or "Script hashes changed (v"..pv..")"
-            pcall(function() writefile(CFG, HS:JSONEncode({ placeVersion = pv, scriptHash = fp, savedAt = os.time() })) end)
-            createNotification("Update Checker", "Game updated! "..reason, 8)
+            local reason = saved.placeVersion ~= pv
+                and ("v"..tostring(saved.placeVersion).." -> v"..pv)
+                or "Script hashes changed (v"..pv..")"
+            allModes[mode] = entry
+            pcall(function() writefile(CFG, HS:JSONEncode(allModes)) end)
+            createNotification("Update Checker", "["..mode.."] Game updated! "..reason, 8)
         else
-            createNotification("Update Checker", "Version: v"..pv, 4)
+            createNotification("Update Checker", "["..mode.."] v"..pv, 4)
         end
     end)
 end
