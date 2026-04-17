@@ -35,12 +35,7 @@ local gameData = {
 }
 PlayerUtility.lplrIsAlive = true
 gameData.blockRaycast.FilterType = Enum.RaycastFilterType.Include
-
-gameData.blockRaycast.FilterDescendantsInstances = services.Workspace:GetDescendants()
-
-services.Workspace.DescendantAdded:Connect(function(child)
-    table.insert(gameData.blockRaycast.FilterDescendantsInstances, child)
-end)
+gameData.blockRaycast.FilterDescendantsInstances = {workspace}
 
 local infFlyVel = false
 local Fly = {}
