@@ -33,20 +33,28 @@ if type(sharedExecutorContext) == "table" then
     isBad = (executorInfo and executorInfo.isBad == true) or sharedExecutorContext.phantomIsBadExecutor == true
 end
 
+local function safeVisible(obj, state)
+    if typeof(obj) == "Instance" and obj.Parent then
+        pcall(function()
+            obj.Visible = state == true
+        end)
+    end
+end
+
 local P = {
-    BASE0      = Color3.fromRGB(4,   4,   4),
-    BASE1      = Color3.fromRGB(8,   8,   8),
-    BASE2      = Color3.fromRGB(11,  11,  11),
-    BASE3      = Color3.fromRGB(15,  15,  15),
-    BASE_HOV   = Color3.fromRGB(22,  22,  22),
-    BASE_LIT   = Color3.fromRGB(76,  26, 138),
-    HUE        = Color3.fromRGB(161, 74, 255),
-    HUE_FADE   = Color3.fromRGB(97,  28, 182),
-    EDGE       = Color3.fromRGB(24,  24,  24),
-    EDGE_HI    = Color3.fromRGB(84,  22, 160),
-    INK_HI     = Color3.fromRGB(241, 241, 241),
-    INK_MID    = Color3.fromRGB(177, 177, 177),
-    INK_LOW    = Color3.fromRGB(104, 104, 104),
+    BASE0      = Color3.fromRGB(3,   3,   4),
+    BASE1      = Color3.fromRGB(5,   5,   6),
+    BASE2      = Color3.fromRGB(9,   9,   10),
+    BASE3      = Color3.fromRGB(12,  12,  14),
+    BASE_HOV   = Color3.fromRGB(16,  14,  20),
+    BASE_LIT   = Color3.fromRGB(32,  10,  56),
+    HUE        = Color3.fromRGB(86,  34, 150),
+    HUE_FADE   = Color3.fromRGB(30,   8,  52),
+    EDGE       = Color3.fromRGB(19,  19,  22),
+    EDGE_HI    = Color3.fromRGB(102, 46, 182),
+    INK_HI     = Color3.fromRGB(238, 238, 243),
+    INK_MID    = Color3.fromRGB(166, 166, 176),
+    INK_LOW    = Color3.fromRGB(102, 102, 114),
     INK_BETA    = Color3.fromRGB(86,  198, 238),
     INK_NEW     = Color3.fromRGB(198, 122, 255),
     INK_PRIVATE = Color3.fromRGB(255, 160, 60),
@@ -59,19 +67,78 @@ local R_SM = UDim.new(0, 0)
 local R_MD = UDim.new(0, 0)
 local R_LG = UDim.new(0, 0)
 
-local FONT_HDR = Enum.Font.ArialBold
-local FONT_ROW = Enum.Font.Arial
-local FONT_VALUE = Enum.Font.ArialBold
+local FONT_HDR = Enum.Font.GothamBold
+local FONT_ROW = Enum.Font.Gotham
+local FONT_VALUE = Enum.Font.GothamBold
 
-local COL_W    = 124
-local ROW_W    = 118
-local SUB_W    = 112
-local ROW_H    = 16
-local HDR_H    = 18
+local COL_W    = 128
+local ROW_W    = 122
+local SUB_W    = 116
+local ROW_H    = 18
+local HDR_H    = 19
 local PANEL_TOP_MARGIN = 12
-local PRESET_BAR_GAP = 6
-local PANEL_GAP = 6
+local PRESET_BAR_GAP = 9
+local PANEL_GAP = 5
 local Scaler
+
+local DEFAULT_PALETTE = { H = 0.73, S = 0.77, V = 0.59 }
+local DEFAULT_SECONDARY = P.HUE_FADE
+local DEFAULT_FONT_COLOR = P.INK_HI
+
+local function mixColor(a, b, alpha)
+    return a:Lerp(b, math.clamp(alpha or 0, 0, 1))
+end
+
+local function darken(color, amount)
+    return mixColor(color, Color3.new(0, 0, 0), amount or 0.5)
+end
+
+local function lighten(color, amount)
+    return mixColor(color, Color3.new(1, 1, 1), amount or 0.5)
+end
+
+local function packColor(color)
+    return {
+        R = math.floor((color.R * 255) + 0.5),
+        G = math.floor((color.G * 255) + 0.5),
+        B = math.floor((color.B * 255) + 0.5),
+    }
+end
+
+local function normalizeColor(color, fallback)
+    if typeof(color) == "Color3" then
+        return color
+    end
+    if type(color) == "table" then
+        return Color3.fromRGB(
+            math.clamp(math.floor((tonumber(color.R) or 0) + 0.5), 0, 255),
+            math.clamp(math.floor((tonumber(color.G) or 0) + 0.5), 0, 255),
+            math.clamp(math.floor((tonumber(color.B) or 0) + 0.5), 0, 255)
+        )
+    end
+    return fallback
+end
+
+local function applyAccentPalette(palette, secondary)
+    local accent = Color3.fromHSV(
+        palette.H or DEFAULT_PALETTE.H,
+        palette.S or DEFAULT_PALETTE.S,
+        palette.V or DEFAULT_PALETTE.V
+    )
+    local fade = normalizeColor(secondary, DEFAULT_SECONDARY)
+
+    P.HUE = accent
+    P.HUE_FADE = fade
+    P.BASE_LIT = mixColor(darken(accent, 0.46), fade, 0.58)
+    P.EDGE_HI = mixColor(accent, Color3.new(1, 1, 1), 0.14)
+end
+
+local function applyFontPalette(fontColor)
+    local color = normalizeColor(fontColor, DEFAULT_FONT_COLOR)
+    P.INK_HI = color
+    P.INK_MID = darken(color, 0.30)
+    P.INK_LOW = darken(color, 0.58)
+end
 
 local function mkCorner(p, r)
     local c = Instance.new("UICorner"); c.CornerRadius = r or R_SM; c.Parent = p; return c
@@ -146,6 +213,7 @@ local Tween        = cloneref(game:GetService("TweenService"))
 local Runner       = cloneref(game:GetService("RunService"))
 local HttpService  = cloneref(game:GetService("HttpService"))
 local GuiService   = cloneref(game:GetService("GuiService"))
+local TextService  = cloneref(game:GetService("TextService"))
 
 local IS_MOBILE =  UIS.TouchEnabled and not UIS.MouseEnabled
 
@@ -277,12 +345,14 @@ local function clampPanelOffset(bar, x, y, scale)
     local s = scale or ((Scaler and Scaler.Scale and Scaler.Scale > 0) and Scaler.Scale or 1)
     local minX = 6
     local minY = getPanelTopOffset()
-    local width = (bar and bar.Size and bar.Size.X.Offset) or COL_W
-    local height = (bar and bar.Size and bar.Size.Y.Offset) or HDR_H
+    local width = (bar and bar.AbsoluteSize and bar.AbsoluteSize.X) or COL_W
+    local height = (bar and bar.AbsoluteSize and bar.AbsoluteSize.Y) or HDR_H
+    
     local maxX = math.max(minX, math.floor(vp.X / s - width - 6))
-    local maxY = math.max(minY, math.floor(vp.Y / s - height - 6))
+    local maxY = math.max(minY, math.floor(vp.Y / s - height - 20))
+    
     return math.clamp(math.floor((x or minX) + 0.5), minX, maxX),
-        math.clamp(math.floor((y or minY) + 0.5), minY, maxY)
+           math.clamp(math.floor((y or minY) + 0.5), minY, maxY)
 end
 
 local function applyPanelOffset(bar, x, y, scale)
@@ -299,6 +369,162 @@ local function clampAnchorPosition(button, x, y)
     local px = math.clamp(x * vp.X, halfX + 6, vp.X - halfX - 6)
     local py = math.clamp(y * vp.Y, halfY + 6, vp.Y - halfY - 6)
     return px / vp.X, py / vp.Y
+end
+
+local function getAnchorPixelPosition(gui)
+    local absPos = gui.AbsolutePosition
+    local absSize = gui.AbsoluteSize
+    local anchor = gui.AnchorPoint
+    return Vector2.new(
+        absPos.X + (absSize.X * anchor.X),
+        absPos.Y + (absSize.Y * anchor.Y)
+    )
+end
+
+local function clampFloatingAnchorPixels(gui, x, y)
+    local parent = gui and gui.Parent
+    local parentSize = parent and parent.AbsoluteSize or getViewportSize()
+    local absSize = gui and gui.AbsoluteSize or Vector2.new(0, 0)
+    local anchor = gui and gui.AnchorPoint or Vector2.zero
+    local minX = 6 + (absSize.X * anchor.X)
+    local minY = math.max(6 + (absSize.Y * anchor.Y), getPanelTopOffset())
+    local maxX = math.max(minX, parentSize.X - 6 - (absSize.X * (1 - anchor.X)))
+    local maxY = math.max(minY, parentSize.Y - (HDR_H + 8) + (absSize.Y * anchor.Y))
+    return math.clamp(math.floor((x or minX) + 0.5), minX, maxX),
+           math.clamp(math.floor((y or minY) + 0.5), minY, maxY)
+end
+
+local function applyFloatingAnchorPixels(gui, x, y)
+    local scale = (Scaler and Scaler.Scale and Scaler.Scale > 0) and Scaler.Scale or 1
+    local clampedX, clampedY = clampFloatingAnchorPixels(gui, x, y)
+    gui.Position = UDim2.new(
+        0, math.floor((clampedX / scale) + 0.5),
+        0, math.floor((clampedY / scale) + 0.5)
+    )
+    return gui.Position.X.Offset, gui.Position.Y.Offset
+end
+
+local function applyFloatingOffset(gui, x, y)
+    local scale = (Scaler and Scaler.Scale and Scaler.Scale > 0) and Scaler.Scale or 1
+    return applyFloatingAnchorPixels(gui, (x or 0) * scale, (y or 0) * scale)
+end
+
+local function clampFloatingOffset(gui, x, y)
+    local scale = (Scaler and Scaler.Scale and Scaler.Scale > 0) and Scaler.Scale or 1
+    local px, py = clampFloatingAnchorPixels(gui, (x or 0) * scale, (y or 0) * scale)
+    return math.floor((px / scale) + 0.5), math.floor((py / scale) + 0.5)
+end
+
+local function readStoredAnchorPoint(info)
+    if type(info) ~= "table" then
+        return nil
+    end
+    local anchorX = tonumber(info.AnchorX)
+    local anchorY = tonumber(info.AnchorY)
+    if not anchorX or not anchorY then
+        return nil
+    end
+    return anchorX, anchorY
+end
+
+local function captureRelativeAnchorPoint(gui)
+    local parent = gui and gui.Parent
+    local parentSize = parent and parent.AbsoluteSize or getViewportSize()
+    local anchorPoint = getAnchorPixelPosition(gui)
+    return {
+        AnchorX = parentSize.X > 0 and math.clamp(anchorPoint.X / parentSize.X, 0, 1) or 0.5,
+        AnchorY = parentSize.Y > 0 and math.clamp(anchorPoint.Y / parentSize.Y, 0, 1) or 0.5,
+    }
+end
+
+local function applyRelativeAnchorPoint(gui, info)
+    local anchorX, anchorY = readStoredAnchorPoint(info)
+    if not anchorX or not anchorY then
+        return false
+    end
+    local parent = gui and gui.Parent
+    local parentSize = parent and parent.AbsoluteSize or getViewportSize()
+    if parentSize.X <= 0 or parentSize.Y <= 0 then
+        return false
+    end
+    local offsetX = anchorX * parentSize.X
+    local offsetY = anchorY * parentSize.Y
+    applyFloatingAnchorPixels(gui, offsetX, offsetY)
+    return true
+end
+
+local function captureResponsiveFloatingLayout(gui)
+    local parent = gui and gui.Parent
+    local parentSize = parent and parent.AbsoluteSize or getViewportSize()
+    local absPos = gui and gui.AbsolutePosition or Vector2.zero
+    local absSize = gui and gui.AbsoluteSize or Vector2.zero
+    local centerX = absPos.X + absSize.X * 0.5
+    local centerY = absPos.Y + absSize.Y * 0.5
+
+    if parentSize.X <= 0 or parentSize.Y <= 0 then
+        return { AnchorX = 0.5, AnchorY = 0.5 }
+    end
+
+    return {
+        AnchorX = math.clamp(centerX / parentSize.X, 0, 1),
+        AnchorY = math.clamp(centerY / parentSize.Y, 0, 1),
+    }
+end
+
+local function applyResponsiveFloatingLayout(gui, info)
+    if type(info) ~= "table" then return false end
+
+    local xScale = info.AnchorX or 0.5
+    local yScale = info.AnchorY or 0.5
+    if xScale < 0.02 and yScale < 0.02 then return false end
+
+    local parentSize = gui.Parent and gui.Parent.AbsoluteSize or getViewportSize()
+    local absSize = gui.AbsoluteSize or Vector2.zero
+    local anchor = Vector2.new(0.5, 0.5)
+    gui.AnchorPoint = anchor
+
+    local minX = (6 + absSize.X * 0.5) / parentSize.X
+    local maxX = (parentSize.X - 6 - absSize.X * 0.5) / parentSize.X
+    local minY = (6 + absSize.Y * 0.5) / parentSize.Y
+    local maxY = (parentSize.Y - 6 - absSize.Y * 0.5) / parentSize.Y
+
+    xScale = math.clamp(xScale, minX, maxX)
+    yScale = math.clamp(yScale, minY, maxY)
+
+    gui.Position = UDim2.fromScale(xScale, yScale)
+    return true
+end
+
+local function formatBindDisplay(bind)
+    if bind == nil or bind == "" then
+        return nil
+    end
+
+    local text = tostring(bind)
+    local aliases = {
+        RightShift = "RightShift",
+        LeftShift = "LeftShift",
+        LeftControl = "LCtrl",
+        RightControl = "RCtrl",
+        LeftAlt = "LAlt",
+        RightAlt = "RAlt",
+        MouseButton1 = "Mouse1",
+        MouseButton2 = "Mouse2",
+        MouseButton3 = "Mouse3",
+    }
+
+    return aliases[text] or text
+end
+
+local function measureTextWidth(text, font, textSize)
+    if not text or text == "" then
+        return 0
+    end
+
+    local ok, result = pcall(function()
+        return TextService:GetTextSize(tostring(text), textSize or TEXT_SIZE_SM, font or FONT_VALUE, Vector2.new(4096, 32))
+    end)
+    return ok and result.X or 0
 end
 
 local function readMobilePoint(store, defaultX, defaultY)
@@ -339,8 +565,68 @@ end
 local Spectrum = {
     RainbowMode = false,
     RainbowSpeed = 1750,
+    AnimationSpeed = 1,
+    GlowSpeed = 1.5,
+    SecondaryColor = DEFAULT_SECONDARY,
+    FontColor = DEFAULT_FONT_COLOR,
+    UserScale = 1,
+    ActiveLayoutPreset = "default",
 }
 local kit      = {}; Spectrum.kit = kit
+local refreshTweenInfo
+
+local PANEL_LAYOUT_PRESETS = {
+    default = {
+        Id = "default",
+        ScaleMultiplier = 1,
+        HorizontalGap = PANEL_GAP,
+        VerticalGap = 8,
+        MaxColumns = nil,
+        Align = "center",
+    },
+    compact = {
+        Id = "compact",
+        ScaleMultiplier = 0.92,
+        HorizontalGap = 4,
+        VerticalGap = 6,
+        MaxColumns = nil,
+        Align = "center",
+    },
+    vertical = {
+        Id = "vertical",
+        ScaleMultiplier = 0.9,
+        HorizontalGap = 4,
+        VerticalGap = 6,
+        MaxColumns = 1,
+        Align = "left",
+        LeftPadding = 10,
+    },
+    hud = {
+        Id = "hud",
+        ScaleMultiplier = 0.88,
+        HorizontalGap = 6,
+        VerticalGap = 6,
+        MaxColumns = 3,
+        Align = "center",
+    },
+}
+
+applyAccentPalette(DEFAULT_PALETTE, Spectrum.SecondaryColor)
+applyFontPalette(Spectrum.FontColor)
+
+local hoverTI
+
+local function playTween(instance, info, props)
+    local tween = Tween:Create(instance, info, props)
+    tween:Play()
+    return tween
+end
+
+local function getLayoutPresetConfig()
+    local key = string.lower(tostring(Spectrum.ActiveLayoutPreset or "default"))
+    return PANEL_LAYOUT_PRESETS[key] or PANEL_LAYOUT_PRESETS.default
+end
+local FloatingLayoutRecords = {}
 
 do 
     function kit:activeColor()
@@ -356,7 +642,7 @@ do
     end
 
     function kit:readPalette(asTable)
-        local t = Spectrum.Palette or { H = 0.60, S = 0.79, V = 0.91 }
+        local t = Spectrum.Palette or DEFAULT_PALETTE
         return asTable and t or Color3.fromHSV(t.H, t.S, t.V)
     end
 
@@ -371,6 +657,7 @@ do
             Spectrum.Palette.S = s
             Spectrum.Palette.V = v
         end
+        applyAccentPalette(Spectrum.Palette, Spectrum.SecondaryColor)
         if Spectrum.PaletteSync then Spectrum.PaletteSync:Emit() end
     end
 
@@ -421,62 +708,218 @@ do
         return Spectrum.SlotIndex
     end
 
+    local function getPanelWindowHeight(bar)
+        local body = bar and bar:FindFirstChild("Body")
+        local height = (bar and bar.Size and bar.Size.Y.Offset) or HDR_H
+        if body and body.Visible then
+            height = height + body.AbsoluteSize.Y + 2
+        end
+        return height
+    end
+
+    local function getGuiRect(gui)
+        if not gui or not gui.Parent then
+            return nil
+        end
+
+        local pos = gui.AbsolutePosition
+        local size = gui.AbsoluteSize
+        local body = gui:FindFirstChild("Body")
+        if body and body.Visible then
+            size = Vector2.new(size.X, size.Y + body.AbsoluteSize.Y + 2)
+        end
+
+        return {
+            Left = pos.X,
+            Top = pos.Y,
+            Right = pos.X + size.X,
+            Bottom = pos.Y + size.Y,
+        }
+    end
+
+    local function rectsOverlap(a, b, padding)
+        if not a or not b then
+            return false
+        end
+
+        local pad = padding or 6
+        return not (
+            a.Right <= (b.Left + pad)
+            or a.Left >= (b.Right - pad)
+            or a.Bottom <= (b.Top + pad)
+            or a.Top >= (b.Bottom - pad)
+        )
+    end
+
+    local function resolveGuiOverlap(gui, mode)
+        local current = getGuiRect(gui)
+        if not current then
+            return false
+        end
+
+        local others = {}
+        for _, bar in ipairs(Spectrum.PanelBars or {}) do
+            if bar ~= gui and bar.Parent and bar.Visible ~= false then
+                others[#others + 1] = bar
+            end
+        end
+        for _, record in next, FloatingLayoutRecords do
+            if record and record.Frame and record.Frame ~= gui and record.Frame.Parent and record.Frame.Visible ~= false then
+                others[#others + 1] = record.Frame
+            end
+        end
+
+        local overlaps = false
+        for _, other in ipairs(others) do
+            if rectsOverlap(current, getGuiRect(other), 8) then
+                overlaps = true
+                break
+            end
+        end
+        if not overlaps then
+            return false
+        end
+
+        local scale = (Scaler and Scaler.Scale and Scaler.Scale > 0) and Scaler.Scale or 1
+        local originX = gui.Position.X.Offset
+        local originY = gui.Position.Y.Offset
+        local step = math.max(8, math.floor((18 / scale) + 0.5))
+        local maxRadius = math.max(120, math.floor((getViewportSize().X / scale) * 0.4))
+
+        local function applyPosition(x, y)
+            if mode == "panel" then
+                applyPanelOffset(gui, x, y, scale)
+            else
+                applyFloatingOffset(gui, x, y)
+            end
+        end
+
+        for radius = step, maxRadius, step do
+            local candidates = {
+                Vector2.new(originX + radius, originY),
+                Vector2.new(originX - radius, originY),
+                Vector2.new(originX, originY + radius),
+                Vector2.new(originX, originY - radius),
+                Vector2.new(originX + radius, originY + radius),
+                Vector2.new(originX - radius, originY + radius),
+                Vector2.new(originX + radius, originY - radius),
+                Vector2.new(originX - radius, originY - radius),
+            }
+
+            for _, candidate in ipairs(candidates) do
+                applyPosition(candidate.X, candidate.Y)
+                local candidateRect = getGuiRect(gui)
+                local blocked = false
+                for _, other in ipairs(others) do
+                    if rectsOverlap(candidateRect, getGuiRect(other), 8) then
+                        blocked = true
+                        break
+                    end
+                end
+                if not blocked then
+                    return true
+                end
+            end
+        end
+
+        applyPosition(originX, originY)
+        return false
+    end
+
+    kit.resolveGuiOverlap = resolveGuiOverlap
+
     function kit:repositionPanels(scale)
         local bars = Spectrum.PanelBars
         if not bars or #bars == 0 then return end
-        local s      = scale or 1
-        local vp     = workspace.CurrentCamera.ViewportSize
+        local s = scale or 1
+        local vp = workspace.CurrentCamera.ViewportSize
         if vp.X < 1 or vp.Y < 1 then return end
+
+        local preset = getLayoutPresetConfig()
         local topOffset = getPanelTopOffset()
-        local totalW = #bars * COL_W + (#bars - 1) * PANEL_GAP
-        local startX = math.max(6, math.floor((vp.X / s - totalW) / 2))
+        local availableWidth = math.max(COL_W + 12, math.floor(vp.X / s) - 12)
+        local horizontalGap = preset.HorizontalGap or PANEL_GAP
+        local verticalGap = preset.VerticalGap or 8
+        local defaultMaxCols = math.max(1, math.floor((availableWidth + horizontalGap) / (COL_W + horizontalGap)))
+        local maxColumns = math.max(1, math.min(#bars, preset.MaxColumns or defaultMaxCols))
 
-        for i, bar in ipairs(bars) do
+        local autoBars = {}
+        for _, bar in ipairs(bars) do
             if not getPanelManual(bar) then
-                local x = startX + (i - 1) * (COL_W + PANEL_GAP)
-                bar.Position = UDim2.new(0, x, 0, topOffset)
+                autoBars[#autoBars + 1] = bar
             end
         end
 
-        for i, bar in ipairs(bars) do
+        local rowIndex = 1
+        local columnIndex = 1
+        local rowBars = {}
+        local rowHeights = {}
+
+        for _, bar in ipairs(autoBars) do
+            rowBars[rowIndex] = rowBars[rowIndex] or {}
+            rowBars[rowIndex][#rowBars[rowIndex] + 1] = bar
+            rowHeights[rowIndex] = math.max(rowHeights[rowIndex] or 0, getPanelWindowHeight(bar))
+
+            columnIndex = columnIndex + 1
+            if columnIndex > maxColumns then
+                columnIndex = 1
+                rowIndex = rowIndex + 1
+            end
+        end
+
+        local currentY = topOffset
+        for row = 1, #rowBars do
+            local barsInRow = rowBars[row]
+            local rowWidth = (#barsInRow * COL_W) + math.max(#barsInRow - 1, 0) * horizontalGap
+            local startX
+            if preset.Align == "left" then
+                startX = preset.LeftPadding or 8
+            else
+                startX = math.max(6, math.floor((availableWidth - rowWidth) * 0.5))
+            end
+
+            for index, bar in ipairs(barsInRow) do
+                local x = startX + ((index - 1) * (COL_W + horizontalGap))
+                bar.Position = UDim2.new(0, x, 0, currentY)
+            end
+
+            currentY = currentY + (rowHeights[row] or HDR_H) + verticalGap
+        end
+
+        for _, bar in ipairs(bars) do
             if getPanelManual(bar) then
-                local rawX = bar.Position.X.Offset
-                local clampedX = select(1, clampPanelOffset(bar, rawX, topOffset, s))
-                if clampedX ~= rawX then
-                    setPanelManual(bar, false)
-                    local x = startX + (i - 1) * (COL_W + PANEL_GAP)
-                    bar.Position = UDim2.new(0, x, 0, topOffset)
-                else
-                    bar.Position = UDim2.new(0, clampedX, 0, topOffset)
-                end
-            end
-        end
-
-        for i = 1, #bars do
-            local bar = bars[i]
-            for j = 1, i - 1 do
-                local other = bars[j]
-                local overlapX = math.abs(bar.Position.X.Offset - other.Position.X.Offset) < (COL_W - 2)
-                local overlapY = math.abs(bar.Position.Y.Offset - other.Position.Y.Offset) < (HDR_H + 2)
-                if overlapX and overlapY then
-                    setPanelManual(bar, false)
-                    local x = startX + (i - 1) * (COL_W + PANEL_GAP)
-                    bar.Position = UDim2.new(0, x, 0, topOffset)
-                    break
-                end
+                local x, y = clampPanelOffset(bar, bar.Position.X.Offset, bar.Position.Y.Offset, s)
+                bar.Position = UDim2.new(0, x, 0, y)
+                resolveGuiOverlap(bar, "panel")
             end
         end
     end
 
-    function kit:drag(gui, handle)
-        local dragging, origin, startPos = false
+    function kit:drag(gui, handle, options)
+        options = options or {}
+        local dragging = false
         local activeType
+        local origin
+        local startPos
+        local moved = false
+
         handle.InputBegan:Connect(function(input)
             if not isPrimaryPress(input.UserInputType) then return end
-            dragging  = true
+            if Spectrum.DraggingLocked and options.IgnoreLock ~= true then
+                return
+            end
+            dragging   = true
             activeType = input.UserInputType
-            origin    = Vector2.new(input.Position.X, input.Position.Y)
-            startPos  = gui.Position
+            origin     = Vector2.new(input.Position.X, input.Position.Y)
+            if gui.Position.X.Scale ~= 0 or gui.Position.Y.Scale ~= 0 then
+                local _p = getAnchorPixelPosition(gui)
+                applyFloatingAnchorPixels(gui, _p.X, _p.Y)
+            end
+            startPos = gui.Position
+            moved = false
+            if options.OnStart then
+                task.spawn(options.OnStart, gui)
+            end
         end)
         UIS.InputEnded:Connect(function(input)
             if not dragging then return end
@@ -486,6 +929,12 @@ do
                 return
             end
             dragging = false
+            if moved and options.ResolveOverlap ~= false then
+                resolveGuiOverlap(gui, options.Mode == "panel" and "panel" or "floating")
+            end
+            if options.OnReleased then
+                task.spawn(options.OnReleased, gui, moved)
+            end
         end)
         UIS.InputChanged:Connect(function(input)
             if not dragging then return end
@@ -496,23 +945,33 @@ do
             end
             local s     = Scaler.Scale > 0 and Scaler.Scale or 1
             local delta = Vector2.new(input.Position.X, input.Position.Y) - origin
-            gui.Position = UDim2.new(
-                startPos.X.Scale, startPos.X.Offset + delta.X / s,
-                startPos.Y.Scale, startPos.Y.Offset + delta.Y / s)
+            local nextX = startPos.X.Offset + delta.X / s
+            local nextY = startPos.Y.Offset + delta.Y / s
+            moved = moved or delta.Magnitude >= 4
+
+            if options.Mode == "panel" then
+                applyPanelOffset(gui, nextX, nextY, s)
+            else
+                applyFloatingOffset(gui, nextX, nextY)
+            end
         end)
     end
 
     function kit:rescale(scaler)
         local vp      = workspace.CurrentCamera.ViewportSize
         if vp.X < 1 or vp.Y < 1 then return end
+        local preset = getLayoutPresetConfig()
         local total   = math.max(Spectrum.PanelCount or 1, 1)
-        local needed  = total * COL_W + math.max(total - 1, 0) * PANEL_GAP + 24
+        local columns = math.max(1, math.min(total, preset.MaxColumns or total))
+        local needed  = columns * COL_W + math.max(columns - 1, 0) * (preset.HorizontalGap or PANEL_GAP) + 24
         local minScale = IS_MOBILE and 0.45 or 0.25
-        local maxScale = IS_MOBILE and 1.0 or 1.5
+        local maxScale = IS_MOBILE and 1.0 or 1.6
         local widthScale = vp.X / needed
         local heightScale = (vp.Y - getTopInsetPixels() - 24) / (HDR_H + 300)
         local natural = math.clamp(math.min(widthScale, heightScale), minScale, maxScale)
-        local s       = Spectrum.canScale == false and 1 or natural
+        local userScale = math.clamp(tonumber(Spectrum.UserScale) or 1, 0.7, 1.4)
+        local presetScale = preset.ScaleMultiplier or 1
+        local s = Spectrum.canScale == false and 1 or math.clamp(natural * userScale * presetScale, minScale, maxScale)
         scaler.Scale  = s
         kit:repositionPanels(s)
     end
@@ -528,12 +987,16 @@ function Spectrum.GetThemeState()
     local palette = kit:readPalette(true)
     return {
         Palette = {
-            H = palette.H or 0.60,
-            S = palette.S or 0.79,
-            V = palette.V or 0.91,
+            H = palette.H or DEFAULT_PALETTE.H,
+            S = palette.S or DEFAULT_PALETTE.S,
+            V = palette.V or DEFAULT_PALETTE.V,
         },
         RainbowMode = Spectrum.RainbowMode == true,
         RainbowSpeed = Spectrum.RainbowSpeed or 1750,
+        AnimationSpeed = Spectrum.AnimationSpeed or 1,
+        GlowSpeed = Spectrum.GlowSpeed or 1.5,
+        SecondaryColor = packColor(Spectrum.SecondaryColor or DEFAULT_SECONDARY),
+        FontColor = packColor(Spectrum.FontColor or DEFAULT_FONT_COLOR),
     }
 end
 
@@ -565,10 +1028,41 @@ function Spectrum.SetRainbowSpeed(speed)
     end
 end
 
+function Spectrum.SetSecondaryColor(color)
+    Spectrum.SecondaryColor = normalizeColor(color, DEFAULT_SECONDARY)
+    applyAccentPalette(kit:readPalette(true), Spectrum.SecondaryColor)
+    if Spectrum.PaletteSync then
+        Spectrum.PaletteSync:Emit()
+    end
+    return Spectrum.SecondaryColor
+end
+
+function Spectrum.SetFontColor(color)
+    Spectrum.FontColor = normalizeColor(color, DEFAULT_FONT_COLOR)
+    applyFontPalette(Spectrum.FontColor)
+    if Spectrum.PaletteSync then
+        Spectrum.PaletteSync:Emit()
+    end
+    return Spectrum.FontColor
+end
+
+function Spectrum.SetAnimationSpeed(speed)
+    Spectrum.AnimationSpeed = math.clamp(tonumber(speed) or 1, 0.5, 2)
+    refreshTweenInfo()
+    return Spectrum.AnimationSpeed
+end
+
+function Spectrum.SetGlowSpeed(speed)
+    Spectrum.GlowSpeed = math.clamp(tonumber(speed) or 1.5, 0.5, 3)
+    return Spectrum.GlowSpeed
+end
+
 local PaletteSync  = Hook.new()
 local ModuleSync   = Hook.new()
+local BindSync     = Hook.new()
 Spectrum.PaletteSync = PaletteSync
 Spectrum.ModuleSync  = ModuleSync
+Spectrum.BindSync    = BindSync
 
 Spectrum.ColorUpdate  = PaletteSync
 Spectrum.ButtonUpdate = ModuleSync
@@ -576,6 +1070,8 @@ Spectrum.ButtonUpdate = ModuleSync
 local Screen  = Instance.new("ScreenGui")
 local Root    = Instance.new("Frame")
 Scaler  = Instance.new("UIScale")
+local showTooltip = function() end
+local hideTooltip = function() end
 
 Screen.Name            = "Spectrum"
 Screen.ZIndexBehavior  = Enum.ZIndexBehavior.Sibling
@@ -591,15 +1087,17 @@ Root.Size                   = UDim2.new(1, 0, 1, 0)
 Scaler.Parent = Screen
 
 local easing    = { Enum.EasingStyle.Circular, Enum.EasingDirection.Out }
-local panelTI   = TweenInfo.new(0.2, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
-local hoverTI   = TweenInfo.new(0.1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
-local accentTI  = TweenInfo.new(0.14, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+local panelTI
+local accentTI
 
-local function playTween(instance, info, props)
-    local tween = Tween:Create(instance, info, props)
-    tween:Play()
-    return tween
+refreshTweenInfo = function()
+    local speed = math.clamp(tonumber(Spectrum.AnimationSpeed) or 1, 0.4, 2.5)
+    panelTI = TweenInfo.new(0.2 / speed, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
+    hoverTI = TweenInfo.new(0.1 / speed, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+    accentTI = TweenInfo.new(0.14 / speed, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 end
+
+refreshTweenInfo()
 
 local function playStoredTween(bucket, key, instance, info, props, onComplete)
     local current = bucket[key]
@@ -626,9 +1124,34 @@ end
 
 Spectrum.toggle = function()
     Root.Position = UDim2.new()
+    hideTooltip()
     Root.Visible  = not Root.Visible
+    if Root.Visible then
+        if Spectrum.ResetPanelScrolls then
+            Spectrum.ResetPanelScrolls()
+        end
+        task.defer(function()
+            if Spectrum.ResetPanelScrolls then
+                Spectrum.ResetPanelScrolls()
+            end
+            if kit and kit.refreshPanelBodies then
+                kit:refreshPanelBodies()
+            end
+        end)
+    end
 end
 
+function Spectrum.ResetPanelScrolls()
+    local scrolls = Spectrum.PanelScrolls or {}
+    for index = #scrolls, 1, -1 do
+        local scroll = scrolls[index]
+        if not scroll or not scroll.Parent then
+            table.remove(scrolls, index)
+        else
+            scroll.CanvasPosition = Vector2.new(0, 0)
+        end
+    end
+end
 
 local function randomString()
     local length = math.random(10, 20)
@@ -693,6 +1216,163 @@ if setthreadidentity then
     Screen.Parent = cloneref(game:GetService("CoreGui"))
 else
     Screen.Parent = cloneref(game:GetService("Players")).LocalPlayer.PlayerGui
+end
+
+local GlowRegistry = setmetatable({}, { __mode = "k" })
+local TooltipState = {
+    Target = nil,
+    Pointer = nil,
+}
+
+local function registerGlow(frame, resolver)
+    if not frame then
+        return nil
+    end
+    GlowRegistry[frame] = resolver or function()
+        return true
+    end
+    return frame
+end
+
+local function updateTooltipPosition(point)
+    local tooltip = Spectrum.Tooltip
+    if not tooltip then
+        return
+    end
+    TooltipState.Pointer = point or UIS:GetMouseLocation()
+    local viewport = getViewportSize()
+    local width = tooltip.AbsoluteSize.X > 0 and tooltip.AbsoluteSize.X or 170
+    local height = tooltip.AbsoluteSize.Y > 0 and tooltip.AbsoluteSize.Y or 26
+    local pointer = TooltipState.Pointer
+    local x = (pointer.X or 0) + 16
+    local y = (pointer.Y or 0) + 12
+
+    x = math.clamp(x, 6, math.max(6, viewport.X - width - 6))
+    y = math.clamp(y, 6, math.max(6, viewport.Y - height - 6))
+    local _tscale = (Scaler and Scaler.Scale and Scaler.Scale > 0) and Scaler.Scale or 1
+    tooltip.Position = UDim2.new(0, math.floor(x / _tscale + 0.5), 0, math.floor(y / _tscale + 0.5))
+end
+
+do
+    local tooltipFrame = Instance.new("Frame")
+    tooltipFrame.Name = "Tooltip"
+    tooltipFrame.Parent = Root
+    tooltipFrame.Visible = false
+    tooltipFrame.BackgroundColor3 = P.BASE2
+    tooltipFrame.BorderSizePixel = 0
+    tooltipFrame.ZIndex = 60
+    tooltipFrame.AutomaticSize = Enum.AutomaticSize.Y
+    tooltipFrame.Size = UDim2.new(0, 170, 0, 0)
+    mkCorner(tooltipFrame, UDim.new(0, 3))
+    mkBorder(tooltipFrame, P.EDGE_HI, 1, 0.12)
+    mkPad(tooltipFrame, 4, 4, 7, 7)
+
+    local tooltipGlow = Instance.new("Frame")
+    tooltipGlow.Name = "Glow"
+    tooltipGlow.Parent = tooltipFrame
+    tooltipGlow.BackgroundColor3 = P.HUE
+    tooltipGlow.BackgroundTransparency = 0.84
+    tooltipGlow.BorderSizePixel = 0
+    tooltipGlow.Size = UDim2.new(1, 0, 0.45, 0)
+    tooltipGlow.ZIndex = 60
+    local tooltipGlowFade = Instance.new("UIGradient")
+    tooltipGlowFade.Rotation = 90
+    tooltipGlowFade.Transparency = NumberSequence.new({
+        NumberSequenceKeypoint.new(0, 0.1),
+        NumberSequenceKeypoint.new(1, 1),
+    })
+    tooltipGlowFade.Parent = tooltipGlow
+
+    local tooltipLabel = Instance.new("TextLabel")
+    tooltipLabel.Name = "Text"
+    tooltipLabel.Parent = tooltipFrame
+    tooltipLabel.BackgroundTransparency = 1
+    tooltipLabel.AutomaticSize = Enum.AutomaticSize.Y
+    tooltipLabel.Size = UDim2.new(1, 0, 0, 0)
+    tooltipLabel.Font = Enum.Font.GothamSemibold
+    tooltipLabel.Text = ""
+    tooltipLabel.TextColor3 = P.INK_HI
+    tooltipLabel.TextSize = 9
+    tooltipLabel.TextWrapped = true
+    tooltipLabel.TextXAlignment = Enum.TextXAlignment.Left
+    tooltipLabel.TextYAlignment = Enum.TextYAlignment.Top
+    tooltipLabel.ZIndex = 61
+
+    showTooltip = function(text, target)
+        if not text or not target or not target.Parent then return end
+        TooltipState.Target = target
+        tooltipLabel.Text = tostring(text)
+        tooltipFrame.Visible = true
+        updateTooltipPosition(UIS:GetMouseLocation())
+    end
+
+    hideTooltip = function()
+        TooltipState.Target = nil
+        tooltipFrame.Visible = false
+        tooltipLabel.Text = ""
+    end
+
+    Spectrum.Tooltip = tooltipFrame
+    Spectrum.TooltipLabel = tooltipLabel
+
+    kit:track(PaletteSync:Bind(function()
+        tooltipFrame.BackgroundColor3 = P.BASE2
+        tooltipGlow.BackgroundColor3 = P.HUE
+        tooltipLabel.TextColor3 = P.INK_HI
+    end))
+end
+
+kit:track(UIS.InputChanged:Connect(function(input)
+    if Spectrum.Tooltip and Spectrum.Tooltip.Visible and isPointerMove(input.UserInputType) then
+        updateTooltipPosition(input.Position)
+    end
+end))
+
+kit:track(Root:GetPropertyChangedSignal("Visible"):Connect(function()
+    if not Root.Visible then
+        return
+    end
+    task.defer(function()
+        if Spectrum.ResetPanelScrolls then
+            Spectrum.ResetPanelScrolls()
+        end
+        if kit and kit.refreshPanelBodies then
+            kit:refreshPanelBodies()
+        end
+    end)
+end))
+
+kit:track(Runner.RenderStepped:Connect(function()
+    local pulse = os.clock() * math.max(0.25, tonumber(Spectrum.GlowSpeed) or 1.5)
+    for frame, resolver in next, GlowRegistry do
+        if not frame or not frame.Parent then
+            GlowRegistry[frame] = nil
+        else
+            local active = resolver == nil or resolver() == true
+            if active then
+                local phase = 0
+                pcall(function()
+                    phase = frame.AbsolutePosition.Y * 0.015
+                end)
+                local alpha = 0.72 + (((math.sin(pulse + phase) + 1) * 0.5) * 0.12)
+                frame.BackgroundTransparency = alpha
+            else
+                frame.BackgroundTransparency = 0.92
+            end
+        end
+    end
+end))
+
+local function bindHoverTooltip(guiObject, text)
+    if not guiObject or not text or text == "" then
+        return
+    end
+    kit:track(guiObject.MouseEnter:Connect(function()
+        showTooltip(text, guiObject)
+    end))
+    kit:track(guiObject.MouseLeave:Connect(function()
+        hideTooltip()
+    end))
 end
 
 kit:rescale(Scaler)
@@ -1146,16 +1826,9 @@ Spectrum.createNotification = Spectrum.toast
 
 local LAYOUT_FILE = IS_MOBILE and "config/layout.mobile.json" or "config/layout.json"
 
-local function readLayout()
-    local ok, data = pcall(function()
-        return HttpService:JSONDecode(readfile(LAYOUT_FILE))
-    end)
-    if not ok or type(data) ~= "table" then
-        return {}
-    end
-
+local function normalizePanelLayoutMap(data)
     local normalized = {}
-    for name, info in next, data do
+    for name, info in next, data or {} do
         if type(info) == "table" then
             local x = tonumber(info.X)
             local y = tonumber(info.Y)
@@ -1168,85 +1841,339 @@ local function readLayout()
             end
         end
     end
-
     return normalized
 end
 
+local function normalizeFloatingLayoutMap(data)
+    local normalized = {}
+    for name, info in next, data or {} do
+        if type(info) == "table" then
+            local anchorX, anchorY = readStoredAnchorPoint(info)
+            if anchorX and anchorY or info.Left ~= nil or info.Right ~= nil or info.CenterX ~= nil then
+                normalized[name] = {
+                    AnchorX = math.clamp(anchorX or tonumber(info.AnchorX) or 0.5, 0, 1),
+                    AnchorY = math.clamp(anchorY or tonumber(info.AnchorY) or 0.5, 0, 1),
+                    Left = tonumber(info.Left),
+                    Right = tonumber(info.Right),
+                    Top = tonumber(info.Top),
+                    Bottom = tonumber(info.Bottom),
+                    CenterX = tonumber(info.CenterX),
+                    CenterY = tonumber(info.CenterY),
+                    ModeX = tostring(info.ModeX or "center"),
+                    ModeY = tostring(info.ModeY or "center"),
+                    ViewportX = tonumber(info.ViewportX),
+                    ViewportY = tonumber(info.ViewportY),
+                }
+            end
+        end
+    end
+    return normalized
+end
+
+local function readLayout()
+    local ok, data = pcall(function()
+        return HttpService:JSONDecode(readfile(LAYOUT_FILE))
+    end)
+    if not ok or type(data) ~= "table" then
+        return {
+            Panels = {},
+            Floaters = {},
+            DragLocked = false,
+            Preset = "default",
+            Scale = 1,
+        }
+    end
+
+    if data.Panels or data.Floaters or data.DragLocked ~= nil then
+        return {
+            Panels = normalizePanelLayoutMap(data.Panels or {}),
+            Floaters = normalizeFloatingLayoutMap(data.Floaters or {}),
+            DragLocked = data.DragLocked == true,
+            Preset = string.lower(tostring(data.Preset or "default")),
+            Scale = math.clamp(tonumber(data.Scale) or 1, 0.7, 1.4),
+        }
+    end
+
+    return {
+        Panels = normalizePanelLayoutMap(data),
+        Floaters = {},
+        DragLocked = false,
+        Preset = "default",
+        Scale = 1,
+    }
+end
+
 local function writeLayout()
-    local positions = {}
+    local positions = {
+        Version = 3,
+        Panels = {},
+        Floaters = {},
+        DragLocked = Spectrum.DraggingLocked == true,
+        Preset = Spectrum.ActiveLayoutPreset or "default",
+        Scale = Spectrum.UserScale or 1,
+    }
     for _, bar in ipairs(Spectrum.PanelBars or {}) do
-        positions[bar.Name] = {
+        positions.Panels[bar.Name] = {
             X = bar.Position.X.Offset,
             Y = bar.Position.Y.Offset,
             Manual = getPanelManual(bar),
         }
     end
+    for name, record in next, FloatingLayoutRecords do
+        if record and record.Frame and record.Frame.Parent and record.Persist ~= false then
+            positions.Floaters[name] = captureResponsiveFloatingLayout(record.Frame)
+        end
+    end
     pcall(function()
         if not isfolder("config") then makefolder("config") end
         writefile(LAYOUT_FILE, HttpService:JSONEncode(positions))
     end)
+    Spectrum.LayoutState = positions
+    Spectrum.Layout = positions.Panels
+    Spectrum.FloatingLayout = positions.Floaters
 end
 
-Spectrum.Layout             = readLayout()
+Spectrum.LayoutState        = readLayout()
+Spectrum.Layout             = Spectrum.LayoutState.Panels
+Spectrum.FloatingLayout     = Spectrum.LayoutState.Floaters
+Spectrum.DraggingLocked     = Spectrum.LayoutState.DragLocked == true
+Spectrum.ActiveLayoutPreset = PANEL_LAYOUT_PRESETS[Spectrum.LayoutState.Preset] and Spectrum.LayoutState.Preset or "default"
+Spectrum.UserScale          = math.clamp(tonumber(Spectrum.LayoutState.Scale) or 1, 0.7, 1.4)
 Spectrum.saveTabPositions   = writeLayout
+Spectrum.SaveLayout         = writeLayout
 Spectrum.TabPositions       = Spectrum.Layout
 
+local function registerFloatingLayout(name, frame, options)
+    if not name or not frame then
+        return nil
+    end
+    local record = {
+        Name = name,
+        Frame = frame,
+        Persist = not (options and options.Persist == false),
+        DefaultPosition = options and options.DefaultPosition or frame.Position,
+        OnRestore = options and options.OnRestore or nil,
+    }
+    record.DefaultLayout = captureResponsiveFloatingLayout(frame)
+    FloatingLayoutRecords[name] = record
+    return record
+end
+
+local function restoreFloatingLayout(name)
+    local record = FloatingLayoutRecords[name]
+    if not record or not record.Frame then
+        return false
+    end
+    if record.DefaultLayout and applyResponsiveFloatingLayout(record.Frame, record.DefaultLayout) then
+        if record.OnRestore then
+            record.OnRestore(record.Frame)
+        end
+        return true
+    end
+    if typeof(record.DefaultPosition) == "UDim2" then
+        local parent = record.Frame.Parent
+        local parentSize = parent and parent.AbsoluteSize or getViewportSize()
+        local position = record.DefaultPosition
+        local scale = (Scaler and Scaler.Scale and Scaler.Scale > 0) and Scaler.Scale or 1
+        applyFloatingAnchorPixels(
+            record.Frame,
+            (position.X.Scale * parentSize.X) + (position.X.Offset * scale),
+            (position.Y.Scale * parentSize.Y) + (position.Y.Offset * scale)
+        )
+        if record.OnRestore then
+            record.OnRestore(record.Frame)
+        end
+        return true
+    end
+    return false
+end
+
 local function makeBarDraggable(bar)
-    local dragging, moved, origin, startOff = false, false
+    local dragging, moved = false, false
     local activeType
+    local origin
+    local startPos
     local wasManual = false
+
     bar.InputBegan:Connect(function(input)
         if not isPrimaryPress(input.UserInputType) then return end
-        dragging  = true
+        if Spectrum.DraggingLocked then return end
+
+        dragging = true
         moved = false
         activeType = input.UserInputType
-        origin    = Vector2.new(input.Position.X, input.Position.Y)
-        startOff  = Vector2.new(bar.Position.X.Offset, bar.Position.Y.Offset)
         wasManual = getPanelManual(bar)
+        origin = Vector2.new(input.Position.X, input.Position.Y)
+        startPos = bar.Position
+
         playTween(bar, hoverTI, { BackgroundColor3 = P.BASE_HOV })
     end)
+
     UIS.InputEnded:Connect(function(input)
         if not dragging then return end
+
         if activeType == Enum.UserInputType.Touch then
             if input.UserInputType ~= Enum.UserInputType.Touch then return end
         elseif input.UserInputType ~= Enum.UserInputType.MouseButton1 then
             return
         end
+
         dragging = false
         playTween(bar, hoverTI, { BackgroundColor3 = P.BASE2 })
+
         if moved then
-            applyPanelOffset(bar, bar.Position.X.Offset, getPanelTopOffset())
+            applyPanelOffset(bar, bar.Position.X.Offset, bar.Position.Y.Offset)
+            if kit and kit.resolveGuiOverlap then
+                kit.resolveGuiOverlap(bar, "panel")
+            end
             writeLayout()
         else
             setPanelManual(bar, wasManual)
         end
     end)
+
     UIS.InputChanged:Connect(function(input)
         if not dragging then return end
+
         if activeType == Enum.UserInputType.Touch then
             if input.UserInputType ~= Enum.UserInputType.Touch then return end
         elseif input.UserInputType ~= Enum.UserInputType.MouseMovement then
             return
         end
-        local s     = Scaler.Scale > 0 and Scaler.Scale or 1
+
+        local s = Scaler.Scale > 0 and Scaler.Scale or 1
         local delta = Vector2.new(input.Position.X, input.Position.Y) - origin
-        if not moved and delta.Magnitude > 2 then
+        local newX = startPos.X.Offset + (delta.X / s)
+        local newY = startPos.Y.Offset + (delta.Y / s)
+
+        if not moved then
             moved = true
             setPanelManual(bar, true)
         end
-        if moved then
-            applyPanelOffset(bar, startOff.X + delta.X / s, getPanelTopOffset(), s)
-        end
+
+        applyPanelOffset(bar, newX, newY, s)
     end)
+end
+
+function Spectrum.GetDraggingLocked()
+    return Spectrum.DraggingLocked == true
+end
+
+function Spectrum.SetDraggingLocked(locked)
+    Spectrum.DraggingLocked = locked == true
+    if Spectrum.SaveLayout then
+        Spectrum.SaveLayout()
+    end
+    return Spectrum.DraggingLocked
+end
+
+function Spectrum.ResetLayout()
+    Spectrum.ActiveLayoutPreset = "default"
+    Spectrum.UserScale = 1
+    for _, bar in ipairs(Spectrum.PanelBars or {}) do
+        setPanelManual(bar, false)
+    end
+    kit:rescale(Scaler)
+    for name in next, FloatingLayoutRecords do
+        restoreFloatingLayout(name)
+    end
+    if Spectrum.SaveLayout then
+        Spectrum.SaveLayout()
+    end
+end
+
+function Spectrum.ResetPositions()
+    for _, bar in ipairs(Spectrum.PanelBars or {}) do
+        setPanelManual(bar, false)
+    end
+    kit:repositionPanels((Scaler and Scaler.Scale and Scaler.Scale > 0) and Scaler.Scale or 1)
+    for name in next, FloatingLayoutRecords do
+        restoreFloatingLayout(name)
+    end
+    if Spectrum.SaveLayout then
+        Spectrum.SaveLayout()
+    end
+end
+
+function Spectrum.ResetScale()
+    Spectrum.UserScale = 1
+    kit:rescale(Scaler)
+    if Spectrum.SaveLayout then
+        Spectrum.SaveLayout()
+    end
+    return Spectrum.UserScale
+end
+
+function Spectrum.SetScaleMultiplier(value)
+    Spectrum.UserScale = math.clamp(tonumber(value) or 1, 0.7, 1.4)
+    kit:rescale(Scaler)
+    if Spectrum.SaveLayout then
+        Spectrum.SaveLayout()
+    end
+    return Spectrum.UserScale
+end
+
+function Spectrum.GetScaleMultiplier()
+    return Spectrum.UserScale or 1
+end
+
+function Spectrum.GetLayoutPreset()
+    return Spectrum.ActiveLayoutPreset or "default"
+end
+
+function Spectrum.ApplyLayoutPreset(name)
+    local normalized = string.lower(tostring(name or "default"))
+    if not PANEL_LAYOUT_PRESETS[normalized] then
+        normalized = "default"
+    end
+
+    Spectrum.ActiveLayoutPreset = normalized
+    for _, bar in ipairs(Spectrum.PanelBars or {}) do
+        setPanelManual(bar, false)
+    end
+    kit:rescale(Scaler)
+    for floaterName in next, FloatingLayoutRecords do
+        restoreFloatingLayout(floaterName)
+    end
+    if Spectrum.SaveLayout then
+        Spectrum.SaveLayout()
+    end
+    return normalized
+end
+
+function Spectrum.GetLayoutPresets()
+    local list = {}
+    for key in pairs(PANEL_LAYOUT_PRESETS) do
+        list[#list + 1] = key
+    end
+    table.sort(list)
+    return list
+end
+
+function Spectrum.FactoryResetUI()
+    Spectrum.ActiveLayoutPreset = "default"
+    Spectrum.UserScale = 1
+    Spectrum.RainbowMode = false
+    Spectrum.RainbowSpeed = 1750
+    Spectrum.AnimationSpeed = 1
+    Spectrum.GlowSpeed = 1.5
+    Spectrum.SecondaryColor = DEFAULT_SECONDARY
+    Spectrum.FontColor = DEFAULT_FONT_COLOR
+    kit:writePalette(DEFAULT_PALETTE)
+    Spectrum.SetSecondaryColor(DEFAULT_SECONDARY)
+    Spectrum.SetFontColor(DEFAULT_FONT_COLOR)
+    Spectrum.ResetLayout()
 end
 
 function Spectrum.window(cfg)
     local panel  = { Open = true }
     local panelId = cfg.Name .. "Panel"
+    local displayName = cfg.Title or cfg.Name
 
     Spectrum.PanelCount    = (Spectrum.PanelCount or 0) + 1
     Spectrum.PanelBars     = Spectrum.PanelBars or {}
     Spectrum.PanelUpdaters = Spectrum.PanelUpdaters or {}
+    Spectrum.PanelScrolls  = Spectrum.PanelScrolls or {}
     kit:nextSlot()
 
     local Header = Instance.new("TextButton", Root)
@@ -1261,7 +2188,24 @@ function Spectrum.window(cfg)
     Header.TextColor3       = P.INK_HI
     Header.TextSize         = 10
     Header.Modal            = true
-    mkCorner(Header, R_SM); mkBorder(Header, P.EDGE, 1)
+    mkCorner(Header, R_SM)
+    local headerEdge = mkBorder(Header, P.EDGE, 1, 0.12)
+
+    local HeaderGlow = Instance.new("Frame")
+    HeaderGlow.Name = "Glow"
+    HeaderGlow.Parent = Header
+    HeaderGlow.BackgroundColor3 = P.HUE
+    HeaderGlow.BackgroundTransparency = 0.92
+    HeaderGlow.BorderSizePixel = 0
+    HeaderGlow.Size = UDim2.new(1, 0, 0.55, 0)
+    HeaderGlow.ZIndex = 1
+    local headerGlowFade = Instance.new("UIGradient")
+    headerGlowFade.Rotation = 90
+    headerGlowFade.Transparency = NumberSequence.new({
+        NumberSequenceKeypoint.new(0, 0.12),
+        NumberSequenceKeypoint.new(1, 1),
+    })
+    headerGlowFade.Parent = HeaderGlow
 
     table.insert(Spectrum.PanelBars, Header)
     local saved = Spectrum.Layout[cfg.Name .. "Header"]
@@ -1299,7 +2243,7 @@ function Spectrum.window(cfg)
     HdrTitle.Name               = "Name"; HdrTitle.Parent = Header
     HdrTitle.BackgroundTransparency = 1; HdrTitle.Position = UDim2.new(0, headerTextLeft, 0, 0)
     HdrTitle.Size               = UDim2.new(1, headerTextRight - headerTextLeft, 1, 0); HdrTitle.ZIndex = 2
-    HdrTitle.Font               = FONT_HDR; HdrTitle.Text = cfg.Name
+    HdrTitle.Font               = FONT_HDR; HdrTitle.Text = displayName
     HdrTitle.TextColor3         = P.INK_HI; HdrTitle.TextSize = TEXT_SIZE_SM
     HdrTitle.TextXAlignment     = showHeaderIcon and Enum.TextXAlignment.Left or Enum.TextXAlignment.Center
 
@@ -1315,12 +2259,29 @@ function Spectrum.window(cfg)
     local Body = Instance.new("Frame")
     Body.Name                   = "Body"; Body.Parent = Header
     Body.BackgroundColor3       = P.BASE1
-    Body.BackgroundTransparency = 0.02
+    Body.BackgroundTransparency = 0
     Body.BorderSizePixel        = 0
     Body.ClipsDescendants       = true
     Body.Position               = UDim2.new(0, 0, 1, 1)
     Body.Size                   = UDim2.new(0, COL_W, 0, 0)
-    mkCorner(Body, R_SM); mkBorder(Body, P.EDGE, 1)
+    mkCorner(Body, R_SM)
+    local bodyEdge = mkBorder(Body, P.EDGE, 1, 0.14)
+
+    local BodyGlow = Instance.new("Frame")
+    BodyGlow.Name = "Glow"
+    BodyGlow.Parent = Body
+    BodyGlow.BackgroundColor3 = P.HUE_FADE
+    BodyGlow.BackgroundTransparency = 0.95
+    BodyGlow.BorderSizePixel = 0
+    BodyGlow.Size = UDim2.new(1, 0, 0.6, 0)
+    BodyGlow.ZIndex = 0
+    local bodyGlowFade = Instance.new("UIGradient")
+    bodyGlowFade.Rotation = 90
+    bodyGlowFade.Transparency = NumberSequence.new({
+        NumberSequenceKeypoint.new(0, 0.18),
+        NumberSequenceKeypoint.new(1, 1),
+    })
+    bodyGlowFade.Parent = BodyGlow
 
     local BodyScroll = Instance.new("ScrollingFrame")
     BodyScroll.Name                  = "BodyScroll"; BodyScroll.Parent = Body
@@ -1330,18 +2291,33 @@ function Spectrum.window(cfg)
     BodyScroll.ScrollBarThickness    = 1
     BodyScroll.ScrollBarImageColor3  = P.INK_LOW
     BodyScroll.ScrollingDirection    = Enum.ScrollingDirection.Y
+    table.insert(Spectrum.PanelScrolls, BodyScroll)
 
     local EntryHolder = Instance.new("Frame")
     EntryHolder.Name                   = "EntryHolder"; EntryHolder.Parent = BodyScroll
     EntryHolder.BackgroundTransparency = 1; EntryHolder.BorderSizePixel = 0
-    EntryHolder.Size                   = UDim2.new(1, 0, 1, 0)
+    EntryHolder.Size                   = UDim2.new(0, COL_W, 0, 0)
 
     local Flow = Instance.new("UIListLayout")
     Flow.Padding             = UDim.new(0, 1)
     Flow.Parent              = EntryHolder
     Flow.HorizontalAlignment = Enum.HorizontalAlignment.Center
+    Flow.VerticalAlignment   = Enum.VerticalAlignment.Top
     Flow.SortOrder           = Enum.SortOrder.LayoutOrder
     mkPad(EntryHolder, 3, 3, 0, 0)
+
+    local function applyPanelSkin()
+        Header.BackgroundColor3 = P.BASE2
+        headerEdge.Color = P.EDGE
+        Body.BackgroundColor3 = P.BASE1
+        bodyEdge.Color = P.EDGE
+        HeaderGlow.BackgroundColor3 = P.HUE
+        BodyGlow.BackgroundColor3 = P.HUE_FADE
+        HdrTitle.TextColor3 = P.INK_HI
+    end
+
+    applyPanelSkin()
+    kit:track(PaletteSync:Bind(applyPanelSkin))
 
     function panel.Update(instant)
         local scale = (Scaler.Scale > 0 and Scaler.Scale or 1)
@@ -1356,6 +2332,11 @@ function Spectrum.window(cfg)
         BodyScroll.CanvasSize = UDim2.new(0, 0, 0, fullH)
         BodyScroll.Active = panel.Open
         BodyScroll.ScrollingEnabled = panel.Open
+
+        local maxCanvasY = math.max(0, fullH - targetHeight)
+        if BodyScroll.CanvasPosition.Y > maxCanvasY then
+            BodyScroll.CanvasPosition = Vector2.new(BodyScroll.CanvasPosition.X, maxCanvasY)
+        end
 
         if instant then
             Body.Size = UDim2.new(0, COL_W, 0, targetHeight)
@@ -1373,6 +2354,9 @@ function Spectrum.window(cfg)
 
     function panel.SetOpen(open, instant)
         panel.Open = open == true
+        if panel.Open then
+            BodyScroll.CanvasPosition = Vector2.new(0, 0)
+        end
 
         if instant then
             CollapseBtn.Rotation = panel.Open and 180 or 0
@@ -1385,6 +2369,14 @@ function Spectrum.window(cfg)
         end
 
         panel.Update(instant == true)
+    end
+
+    function panel.SetSearchVisible(visible)
+        local isVisible = visible ~= false
+        Header.Visible = isVisible
+        if isVisible then
+            panel.Update(true)
+        end
     end
 
     function panel.Collapse()
@@ -1458,9 +2450,12 @@ function Spectrum.window(cfg)
             cfg2.NoSave = true
         end
         entry.Hidden = hiddenInUi
+        panel._entrySequence = (panel._entrySequence or 0) + 1
+        local entryOrder = panel._entrySequence * 2
         local entryId   = cfg2.Name .. "Module"
         local allowMobileButton = IS_MOBILE and cfg2.NoMobileButton ~= true and not hiddenInUi
         local defaultTouchX, defaultTouchY = nextMobileButtonSlot()
+        local rowHovered = false
         if IS_MOBILE and not allowMobileButton then
             local storedButtonState = MobileUIState.Buttons[entryId]
             if type(storedButtonState) == "table" and (storedButtonState.Enabled == true or storedButtonState.Manual == true) then
@@ -1484,9 +2479,30 @@ function Spectrum.window(cfg)
         Row.TextColor3             = P.INK_MID
         Row.TextSize               = 10
         Row.AutoButtonColor        = false
+        Row.LayoutOrder            = entryOrder - 1
         entry.Instance             = Row
         mkCorner(Row, R_SM)
-        local RowEdge = mkBorder(Row, P.EDGE, 1, 0.52)
+        local RowEdge = mkBorder(Row, P.EDGE, 1, 0.28)
+
+        local RowGlow = Instance.new("Frame")
+        RowGlow.Name = "Glow"
+        RowGlow.Parent = Row
+        RowGlow.BackgroundColor3 = P.HUE
+        RowGlow.BackgroundTransparency = 0.92
+        RowGlow.BorderSizePixel = 0
+        RowGlow.Size = UDim2.new(1, 0, 0.55, 0)
+        RowGlow.ZIndex = 0
+        mkCorner(RowGlow, R_SM)
+        local rowGlowFade = Instance.new("UIGradient")
+        rowGlowFade.Rotation = 90
+        rowGlowFade.Transparency = NumberSequence.new({
+            NumberSequenceKeypoint.new(0, 0.12),
+            NumberSequenceKeypoint.new(1, 1),
+        })
+        rowGlowFade.Parent = RowGlow
+        registerGlow(RowGlow, function()
+            return entry.Enabled or rowHovered
+        end)
 
         local RowArrow = mkChevron(Row, 4, nil, 6)
 
@@ -1504,6 +2520,39 @@ function Spectrum.window(cfg)
             ExpandHitbox.ZIndex = 3
         end
 
+        local function readEntryExtraText()
+            local extra = type(cfg2.ExtraText) == "function" and cfg2.ExtraText() or cfg2.ExtraText
+            if extra == nil then
+                return nil
+            end
+            extra = tostring(extra)
+            if extra == "" then
+                return nil
+            end
+            return extra
+        end
+
+        local function readEntryStatusText()
+            local segments = {}
+            local bindText = formatBindDisplay(entry.Bind)
+            if bindText then
+                segments[#segments + 1] = "[" .. bindText .. "]"
+            end
+
+            local extra = readEntryExtraText()
+            if extra then
+                segments[#segments + 1] = tostring(extra)
+            end
+
+            if #segments == 0 then
+                return nil
+            end
+
+            return table.concat(segments, " ")
+        end
+
+        local badgeInset = cfg2.Private and 44 or ((cfg2.Beta or cfg2.New) and 34 or 8)
+
         local RowLabel = Instance.new("TextLabel")
         RowLabel.Name               = "Name"; RowLabel.Parent = Row
         RowLabel.BackgroundTransparency = 1; RowLabel.BorderSizePixel = 0
@@ -1513,6 +2562,20 @@ function Spectrum.window(cfg)
         RowLabel.TextColor3         = P.INK_MID; RowLabel.TextSize = TEXT_SIZE_SM
         RowLabel.TextScaled         = false; RowLabel.TextTruncate = Enum.TextTruncate.AtEnd
         RowLabel.TextXAlignment     = Enum.TextXAlignment.Left
+
+        local RowExtra = Instance.new("TextLabel")
+        RowExtra.Name               = "Extra"; RowExtra.Parent = Row
+        RowExtra.BackgroundTransparency = 1; RowExtra.BorderSizePixel = 0
+        RowExtra.AnchorPoint        = Vector2.new(1, 0.5)
+        RowExtra.Position           = UDim2.new(1, -badgeInset, 0.5, 0)
+        RowExtra.Size               = UDim2.new(0, 46, 0, ROW_H)
+        RowExtra.Font               = FONT_VALUE
+        RowExtra.Text               = ""
+        RowExtra.TextColor3         = P.HUE
+        RowExtra.TextSize           = 8
+        RowExtra.TextTruncate       = Enum.TextTruncate.AtEnd
+        RowExtra.TextXAlignment     = Enum.TextXAlignment.Right
+        RowExtra.Visible            = false
 
         if cfg2.Beta then
             local Badge = Instance.new("TextLabel")
@@ -1557,10 +2620,49 @@ function Spectrum.window(cfg)
         SubHolder.BackgroundTransparency = 1
         SubHolder.BorderSizePixel        = 0
         SubHolder.ClipsDescendants       = true
+        SubHolder.LayoutOrder            = entryOrder
         SubHolder.Size                   = UDim2.new(0, ROW_W, 0, 0)
         SubHolder.Visible                = false
         mkCorner(SubHolder, R_SM)
         local SubEdge = mkBorder(SubHolder, P.EDGE, 1, 0.8)
+
+        local SubGlow = Instance.new("Frame")
+        SubGlow.Name = "Glow"
+        SubGlow.Parent = SubHolder
+        SubGlow.BackgroundColor3 = P.HUE_FADE
+        SubGlow.BackgroundTransparency = 0.96
+        SubGlow.BorderSizePixel = 0
+        SubGlow.Size = UDim2.new(1, 0, 0.6, 0)
+        SubGlow.ZIndex = 0
+        mkCorner(SubGlow, R_SM)
+        local subGlowFade = Instance.new("UIGradient")
+        subGlowFade.Rotation = 90
+        subGlowFade.Transparency = NumberSequence.new({
+            NumberSequenceKeypoint.new(0, 0.16),
+            NumberSequenceKeypoint.new(1, 1),
+        })
+        subGlowFade.Parent = SubGlow
+
+        local SubContent = Instance.new("Frame")
+        SubContent.Name                   = "SubContent"
+        SubContent.Parent                 = SubHolder
+        SubContent.BackgroundTransparency = 1
+        SubContent.BorderSizePixel        = 0
+        SubContent.Size                   = UDim2.new(1, 0, 1, 0)
+        SubContent.ZIndex                 = 1
+
+        local function updateEntryLabels()
+            RowLabel.Text = cfg2.Name
+            local status = readEntryStatusText()
+            RowExtra.Visible = status ~= nil
+            RowExtra.Text = status or ""
+            RowExtra.TextColor3 = entry.Bind and P.HUE or P.INK_LOW
+
+            local extraWidth = RowExtra.Visible and math.min(ROW_W - 40, measureTextWidth(status, FONT_VALUE, 8) + 8) or 0
+            RowExtra.Size = UDim2.new(0, extraWidth, 0, ROW_H)
+            local reserved = RowExtra.Visible and (extraWidth + badgeInset + 6) or (badgeInset + 8)
+            RowLabel.Size = UDim2.new(1, -reserved, 1, 0)
+        end
 
         if hiddenInUi then
             Row.Visible = false
@@ -1570,16 +2672,17 @@ function Spectrum.window(cfg)
         end
 
         local SubFlow = Instance.new("UIListLayout")
-        SubFlow.Parent             = SubHolder
+        SubFlow.Parent             = SubContent
         SubFlow.HorizontalAlignment = Enum.HorizontalAlignment.Center
+        SubFlow.VerticalAlignment   = Enum.VerticalAlignment.Top
         SubFlow.SortOrder          = Enum.SortOrder.LayoutOrder
         SubFlow.Padding            = UDim.new(0, PADDING_SM)
-        mkPad(SubHolder, PADDING_MD, PADDING_MD, 0, 0)
+        mkPad(SubContent, PADDING_MD, PADDING_MD, 0, 0)
 
         local BindRow, BindLabel
         if not IS_MOBILE then
             BindRow = Instance.new("TextButton")
-            BindRow.Name                   = "BindRow"; BindRow.Parent = SubHolder
+            BindRow.Name                   = "BindRow"; BindRow.Parent = SubContent
             BindRow.BackgroundColor3       = P.BASE2; BindRow.BackgroundTransparency = 0
             BindRow.BorderSizePixel        = 0; BindRow.LayoutOrder = 2
             BindRow.Size                   = UDim2.new(0, SUB_W, 0, TOGGLE_H)
@@ -1618,7 +2721,7 @@ function Spectrum.window(cfg)
         local TouchBindRow, TouchBindLabel
         if allowMobileButton then
             TouchBindRow = Instance.new("TextButton")
-            TouchBindRow.Name                   = "TouchBindRow"; TouchBindRow.Parent = SubHolder
+            TouchBindRow.Name                   = "TouchBindRow"; TouchBindRow.Parent = SubContent
             TouchBindRow.BackgroundColor3       = P.BASE2; TouchBindRow.BackgroundTransparency = 0
             TouchBindRow.BorderSizePixel        = 0; TouchBindRow.LayoutOrder = 2
             TouchBindRow.Size                   = UDim2.new(0, SUB_W, 0, TOGGLE_H)
@@ -1646,7 +2749,7 @@ function Spectrum.window(cfg)
 
         local OptionHolder = Instance.new("Frame")
         OptionHolder.Name                   = "OptionHolder"
-        OptionHolder.Parent                 = SubHolder
+        OptionHolder.Parent                 = SubContent
         OptionHolder.BackgroundTransparency = 1
         OptionHolder.BorderSizePixel        = 0
         OptionHolder.LayoutOrder            = 1
@@ -1655,6 +2758,7 @@ function Spectrum.window(cfg)
         local OptionFlow = Instance.new("UIListLayout")
         OptionFlow.Parent             = OptionHolder
         OptionFlow.HorizontalAlignment = Enum.HorizontalAlignment.Center
+        OptionFlow.VerticalAlignment   = Enum.VerticalAlignment.Top
         OptionFlow.SortOrder          = Enum.SortOrder.LayoutOrder
         OptionFlow.Padding            = UDim.new(0, PADDING_SM)
 
@@ -1675,9 +2779,29 @@ function Spectrum.window(cfg)
             if BindRow then
                 BindRow.Visible = true
             end
+            updateEntryLabels()
             if entry.SyncMobileButtonFromBind then
                 entry.SyncMobileButtonFromBind()
             end
+            BindSync:Emit(cfg2.Name, entry.Bind, panelId, entry)
+        end
+
+        function entry.SetExtraText(text)
+            cfg2.ExtraText = text
+            updateEntryLabels()
+            return text
+        end
+
+        function entry.SetTitle(text)
+            cfg2.Name = tostring(text or cfg2.Name)
+            updateEntryLabels()
+            if entry.MobileButton then
+                entry.MobileButton.Text = cfg2.Name
+                if entry.MobileButtonHandle and entry.MobileButtonHandle.RefreshSize then
+                    entry.MobileButtonHandle.RefreshSize()
+                end
+            end
+            return cfg2.Name
         end
         local bk = cfg2.Bind or cfg2.DefaultBind
 
@@ -1782,27 +2906,31 @@ function Spectrum.window(cfg)
             end
         end
 
-        local rowHovered = false
-
         local function renderEntryVisuals(instant)
             local rowColor = entry.Enabled and P.BASE_LIT or (rowHovered and P.BASE_HOV or P.BASE2)
+            local glowColor = entry.Enabled and lighten(P.HUE, 0.12) or (rowHovered and P.EDGE_HI or darken(P.BASE2, 0.18))
             local labelColor = entry.Enabled and P.INK_HI or (rowHovered and P.INK_HI or P.INK_MID)
+            local extraColor = entry.Bind and P.HUE or (entry.Enabled and P.INK_HI or P.INK_LOW)
             local arrowColor = entry.Enabled and P.INK_HI
                 or (entry.Expanded and P.INK_MID or P.INK_LOW)
-            local strokeColor = entry.Enabled and P.HUE or (rowHovered and P.EDGE_HI or P.EDGE)
-            local strokeTransparency = entry.Enabled and 0.18 or (rowHovered and 0.28 or 0.58)
+            local strokeColor = entry.Enabled and P.EDGE_HI or (rowHovered and P.EDGE_HI or P.EDGE)
+            local strokeTransparency = entry.Enabled and 0.08 or (rowHovered and 0.18 or 0.36)
             local targetRotation = entry.Expanded and 0 or 180
 
             if instant then
                 Row.BackgroundColor3 = rowColor
+                RowGlow.BackgroundColor3 = glowColor
                 RowLabel.TextColor3 = labelColor
+                RowExtra.TextColor3 = extraColor
                 RowArrow.ImageColor3 = arrowColor
                 RowArrow.Rotation = targetRotation
                 RowEdge.Color = strokeColor
                 RowEdge.Transparency = strokeTransparency
             else
                 playTween(Row, hoverTI, { BackgroundColor3 = rowColor })
+                playTween(RowGlow, accentTI, { BackgroundColor3 = glowColor })
                 playTween(RowLabel, accentTI, { TextColor3 = labelColor })
+                playTween(RowExtra, accentTI, { TextColor3 = extraColor })
                 playTween(RowArrow, accentTI, {
                     ImageColor3 = arrowColor,
                     Rotation = targetRotation,
@@ -1813,7 +2941,6 @@ function Spectrum.window(cfg)
                 })
             end
         end
-
         local function renderSubHolder(instant)
             local scale = (Scaler.Scale > 0 and Scaler.Scale or 1)
             local optionSize = OptionFlow.AbsoluteContentSize
@@ -1853,6 +2980,20 @@ function Spectrum.window(cfg)
             renderSubHolder(instant == true)
         end
 
+        function entry.SetSearchVisible(visible)
+            local rowVisible = entry.Hidden ~= true and visible ~= false
+            Row.Visible = rowVisible
+            Row.Size = UDim2.new(0, ROW_W, 0, rowVisible and ROW_H or 0)
+            if not rowVisible then
+                SubHolder.Visible = false
+                SubHolder.Size = UDim2.new(0, ROW_W, 0, 0)
+            else
+                renderSubHolder(true)
+            end
+            panel.Update(true)
+            return rowVisible
+        end
+
         kit:track(OptionFlow:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
             entry.Update(false)
         end))
@@ -1861,18 +3002,23 @@ function Spectrum.window(cfg)
         end))
 
         kit:track(PaletteSync:Bind(function()
+            RowGlow.BackgroundColor3 = entry.Enabled and lighten(P.HUE, 0.12) or (rowHovered and P.EDGE_HI or darken(P.BASE2, 0.18))
+            SubGlow.BackgroundColor3 = P.HUE_FADE
             renderEntryVisuals(true)
             renderSubHolder(true)
         end))
 
         kit:track(Row.MouseEnter:Connect(function()
             rowHovered = true
-            renderEntryVisuals(false)
+            local instant = skipToast or not Row:IsDescendantOf(game)
+            renderEntryVisuals(instant)
         end))
         kit:track(Row.MouseLeave:Connect(function()
             rowHovered = false
-            renderEntryVisuals(false)
+            local instant = skipToast or not Row:IsDescendantOf(game)
+            renderEntryVisuals(instant)
         end))
+        bindHoverTooltip(Row, cfg2.Tooltip or cfg2.HoverText)
 
         local function shouldHideSubOptionForBadExecutor(cfg3)
             if type(cfg3) ~= "table" then
@@ -1932,7 +3078,8 @@ function Spectrum.window(cfg)
         local function applyEntryState(enabled, fromKey, skipCallback, skipToast)
             entry.Enabled = enabled == true
             entry.Value = entry.Enabled
-            renderEntryVisuals(false)
+            local instant = skipToast or not Row:IsDescendantOf(game)
+            renderEntryVisuals(instant)
             entry.RefreshMobileButton()
             local extra = type(cfg2.ExtraText) == "function" and cfg2.ExtraText() or cfg2.ExtraText
             ModuleSync:Emit(cfg2.Name, extra, entry.Enabled, fromKey, panelId, cfg2.Private)
@@ -1977,7 +3124,8 @@ function Spectrum.window(cfg)
             if entry.Expanded then
                 SubHolder.Visible = true
             end
-            renderEntryVisuals(false)
+            local instant = skipToast or not Row:IsDescendantOf(game)
+            renderEntryVisuals(instant)
             entry.Update(false)
             panel.Update(false)
             return entry.Expanded
@@ -1991,6 +3139,7 @@ function Spectrum.window(cfg)
 
         renderEntryVisuals(true)
         entry.Update(true)
+        updateEntryLabels()
         
         function entry.CreateToggle(cfg3)
             local sw = { Enabled = false, Value = false, Dependents = {}, _depSaved = {} }
@@ -2141,6 +3290,7 @@ function Spectrum.window(cfg)
                 switchHovered = false
                 renderSwitch(false)
             end))
+            bindHoverTooltip(SwitchRow, cfg3.Tooltip or cfg3.HoverText)
 
             if not sw.Hidden and cfg3.Default and sw.Enabled ~= cfg3.Default then sw.Toggle(true) end
             renderSwitch(true)
@@ -2149,6 +3299,95 @@ function Spectrum.window(cfg)
                 { Name = cfg3.Name, Instance = SwitchRow, Type = "Toggle",
                   OptionsButton = entryId, API = sw, args = cfg3 })
             return sw
+        end
+
+        function entry.CreateButton(cfg3)
+            local button = {}
+            button.Hidden = shouldHideSubOptionForBadExecutor(cfg3)
+            if button.Hidden then
+                cfg3.NoSave = true
+            end
+
+            local ActionRow = Instance.new("TextButton")
+            ActionRow.Name                   = "Button"
+            ActionRow.Parent                 = OptionHolder
+            ActionRow.BackgroundColor3       = P.BASE2
+            ActionRow.BackgroundTransparency = 0
+            ActionRow.BorderSizePixel        = 0
+            ActionRow.Size                   = UDim2.new(0, SUB_W, 0, TOGGLE_H)
+            ActionRow.Text                   = ""
+            ActionRow.AutoButtonColor        = false
+            button.Instance                  = ActionRow
+            mkCorner(ActionRow, R_SM)
+            local actionEdge = mkBorder(ActionRow, P.EDGE, 1, 0.4)
+
+            local ActionLabel = Instance.new("TextLabel")
+            ActionLabel.Name               = "Name"
+            ActionLabel.Parent             = ActionRow
+            ActionLabel.BackgroundTransparency = 1
+            ActionLabel.BorderSizePixel    = 0
+            ActionLabel.Position           = UDim2.new(0, 9, 0, 0)
+            ActionLabel.Size               = UDim2.new(1, -24, 1, 0)
+            ActionLabel.Font               = Enum.Font.GothamSemibold
+            ActionLabel.Text               = cfg3.Name
+            ActionLabel.TextColor3         = P.INK_HI
+            ActionLabel.TextSize           = TEXT_SIZE_SM
+            ActionLabel.TextTruncate       = Enum.TextTruncate.AtEnd
+            ActionLabel.TextXAlignment     = Enum.TextXAlignment.Left
+
+            local ActionChevron = Instance.new("TextLabel")
+            ActionChevron.Name               = "Chevron"
+            ActionChevron.Parent             = ActionRow
+            ActionChevron.BackgroundTransparency = 1
+            ActionChevron.BorderSizePixel    = 0
+            ActionChevron.AnchorPoint        = Vector2.new(1, 0.5)
+            ActionChevron.Position           = UDim2.new(1, -8, 0.5, 0)
+            ActionChevron.Size               = UDim2.new(0, 10, 0, 10)
+            ActionChevron.Font               = Enum.Font.GothamBold
+            ActionChevron.Text               = ">"
+            ActionChevron.TextColor3         = P.HUE
+            ActionChevron.TextSize           = 10
+            ActionChevron.TextXAlignment     = Enum.TextXAlignment.Right
+
+            local function renderButton(hovered)
+                ActionRow.BackgroundColor3 = hovered and P.BASE_HOV or (cfg3.BackgroundColor or P.BASE2)
+                actionEdge.Color = hovered and P.EDGE_HI or P.EDGE
+                actionEdge.Transparency = hovered and 0.12 or 0.4
+                ActionChevron.TextColor3 = hovered and P.INK_HI or P.HUE
+            end
+
+            if button.Hidden then
+                ActionRow.Visible = false
+                ActionRow.Size = UDim2.new(0, SUB_W, 0, 0)
+            end
+
+            kit:track(PaletteSync:Bind(function()
+                renderButton(false)
+            end))
+            kit:track(ActionRow.MouseEnter:Connect(function()
+                renderButton(true)
+            end))
+            kit:track(ActionRow.MouseLeave:Connect(function()
+                renderButton(false)
+            end))
+            kit:track(ActionRow.MouseButton1Click:Connect(function()
+                if button.Hidden then
+                    return
+                end
+                if cfg3.Function then
+                    task.spawn(cfg3.Function)
+                end
+                if cfg3.ToastText then
+                    Spectrum.toast(cfg3.Name, cfg3.ToastText, 2)
+                end
+            end))
+            bindHoverTooltip(ActionRow, cfg3.Tooltip or cfg3.HoverText)
+            renderButton(false)
+
+            kit:register(cfg3.Name .. "Button_" .. entryId,
+                { Name = cfg3.Name, Instance = ActionRow, Type = "Button",
+                  OptionsButton = entryId, API = button, args = cfg3 })
+            return button
         end
 
         function entry.CreateSlider(cfg3)
@@ -2231,6 +3470,7 @@ function Spectrum.window(cfg)
                 if n then range.Set(n, true)
                 else ValBox.Text = fmt(range.Value) end
             end))
+            bindHoverTooltip(RangeFrame, cfg3.Tooltip or cfg3.HoverText)
 
             local function drag(input)
                 local sx = math.clamp(
@@ -2314,6 +3554,7 @@ function Spectrum.window(cfg)
             kit:track(InputBack.MouseLeave:Connect(function()
                 inputEdge.Color = P.EDGE; inputEdge.Transparency = 0.4
             end))
+            bindHoverTooltip(InputBack, cfg3.Tooltip or cfg3.HoverText)
 
             function inp.Set(val)
                 val       = val or cfg3.Default or ""
@@ -2333,165 +3574,167 @@ function Spectrum.window(cfg)
         
         function entry.CreateDropdown(cfg3)
             local sel = { Values = {}, Expanded = false, ValueDependents = {}, _depSaved = {} }
-
             local SelWrap = Instance.new("Frame")
-            SelWrap.Name                   = "Select"; SelWrap.Parent = OptionHolder
-            SelWrap.BackgroundTransparency = 1; SelWrap.BorderSizePixel = 0
-            SelWrap.Size                   = UDim2.new(0, SUB_W, 0, TEXTBOX_H)
-            sel.Instance                   = SelWrap
+            SelWrap.Name = "Select"
+            SelWrap.Parent = OptionHolder
+            SelWrap.BackgroundTransparency = 1
+            SelWrap.BorderSizePixel = 0
+            SelWrap.Size = UDim2.new(0, SUB_W, 0, TEXTBOX_H)
+            sel.Instance = SelWrap
 
             local SelBack = Instance.new("Frame")
-            SelBack.Name                   = "SelBack"; SelBack.Parent = SelWrap
-            SelBack.AnchorPoint            = Vector2.new(0.5, 0)
-            SelBack.BackgroundColor3       = P.BASE2; SelBack.BackgroundTransparency = 0
-            SelBack.BorderSizePixel        = 0
-            SelBack.Position               = UDim2.new(0.5, 0, 0, 2)
-            SelBack.Size                   = UDim2.new(0, SUB_W, 0, TEXTBOX_H)
+            SelBack.Name = "SelBack"
+            SelBack.Parent = SelWrap
+            SelBack.AnchorPoint = Vector2.new(0.5, 0)
+            SelBack.BackgroundColor3 = P.BASE2
+            SelBack.BackgroundTransparency = 0
+            SelBack.BorderSizePixel = 0
+            SelBack.Position = UDim2.new(0.5, 0, 0, 2)
+            SelBack.Size = UDim2.new(0, SUB_W, 0, TEXTBOX_H)
             mkCorner(SelBack, R_SM)
             local selEdge = mkBorder(SelBack, P.EDGE, 1, 0.4)
 
             local SelLabel = Instance.new("TextLabel")
-            SelLabel.Name               = "Name"; SelLabel.Parent = SelBack
-            SelLabel.BackgroundTransparency = 1; SelLabel.BorderSizePixel = 0
-            SelLabel.Position           = UDim2.new(0, 6, 0, 0); SelLabel.Size = UDim2.new(1, -18, 1, 0)
-            SelLabel.Font               = FONT_ROW; SelLabel.Text = cfg3.Name
-            SelLabel.TextColor3         = P.INK_MID; SelLabel.TextSize = TEXT_SIZE_SM
-            SelLabel.TextXAlignment     = Enum.TextXAlignment.Left
-            SelLabel.TextTruncate       = Enum.TextTruncate.AtEnd
+            SelLabel.Name = "Name"
+            SelLabel.Parent = SelBack
+            SelLabel.BackgroundTransparency = 1
+            SelLabel.BorderSizePixel = 0
+            SelLabel.Position = UDim2.new(0, 6, 0, 0)
+            SelLabel.Size = UDim2.new(1, -26, 1, 0)
+            SelLabel.Font = FONT_ROW
+            SelLabel.Text = cfg3.Name
+            SelLabel.TextColor3 = P.INK_MID
+            SelLabel.TextSize = TEXT_SIZE_SM
+            SelLabel.TextXAlignment = Enum.TextXAlignment.Left
+            SelLabel.TextTruncate = Enum.TextTruncate.AtEnd
 
             local SelChevron = Instance.new("ImageButton")
-            SelChevron.Name               = "Chevron"; SelChevron.Parent = SelBack
-            SelChevron.AnchorPoint        = Vector2.new(0, 0.5)
-            SelChevron.BackgroundTransparency = 1; SelChevron.BorderSizePixel = 0
-            SelChevron.Position           = UDim2.new(1, -11, 0.5, 0); SelChevron.Rotation = 0
-            SelChevron.Size               = UDim2.new(0, 8, 0, 8); SelChevron.ZIndex = 2
-            SelChevron.Image              = "http://www.roblox.com/asset/?id=6031094679"
-            SelChevron.ImageColor3        = P.INK_LOW; SelChevron.ScaleType = Enum.ScaleType.Fit
+            SelChevron.Name = "Chevron"
+            SelChevron.Parent = SelBack
+            SelChevron.AnchorPoint = Vector2.new(0, 0.5)
+            SelChevron.BackgroundTransparency = 1
+            SelChevron.BorderSizePixel = 0
+            SelChevron.Position = UDim2.new(1, -11, 0.5, 0)
+            SelChevron.Size = UDim2.new(0, 8, 0, 8)
+            SelChevron.ZIndex = 2
+            SelChevron.Image = "http://www.roblox.com/asset/?id=6031094679"
+            SelChevron.ImageColor3 = P.INK_LOW
+            SelChevron.ScaleType = Enum.ScaleType.Fit
 
             local SelList = Instance.new("Frame")
-            SelList.Name                   = "SelList"; SelList.Parent = SelWrap
-            SelList.AnchorPoint            = Vector2.new(0.5, 0)
-            SelList.BackgroundColor3       = P.BASE1; SelList.BackgroundTransparency = 0
-            SelList.BorderSizePixel        = 0; SelList.ClipsDescendants = true
-            SelList.Position               = UDim2.new(0.5, 0, 0, TEXTBOX_H + 4)
-            SelList.Size                   = UDim2.new(0, SUB_W, 0, 0)
-            SelList.Visible                = false
-            mkCorner(SelList, R_SM); mkBorder(SelList, P.EDGE, 1, 0.4)
+            SelList.Name = "SelList"
+            SelList.Parent = SelWrap
+            SelList.AnchorPoint = Vector2.new(0.5, 0)
+            SelList.BackgroundColor3 = P.BASE1
+            SelList.BackgroundTransparency = 0
+            SelList.BorderSizePixel = 0
+            SelList.ClipsDescendants = true
+            SelList.Position = UDim2.new(0.5, 0, 0, TEXTBOX_H + 4)
+            SelList.Size = UDim2.new(0, SUB_W, 0, 0)
+            SelList.Visible = false
+            mkCorner(SelList, R_SM)
+            mkBorder(SelList, P.EDGE, 1, 0.4)
             mkPad(SelList, 1, 1, 0, 0)
 
             local SelScroll = Instance.new("ScrollingFrame")
-            SelScroll.Parent               = SelList
-            SelScroll.BackgroundTransparency = 1; SelScroll.BorderSizePixel = 0
-            SelScroll.Size                 = UDim2.new(1, 0, 1, 0)
-            SelScroll.CanvasSize           = UDim2.new(0, 0, 0, 0)
-            SelScroll.ScrollBarThickness   = 1
+            SelScroll.Parent = SelList
+            SelScroll.BackgroundTransparency = 1
+            SelScroll.BorderSizePixel = 0
+            SelScroll.Size = UDim2.new(1, 0, 1, 0)
+            SelScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+            SelScroll.ScrollBarThickness = 2
             SelScroll.ScrollBarImageColor3 = P.INK_LOW
-            SelScroll.ScrollingDirection   = Enum.ScrollingDirection.Y
 
             local SelItemFlow = Instance.new("UIListLayout")
-            SelItemFlow.Parent             = SelScroll
+            SelItemFlow.Parent = SelScroll
             SelItemFlow.HorizontalAlignment = Enum.HorizontalAlignment.Center
-            SelItemFlow.SortOrder          = Enum.SortOrder.LayoutOrder
+            SelItemFlow.SortOrder = Enum.SortOrder.LayoutOrder
+            SelItemFlow.Padding = UDim.new(0, 1)
 
             kit:track(SelBack.MouseEnter:Connect(function()
-                selEdge.Transparency = 0; selEdge.Color = P.EDGE_HI
+                selEdge.Color = P.EDGE_HI
+                selEdge.Transparency = 0
                 SelBack.BackgroundColor3 = P.BASE_HOV
             end))
             kit:track(SelBack.MouseLeave:Connect(function()
-                selEdge.Transparency = 0.4; selEdge.Color = P.EDGE
+                selEdge.Color = P.EDGE
+                selEdge.Transparency = 0.4
                 SelBack.BackgroundColor3 = P.BASE2
             end))
 
-            local SEL_MAX_H = 160
-            function sel.Update(instant)
-                local scale = (Scaler.Scale > 0 and Scaler.Scale or 1)
-                local sz = SelItemFlow.AbsoluteContentSize.Y
-                local cappedSz = math.min(sz, SEL_MAX_H * scale)
-                local wrapHeight = sel.Expanded and (((TEXTBOX_H + 4) * scale + cappedSz + 2) / scale) or TEXTBOX_H + 2
-                local listHeight = sel.Expanded and (cappedSz / scale + 2) or 0
+            local MAX_H = 160
 
+            function sel.Update()
+                local scale = Scaler.Scale or 1
+                local sz = SelItemFlow.AbsoluteContentSize.Y
+                local capped = math.min(sz, MAX_H * scale)
+                local listH = sel.Expanded and (capped / scale) or 0
+                local wrapH = sel.Expanded and (TEXTBOX_H + 4 + listH) or TEXTBOX_H
+
+                SelWrap.Size = UDim2.new(0, SUB_W, 0, wrapH)
+                SelList.Size = UDim2.new(0, SUB_W, 0, listH)
                 SelScroll.CanvasSize = UDim2.new(0, 0, 0, sz / scale)
-                if sel.Expanded then
+
+                SelChevron.Rotation = sel.Expanded and 180 or 0
+                SelChevron.ImageColor3 = sel.Expanded and P.HUE or P.INK_LOW
+
+                if not sel.Expanded then
+                    SelList.Visible = false
+                else
                     SelList.Visible = true
                 end
-
-                if instant then
-                    SelWrap.Size = UDim2.new(0, SUB_W, 0, wrapHeight)
-                    SelList.Size = UDim2.new(0, SUB_W, 0, listHeight)
-                    SelChevron.Rotation = sel.Expanded and 180 or 0
-                    SelChevron.ImageColor3 = sel.Expanded and P.HUE or P.INK_LOW
-                    if not sel.Expanded then
-                        SelList.Visible = false
-                    end
-                else
-                    playStoredTween(sel, "_wrapTween", SelWrap, panelTI, {
-                        Size = UDim2.new(0, SUB_W, 0, wrapHeight),
-                    })
-                    playStoredTween(sel, "_listTween", SelList, panelTI, {
-                        Size = UDim2.new(0, SUB_W, 0, listHeight),
-                    }, function(state)
-                        if state == Enum.PlaybackState.Completed and not sel.Expanded then
-                            SelList.Visible = false
-                        end
-                    end)
-                    playStoredTween(sel, "_chevronTween", SelChevron, accentTI, {
-                        Rotation = sel.Expanded and 180 or 0,
-                        ImageColor3 = sel.Expanded and P.HUE or P.INK_LOW,
-                    })
-                end
             end
-            kit:track(SelItemFlow:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
-                sel.Update(false)
-            end))
+
+            kit:track(SelItemFlow:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(sel.Update))
 
             function sel.SetValue(val)
                 for _, v in next, sel.Values do
-                    local match = v.Value == val
-                    v.SelectedInstance.Visible = match
+                    local match = (v.Value == val)
+                    if v.SelectedInstance then v.SelectedInstance.Visible = match end
                     if match then
-                        sel.Value     = tostring(val)
+                        sel.Value = tostring(val)
                         SelLabel.Text = cfg3.Name .. ": " .. tostring(val)
                         SelLabel.TextColor3 = P.INK_HI
                         if cfg3.Function then task.spawn(cfg3.Function, val) end
-                    for _, vd in next, sel.ValueDependents do
-                        local show = sel.Value == vd.value
-                        for _, dep in next, vd.elements do
-                            dep.Instance.Visible = show
-                            if not show then
-                                sel._depSaved[dep] = dep.Enabled
-                                if dep.Enabled and dep.Toggle then dep.Toggle() end
-                            else
-                                local shouldEnable = sel._depSaved[dep]
-                                if shouldEnable ~= nil and dep.Toggle then
-                                    if shouldEnable and not dep.Enabled then
-                                        dep.Toggle()
-                                    elseif shouldEnable == false and dep.Enabled then
-                                        dep.Toggle()
+
+                        for _, vd in next, sel.ValueDependents do
+                            local show = (sel.Value == vd.value)
+                            for _, dep in next, vd.elements do
+                                if dep and dep.Instance then dep.Instance.Visible = show end
+                                if not show then
+                                    sel._depSaved[dep] = dep.Enabled
+                                    if dep.Enabled and dep.Toggle then dep.Toggle() end
+                                else
+                                    local should = sel._depSaved[dep]
+                                    if should ~= nil and dep.Toggle then
+                                        if should and not dep.Enabled then dep.Toggle() end
+                                        if not should and dep.Enabled then dep.Toggle() end
                                     end
                                 end
                             end
                         end
                     end
-                    end
                 end
             end
 
-            function sel.ShowWhen(_, value, ...)
+            function sel.ShowWhen(value, ...)
                 local deps = {...}
-                table.insert(sel.ValueDependents, { value = tostring(value), elements = deps })
-                local show = sel.Value == tostring(value)
+                table.insert(sel.ValueDependents, {value = tostring(value), elements = deps})
+                local show = (sel.Value == tostring(value))
+                
                 for _, dep in next, deps do
-                    dep.Instance.Visible = show
-                    if not show then
-                        sel._depSaved[dep] = dep.Enabled
-                        if dep.Enabled and dep.Toggle then dep.Toggle() end
-                    else
-                        local shouldEnable = sel._depSaved[dep]
-                        if shouldEnable ~= nil and dep.Toggle then
-                            if shouldEnable and not dep.Enabled then
-                                dep.Toggle()
-                            elseif shouldEnable == false and dep.Enabled then
-                                dep.Toggle()
+                    if dep and dep.Instance and typeof(dep.Instance) == "Instance" and dep.Instance.Parent then
+                        safeVisible(dep.Instance, show)
+                        
+                        if not show then
+                            sel._depSaved[dep] = dep.Enabled
+                            if dep.Enabled and dep.Toggle then 
+                                pcall(dep.Toggle) 
+                            end
+                        else
+                            local shouldEnable = sel._depSaved[dep]
+                            if shouldEnable ~= nil and dep.Toggle then
+                                pcall(dep.Toggle)
                             end
                         end
                     end
@@ -2499,55 +3742,85 @@ function Spectrum.window(cfg)
             end
 
             local function newItem(val)
-                local vi = { Value = val }
-                local Btn = Instance.new("TextButton"); Btn.Parent = SelScroll
-                Btn.BackgroundColor3 = P.BASE1; Btn.BackgroundTransparency = 0
-                Btn.BorderSizePixel  = 0; Btn.Size = UDim2.new(0, SUB_W - 2, 0, 16)
-                Btn.Text             = ""; Btn.AutoButtonColor = false
+                local vi = {Value = val}
+                local Btn = Instance.new("TextButton")
+                Btn.Parent = SelScroll
+                Btn.BackgroundColor3 = P.BASE1
+                Btn.BackgroundTransparency = 0
+                Btn.BorderSizePixel = 0
+                Btn.Size = UDim2.new(0, SUB_W - 4, 0, 18)
+                Btn.Text = ""
+                Btn.AutoButtonColor = false
                 mkCorner(Btn, R_SM)
-                Btn.MouseButton1Click:Connect(function() sel.SetValue(val) end)
+
+                Btn.MouseButton1Click:Connect(function()
+                    if tostring(val) == sel.Value then return end
+                    sel.SetValue(val)
+                end)
                 kit:track(Btn.MouseEnter:Connect(function() Btn.BackgroundColor3 = P.BASE_HOV end))
                 kit:track(Btn.MouseLeave:Connect(function() Btn.BackgroundColor3 = P.BASE1 end))
-                local Lbl = Instance.new("TextLabel"); Lbl.Parent = Btn
-                Lbl.BackgroundTransparency = 1; Lbl.BorderSizePixel = 0
-                Lbl.Position = UDim2.new(0, 10, 0, 0); Lbl.Size = UDim2.new(1, -14, 1, 0)
-                Lbl.Font = FONT_ROW; Lbl.Text = tostring(val)
-                Lbl.TextColor3 = P.INK_MID; Lbl.TextSize = TEXT_SIZE_SM
+
+                local Lbl = Instance.new("TextLabel")
+                Lbl.Parent = Btn
+                Lbl.BackgroundTransparency = 1
+                Lbl.Position = UDim2.new(0, 10, 0, 0)
+                Lbl.Size = UDim2.new(1, -20, 1, 0)
+                Lbl.Font = FONT_ROW
+                Lbl.Text = tostring(val)
+                Lbl.TextColor3 = P.INK_MID
+                Lbl.TextSize = TEXT_SIZE_SM
                 Lbl.TextXAlignment = Enum.TextXAlignment.Left
-                local Dot = Instance.new("Frame"); Dot.Parent = Btn
-                Dot.AnchorPoint = Vector2.new(0, 0.5); Dot.BackgroundColor3 = P.HUE
-                Dot.Visible     = false; Dot.BorderSizePixel = 0
-                Dot.Position    = UDim2.new(0, 2, 0.5, 0); Dot.Size = UDim2.new(0, 4, 0, 10)
+
+                local Dot = Instance.new("Frame")
+                Dot.Parent = Btn
+                Dot.AnchorPoint = Vector2.new(0, 0.5)
+                Dot.BackgroundColor3 = P.HUE
+                Dot.Visible = false
+                Dot.BorderSizePixel = 0
+                Dot.Position = UDim2.new(0, 3, 0.5, 0)
+                Dot.Size = UDim2.new(0, 4, 0, 10)
                 mkCorner(Dot, R_SM)
-                kit:track(PaletteSync:Bind(function() Dot.BackgroundColor3 = P.HUE end))
-                vi.SelectedInstance = Dot; vi.Instance = Btn; return vi
+
+                vi.SelectedInstance = Dot
+                vi.Instance = Btn
+                return vi
             end
 
             function sel.Expand()
                 sel.Expanded = not sel.Expanded
-                if sel.Expanded then
-                    SelList.Visible = true
-                end
-                sel.Update(false)
+                sel.Update()
             end
+
             kit:track(SelChevron.MouseButton1Click:Connect(sel.Expand))
 
-            for _, v in next, cfg3.List do
-                sel.Values[#sel.Values + 1] = newItem(v)
+            for _, v in next, cfg3.List or {} do
+                table.insert(sel.Values, newItem(v))
             end
-            if cfg3.Default then sel.SetValue(cfg3.Default) end
-            sel.Update(true)
+
+            if cfg3.Default then
+                sel.SetValue(cfg3.Default)
+            end
+
+            sel.Update()
 
             function sel.SetList(list)
-                for i, v in next, sel.Values do v.Instance:Destroy(); sel.Values[i] = nil end
+                for _, v in next, sel.Values do v.Instance:Destroy() end
                 sel.Values = {}
-                for _, v in next, list do sel.Values[#sel.Values + 1] = newItem(v) end
-                sel.Update(true)
+                for _, v in next, list or {} do
+                    table.insert(sel.Values, newItem(v))
+                end
+                sel.Update()
             end
 
-            kit:register(cfg3.Name .. "Dropdown_" .. entryId,
-                { Name = cfg3.Name, Instance = SelWrap, Type = "Dropdown",
-                  OptionsButton = entryId, API = sel, args = cfg3 })
+            kit:register(cfg3.Name .. "Dropdown_" .. entryId, {
+                Name = cfg3.Name,
+                Instance = SelWrap,
+                Type = "Dropdown",
+                OptionsButton = entryId,
+                API = sel,
+                args = cfg3
+            })
+
             return sel
         end
         
@@ -2885,6 +4158,8 @@ function Spectrum.CreateHudConfig(cfg)
     local overlayFile = cfg.StateFile or OVERLAY_FILE
     local persisted = _readOverlayCfg(overlayFile)
     local stateCache = {}
+    local overlayLayoutKey = tostring(cfg.Name or "OverlayEditor")
+    local overlayLayoutRecord
 
     for key, value in pairs(persisted) do
         stateCache[key] = value
@@ -2898,14 +4173,21 @@ function Spectrum.CreateHudConfig(cfg)
     OvlFrame.Name                   = "OverlayEditor"; OvlFrame.Parent = Screen
     OvlFrame.BackgroundColor3       = P.BASE0; OvlFrame.BackgroundTransparency = 0
     OvlFrame.BorderSizePixel        = 0; OvlFrame.AnchorPoint = Vector2.new(0.5, 0.5)
-    OvlFrame.Position               = UDim2.new(0.5, 0, 0.5, 0); OvlFrame.Size = UDim2.new(0, 540, 0, 460)
+    OvlFrame.Position               = UDim2.new(0.5, 0, 0.5, 0); OvlFrame.Size = UDim2.new(0, 500, 0, 380)
     OvlFrame.Visible                = false; OvlFrame.ZIndex = 100
     mkCorner(OvlFrame, R_MD); mkBorder(OvlFrame, P.EDGE, 1)
     ovl.Instance = OvlFrame
+    overlayLayoutRecord = registerFloatingLayout(overlayLayoutKey, OvlFrame, {
+        DefaultPosition = OvlFrame.Position,
+    })
+    if Spectrum.FloatingLayout and Spectrum.FloatingLayout[overlayLayoutKey] then
+        applyResponsiveFloatingLayout(OvlFrame, Spectrum.FloatingLayout[overlayLayoutKey])
+    end
 
     local OvlHeader = Instance.new("Frame")
     OvlHeader.Name             = "OvlHeader"; OvlHeader.Parent = OvlFrame
     OvlHeader.BackgroundColor3 = P.BASE2; OvlHeader.BorderSizePixel = 0
+    OvlHeader.Active           = true
     OvlHeader.Size             = UDim2.new(1, 0, 0, HDR_H)
     mkCorner(OvlHeader, R_MD); mkBorder(OvlHeader, P.EDGE, 1)
     local OvlHeaderFix = Instance.new("Frame"); OvlHeaderFix.Parent = OvlHeader
@@ -2927,8 +4209,23 @@ function Spectrum.CreateHudConfig(cfg)
     OvlClose.AutoButtonColor = false; OvlClose.ZIndex = 3
     OvlClose.MouseEnter:Connect(function() OvlClose.TextColor3 = P.STATE_OFF end)
     OvlClose.MouseLeave:Connect(function() OvlClose.TextColor3 = P.INK_LOW end)
-    OvlClose.MouseButton1Click:Connect(function() OvlFrame.Visible = false end)
-    kit:drag(OvlFrame, OvlHeader)
+    OvlClose.MouseButton1Click:Connect(function()
+        if ovl.Hide then
+            ovl.Hide()
+        else
+            OvlFrame.Visible = false
+        end
+    end)
+    kit:drag(OvlFrame, OvlHeader, {
+        OnReleased = function()
+            if overlayLayoutRecord then
+                overlayLayoutRecord.DefaultLayout = captureResponsiveFloatingLayout(OvlFrame)
+            end
+            if Spectrum.SaveLayout then
+                Spectrum.SaveLayout()
+            end
+        end,
+    })
 
     
     local PresetPane = Instance.new("Frame"); PresetPane.Parent = OvlFrame
@@ -3101,22 +4398,22 @@ function Spectrum.CreateHudConfig(cfg)
         btn.MouseButton1Click:Connect(fn); return btn
     end
 
-    makeActionBtn("Load", 6,   202, 42, P.BASE2, function()
+    local LoadBtn = makeActionBtn("Load", 6,   202, 42, P.BASE2, function()
         if not activePreset then flash("Select a preset first", P.CAUTION); return end
         ovl.LoadRequest = activePreset; flash("Loading " .. activePreset .. "...", P.HUE)
     end)
-    makeActionBtn("Save", 52,  202, 42, P.BASE2, function()
+    local SaveBtn = makeActionBtn("Save", 52,  202, 42, P.BASE2, function()
         if not activePreset then flash("Select a preset first", P.CAUTION); return end
         ovl.SaveRequest = activePreset; flash("Saved " .. activePreset, P.STATE_ON)
     end)
-    makeActionBtn("New",  98,  202, 42, P.BASE2, function()
+    local NewBtn = makeActionBtn("New",  98,  202, 42, P.BASE2, function()
         local n = NameField.Text:gsub("[^%w_%-]", "_")
         if n == "" then flash("Enter a name first", P.CAUTION); return end
         ovl.SaveRequest = n; NameField.Text = ""
         flash("Created " .. n, P.STATE_ON)
         rebuildPresetList(ovl._dir)
     end)
-    makeActionBtn("Del",  144, 202, 50, P.STATE_OFF, function()
+    local DeleteBtn = makeActionBtn("Del",  144, 202, 50, P.STATE_OFF, function()
         if not activePreset then flash("Select a preset first", P.CAUTION); return end
         ovl.DeleteRequest = activePreset
         activePreset = nil; activeRow = nil
@@ -3138,6 +4435,101 @@ function Spectrum.CreateHudConfig(cfg)
     SettingsFlow.HorizontalAlignment = Enum.HorizontalAlignment.Center
     SettingsFlow.SortOrder = Enum.SortOrder.LayoutOrder; SettingsFlow.Padding = UDim.new(0, 1)
     mkPad(SettingsList, 4, 4, 0, 0)
+
+    local function layoutOverlay()
+        local viewport = getViewportSize()
+
+        local frameWidth = math.clamp(math.floor(viewport.X * 0.34), 430, 520)
+        local frameHeight = math.clamp(math.floor(viewport.Y * 0.42), 320, 390)
+        local sidebarWidth = math.clamp(math.floor(frameWidth * 0.38), 188, 212)
+
+        local contentInset = 6
+        local bodyTop = HDR_H
+        local bodyHeight = frameHeight - bodyTop
+        local footerHeight = 134
+
+        local listHeight = math.max(96, bodyHeight - footerHeight)
+        local actionY = bodyTop + listHeight + 8
+        local fieldY = actionY + 26
+        local statusY = fieldY + 26
+        local autoDividerY = statusY + 18
+        local autoLabelY = autoDividerY + 6
+        local autoRowY = autoLabelY + 18
+
+        OvlFrame.Size = UDim2.fromOffset(frameWidth, frameHeight)
+
+        task.defer(function()
+            if not OvlFrame or not OvlFrame.Parent then return end
+
+            local sol = Spectrum.FloatingLayout and Spectrum.FloatingLayout[overlayLayoutKey]
+
+            if sol then
+                applyResponsiveFloatingLayout(OvlFrame, sol)
+            else
+                OvlFrame.AnchorPoint = Vector2.new(0.5, 0.5)
+                OvlFrame.Position = UDim2.fromScale(0.5, 0.5)
+            end
+        end)
+
+        PresetPane.Position = UDim2.new(0, 0, 0, bodyTop)
+        PresetPane.Size = UDim2.new(0, sidebarWidth, 1, -bodyTop)
+
+        SettingsPane.Position = UDim2.new(0, sidebarWidth + 2, 0, bodyTop)
+        SettingsPane.Size = UDim2.new(1, -(sidebarWidth + 2), 1, -bodyTop)
+
+        PresetTitle.Size = UDim2.new(1, 0, 0, 20)
+        PresetScroll.Position = UDim2.new(0, 0, 0, 20)
+        PresetScroll.Size = UDim2.new(1, 0, 0, listHeight)
+
+        Sep1.Position = UDim2.new(0, contentInset, 0, actionY - 4)
+        Sep1.Size = UDim2.new(1, -(contentInset * 2), 0, 1)
+
+        NameBox.Position = UDim2.new(0, contentInset, 0, fieldY)
+        NameBox.Size = UDim2.new(1, -(contentInset * 2), 0, 22)
+
+        StatusLbl.Position = UDim2.new(0, contentInset, 0, statusY)
+        StatusLbl.Size = UDim2.new(1, -(contentInset * 2), 0, 12)
+
+        Sep2.Position = UDim2.new(0, contentInset, 0, autoDividerY)
+        Sep2.Size = UDim2.new(1, -(contentInset * 2), 0, 1)
+
+        AutoLbl.Position = UDim2.new(0, contentInset, 0, autoLabelY)
+        AutoLbl.Size = UDim2.new(1, -50, 0, 12)
+
+        AutoTrack.Position = UDim2.new(1, -36, 0, autoLabelY - 1)
+        AutoBtn.Position = UDim2.new(1, -36, 0, autoLabelY - 7)
+
+        AutoNameLbl.Position = UDim2.new(0, contentInset, 0, autoRowY)
+        AutoNameLbl.Size = UDim2.new(1, -(contentInset * 2), 0, 18)
+
+        SetAutoBtn.Position = UDim2.new(0, contentInset, 0, autoRowY)
+        SetAutoBtn.Size = UDim2.new(1, -(contentInset * 2), 0, 18)
+
+        local buttonWidth = math.floor((sidebarWidth - (contentInset * 2) - 6) / 4)
+        local buttonGap = 2
+
+        LoadBtn.Position = UDim2.new(0, contentInset, 0, actionY)
+        LoadBtn.Size = UDim2.new(0, buttonWidth, 0, 22)
+
+        SaveBtn.Position = UDim2.new(0, contentInset + buttonWidth + buttonGap, 0, actionY)
+        SaveBtn.Size = UDim2.new(0, buttonWidth, 0, 22)
+
+        NewBtn.Position = UDim2.new(0, contentInset + ((buttonWidth + buttonGap) * 2), 0, actionY)
+        NewBtn.Size = UDim2.new(0, buttonWidth, 0, 22)
+
+        DeleteBtn.Position = UDim2.new(0, contentInset + ((buttonWidth + buttonGap) * 3), 0, actionY)
+        DeleteBtn.Size = UDim2.new(0, buttonWidth, 0, 22)
+    end
+
+    if workspace.CurrentCamera then
+        kit:track(workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(function()
+            task.defer(layoutOverlay)
+        end))
+    end
+    kit:track(Scaler:GetPropertyChangedSignal("Scale"):Connect(function()
+        task.defer(layoutOverlay)
+    end))
+    task.defer(layoutOverlay)
 
     ovl.SettingsList    = SettingsList
     ovl._resetCbs       = {}
@@ -3277,13 +4669,62 @@ lbl.TextColor3 = P.INK_MID; lbl.TextSize = TEXT_SIZE_SM; lbl.TextXAlignment = En
         return rowApi
     end
 
-    function ovl.Show()   OvlFrame.Visible = true  end
-    function ovl.Hide()   OvlFrame.Visible = false end
-    function ovl.Toggle() OvlFrame.Visible = not OvlFrame.Visible end
+    function ovl.CaptureDefaultPosition()
+        if overlayLayoutRecord then
+            overlayLayoutRecord.DefaultPosition = OvlFrame.Position
+            overlayLayoutRecord.DefaultLayout = captureResponsiveFloatingLayout(OvlFrame)
+        end
+        return OvlFrame.Position
+    end
+
+    function ovl.SavePosition()
+        if Spectrum.SaveLayout then
+            Spectrum.SaveLayout()
+        end
+    end
+
+    local function tweenOverlayVisible(visible)
+        local position = OvlFrame.Position
+        local target = UDim2.new(position.X.Scale, position.X.Offset, position.Y.Scale, position.Y.Offset)
+        local offset = UDim2.new(position.X.Scale, position.X.Offset, position.Y.Scale, position.Y.Offset + (visible and 0 or 10))
+
+        if visible then
+            OvlFrame.Visible = true
+            OvlFrame.Position = UDim2.new(position.X.Scale, position.X.Offset, position.Y.Scale, position.Y.Offset + 10)
+            playStoredTween(ovl, "_overlayVisibilityTween", OvlFrame, panelTI, {
+                Position = target,
+            })
+        else
+            playStoredTween(ovl, "_overlayVisibilityTween", OvlFrame, accentTI, {
+                Position = offset,
+            }, function(state)
+                if state == Enum.PlaybackState.Completed and not ovl._visible then
+                    OvlFrame.Visible = false
+                end
+            end)
+        end
+    end
+
+    function ovl.Show()
+        ovl._visible = true
+        tweenOverlayVisible(true)
+    end
+
+    function ovl.Hide()
+        ovl._visible = false
+        tweenOverlayVisible(false)
+    end
+
+    function ovl.Toggle()
+        if OvlFrame.Visible and ovl._visible ~= false then
+            ovl.Hide()
+        else
+            ovl.Show()
+        end
+    end
 
     return ovl
 end
-
 
 function Spectrum.CreateConfigBar(editor)
     local BAR_H = 18
@@ -3291,13 +4732,30 @@ function Spectrum.CreateConfigBar(editor)
     local mobileButtonTheme
     local mobileButtonHandle
     local mobileButtonVisibleSync
+    local barManualPosition = false
 
     local Bar = Instance.new("Frame")
     Bar.Name                   = "PresetBar"; Bar.Parent = Root
     Bar.BackgroundColor3       = P.BASE1; Bar.BackgroundTransparency = 0
     Bar.BorderSizePixel        = 0; Bar.AnchorPoint = Vector2.new(0.5, 0)
+    Bar.Active                 = true
     Bar.Position               = UDim2.new(0.5, 0, 0, getPresetBarTopOffset(BAR_H)); Bar.Size = UDim2.new(0, 260, 0, BAR_H)
     mkCorner(Bar, R_SM); mkBorder(Bar, P.EDGE, 1, 0.3)
+
+    local BarGlow = Instance.new("Frame")
+    BarGlow.Name = "Glow"
+    BarGlow.Parent = Bar
+    BarGlow.BackgroundColor3 = P.HUE
+    BarGlow.BackgroundTransparency = 0.9
+    BarGlow.BorderSizePixel = 0
+    BarGlow.Size = UDim2.new(1, 0, 0.7, 0)
+    local BarGlowFade = Instance.new("UIGradient")
+    BarGlowFade.Rotation = 90
+    BarGlowFade.Transparency = NumberSequence.new({
+        NumberSequenceKeypoint.new(0, 0.12),
+        NumberSequenceKeypoint.new(1, 1),
+    })
+    BarGlowFade.Parent = BarGlow
 
     local BarTitle = Instance.new("TextLabel"); BarTitle.Parent = Bar
     BarTitle.BackgroundTransparency = 1; BarTitle.BorderSizePixel = 0
@@ -3320,6 +4778,26 @@ function Spectrum.CreateConfigBar(editor)
     OpenBtn.Text = ">"; OpenBtn.TextColor3 = P.INK_MID; OpenBtn.TextSize = 14; OpenBtn.AutoButtonColor = false
     OpenBtn.MouseEnter:Connect(function() OpenBtn.TextColor3 = P.INK_HI end)
     OpenBtn.MouseLeave:Connect(function() OpenBtn.TextColor3 = P.INK_MID end)
+
+    local barLayoutRecord = registerFloatingLayout("PresetBar", Bar, {
+        DefaultPosition = Bar.Position,
+        OnRestore = function()
+            barManualPosition = false
+        end,
+    })
+    if Spectrum.FloatingLayout and Spectrum.FloatingLayout.PresetBar then
+        barManualPosition = applyResponsiveFloatingLayout(Bar, Spectrum.FloatingLayout.PresetBar)
+    end
+    kit:drag(Bar, Bar, {
+        OnStart = function()
+            barManualPosition = true
+        end,
+        OnReleased = function()
+            if Spectrum.SaveLayout then
+                Spectrum.SaveLayout()
+            end
+        end,
+    })
 
     local function syncMobileButtonText(name)
         if not mobileButton then return end
@@ -3383,11 +4861,26 @@ function Spectrum.CreateConfigBar(editor)
     local function refit()
         local vp = workspace.CurrentCamera.ViewportSize
         local s  = Scaler.Scale > 0 and Scaler.Scale or 1
-        Bar.Position = UDim2.new(0.5, 0, 0, getPresetBarTopOffset(BAR_H))
-        Bar.Size = UDim2.new(0, math.min(260, vp.X / s - 20), 0, BAR_H)
+        Bar.Size = UDim2.new(0, math.min(260, math.max(80, math.floor(vp.X / s - 20))), 0, BAR_H)
+        task.defer(function()
+            if not Bar or not Bar.Parent then return end
+            if barManualPosition then
+                local sbl = Spectrum.FloatingLayout and Spectrum.FloatingLayout.PresetBar
+                if not (sbl and applyResponsiveFloatingLayout(Bar, sbl)) then
+                    local _p = getAnchorPixelPosition(Bar)
+                    applyFloatingAnchorPixels(Bar, _p.X, _p.Y)
+                end
+            else
+                Bar.Position = UDim2.new(0.5, 0, 0, getPresetBarTopOffset(BAR_H))
+            end
+        end)
     end
-    kit:track(workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(refit))
-    kit:track(Scaler:GetPropertyChangedSignal("Scale"):Connect(refit))
+    kit:track(workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(function()
+        task.defer(refit)
+    end))
+    kit:track(Scaler:GetPropertyChangedSignal("Scale"):Connect(function()
+        task.defer(refit)
+    end))
     refit()
 
     local barApi = {}
@@ -3407,6 +4900,17 @@ function Spectrum.CreateConfigBar(editor)
     barApi.MobileButtonTheme = mobileButtonTheme
     barApi.MobileButtonHandle = mobileButtonHandle
     barApi.MobileButtonVisibleSync = mobileButtonVisibleSync
+    function barApi.CaptureDefaultPosition()
+        if barLayoutRecord then
+            barLayoutRecord.DefaultPosition = Bar.Position
+            barLayoutRecord.DefaultLayout = captureResponsiveFloatingLayout(Bar)
+        end
+    end
+    function barApi.SetDefaultPosition(position)
+        if barLayoutRecord and typeof(position) == "UDim2" then
+            barLayoutRecord.DefaultPosition = position
+        end
+    end
     barApi.SetVisible(false)
     return barApi
 end
@@ -3886,6 +5390,7 @@ function Spectrum.CreateCustomWindow(cfg)
     return fp
 end
 
+
 function Spectrum.CreateDefaultTabs(cfg)
     local tabs = {}
     local order = (cfg and cfg.Order) or {
@@ -3893,26 +5398,56 @@ function Spectrum.CreateDefaultTabs(cfg)
 	}
     local iconResolver = cfg and cfg.IconResolver
     local showIcons = cfg and cfg.ShowIcons == true
-    for _, tabName in ipairs(order) do
-        tabs[tabName] = Spectrum.window({
+    for _, descriptor in ipairs(order) do
+        local tabName = descriptor
+        local tabTitle = descriptor
+        local aliases = nil
+
+        if type(descriptor) == "table" then
+            tabName = descriptor.Name or descriptor.Id or descriptor[1]
+            tabTitle = descriptor.Title or descriptor.Text or tabName
+            aliases = descriptor.Aliases
+        end
+
+        local panel = Spectrum.window({
             Name = tabName,
+            Title = tabTitle,
             Icon = iconResolver and iconResolver(tabName) or nil,
             ShowIcon = showIcons,
         })
+        tabs[tabName] = panel
+        if type(aliases) == "table" then
+            for _, alias in ipairs(aliases) do
+                tabs[alias] = panel
+                if Spectrum.Registry and Spectrum.Registry[tabName .. "Panel"] then
+                    Spectrum.Registry[alias .. "Panel"] = Spectrum.Registry[tabName .. "Panel"]
+                end
+            end
+        end
     end
     return tabs
 end
 
 function Spectrum.CreateArrayListWidget(cfg)
-    local floater = Spectrum.CreateCustomWindow({Name = (cfg and cfg.Name) or "array list"})
+    local floater = Spectrum.CreateCustomWindow({
+        Name = (cfg and cfg.Name) or "array list",
+        HideSettings = true,
+    })
     floater.Instance.Size = UDim2.new(0, 200, 0, 0)
     floater.Instance.AutomaticSize = Enum.AutomaticSize.Y
-
+    
     local widget = {
         Instance = floater.Instance,
         Window = floater,
         Lines = {},
         Objects = {},
+        Scale = 1,
+        SortMode = "Size",
+        LineMode = "Line",
+        LinesVisible = true,
+        WatermarkVisible = true,
+        CustomTextEnabled = false,
+        CustomTextValue = "",
     }
 
     local arrayList = floater.new("Frame")
@@ -3960,10 +5495,6 @@ function Spectrum.CreateArrayListWidget(cfg)
         watermarkText.TextColor3 = kit:objectColor(watermarkText)
     end))
 
-    local sortMode
-    local lineMode
-    local lineToggle
-
     local function buildLine(lbl, mode)
         local oldLine = lbl:FindFirstChild("Line")
         if oldLine then
@@ -3993,17 +5524,74 @@ function Spectrum.CreateArrayListWidget(cfg)
             line.Size = UDim2.new(0, 3.7, 1, 0)
             line.Position = UDim2.new(1.01, 0, 0.56, 0)
         end
-        line.Visible = (lineToggle and lineToggle.Enabled or false) and mode ~= "None"
+        line.Visible = widget.LinesVisible == true and mode ~= "None"
         table.insert(widget.Lines, line)
         kit:track(PaletteSync:Bind(function() line.BackgroundColor3 = kit:activeColor() end))
     end
 
     function widget.SetScale(scale)
-        arrayList.Size = UDim2.new(0, 319, 0, 362 * scale)
+        widget.Scale = math.clamp(tonumber(scale) or 1, 0.5, 2)
+        arrayList.Size = UDim2.new(0, 319, 0, 362 * widget.Scale)
     end
 
     function widget.SetVisible(on)
         floater.SetVisible(on)
+    end
+
+    function widget.SetSortMode(mode)
+        mode = tostring(mode or "Size")
+        widget.SortMode = (mode == "Alphabetical" and "Alphabetical") or "Size"
+        local children = arrayList:GetChildren()
+        table.sort(children, function(a, b)
+            if not a:IsA("TextLabel") then return false end
+            if not b:IsA("TextLabel") then return true end
+            if widget.SortMode == "Alphabetical" then return a.Text < b.Text end
+            return a.TextBounds.X > b.TextBounds.X
+        end)
+        for i, child in next, children do
+            if child.Name:find("Watermark") then
+                child.LayoutOrder = (child.Name:find("Text") and 2) or 0
+            elseif child:IsA("TextLabel") then
+                child.LayoutOrder = i + 2
+            end
+        end
+        return widget.SortMode
+    end
+
+    function widget.SetLineMode(mode)
+        widget.LineMode = tostring(mode or "Line")
+        for _, lbl in pairs(widget.Objects) do
+            buildLine(lbl, widget.LineMode)
+        end
+        return widget.LineMode
+    end
+
+    function widget.SetLinesVisible(on)
+        widget.LinesVisible = on == true
+        local activeMode = widget.LineMode or "Line"
+        for _, ln in pairs(widget.Lines) do
+            ln.Visible = widget.LinesVisible and activeMode ~= "None"
+        end
+        return widget.LinesVisible
+    end
+
+    function widget.SetWatermarkVisible(on)
+        widget.WatermarkVisible = on == true
+        watermark.Visible = widget.WatermarkVisible
+        return widget.WatermarkVisible
+    end
+
+    function widget.SetCustomTextEnabled(on)
+        widget.CustomTextEnabled = on == true
+        watermarkText.Visible = widget.CustomTextEnabled and widget.CustomTextValue ~= ""
+        return widget.CustomTextEnabled
+    end
+
+    function widget.SetCustomText(text)
+        widget.CustomTextValue = tostring(text or "")
+        watermarkText.Text = widget.CustomTextValue
+        watermarkText.Visible = widget.CustomTextEnabled and widget.CustomTextValue ~= ""
+        return widget.CustomTextValue
     end
 
     function widget.HandleEntry(name, extraText, enabled, isPrivate)
@@ -4044,72 +5632,21 @@ function Spectrum.CreateArrayListWidget(cfg)
         kit:track(PaletteSync:Bind(function() lbl.TextColor3 = kit:objectColor(lbl) end))
         widget.Objects[name] = lbl
 
-        buildLine(lbl, (lineMode and lineMode.Value) or "Line")
-
-        local children = arrayList:GetChildren()
-        table.sort(children, function(a, b)
-            if not a:IsA("TextLabel") then return false end
-            if not b:IsA("TextLabel") then return true end
-            if sortMode and sortMode.Value == "Alphabetical" then return a.Text < b.Text end
-            if sortMode and sortMode.Value == "Size" then return a.TextBounds.X > b.TextBounds.X end
-            return false
-        end)
-        for i, child in next, children do
-            if child.Name:find("Watermark") then
-                child.LayoutOrder = (child.Name:find("Text") and 2) or 0
-            elseif child:IsA("TextLabel") then
-                child.LayoutOrder = i + 2
-            end
-        end
+        buildLine(lbl, widget.LineMode or "Line")
+        widget.SetSortMode(widget.SortMode)
     end
 
     kit:track(ModuleSync:Bind(function(name, extraText, enabled, _, _, isPrivate)
         widget.HandleEntry(name, extraText, enabled, isPrivate)
     end))
 
-    floater.CreateSlider({
-        Name = "scale", Min = 0.5, Max = 2, Default = 1, Round = 1,
-        Function = function(v) widget.SetScale(v) end,
-    })
-    sortMode = floater.CreateDropdown({Name = "mode", List = {"Alphabetical", "Size"}, Default = "Size"})
-    lineMode = floater.CreateDropdown({
-        Name = "mode",
-        List = {"None", "Line", "Striped", "Dot"},
-        Default = "Line",
-        Function = function(v)
-            for _, lbl in pairs(widget.Objects) do
-                buildLine(lbl, v)
-            end
-        end,
-    })
-    lineToggle = floater.CreateToggle({
-        Name = "Line",
-        Default = true,
-        Function = function(on)
-            local mode = (lineMode and lineMode.Value) or "Line"
-            for _, ln in pairs(widget.Lines) do
-                ln.Visible = on and mode ~= "None"
-            end
-        end,
-    })
-    floater.CreateToggle({
-        Name = "watermark",
-        Default = true,
-        Function = function(on) watermark.Visible = on end,
-    })
-    local customText = floater.CreateToggle({
-        Name = "custom text",
-        Function = function(on)
-            watermarkText.Visible = (watermarkText.Text ~= "") and on
-        end,
-    })
-    floater.CreateTextbox({
-        Name = "custom text",
-        Function = function(v)
-            watermarkText.Visible = (v ~= "") and customText.Enabled
-            watermarkText.Text = v
-        end,
-    })
+    widget.SetScale((cfg and cfg.Scale) or 1)
+    widget.SetSortMode((cfg and cfg.SortMode) or "Size")
+    widget.SetLineMode((cfg and cfg.LineMode) or "Line")
+    widget.SetLinesVisible(cfg == nil or cfg.LinesVisible ~= false)
+    widget.SetWatermarkVisible(cfg == nil or cfg.WatermarkVisible ~= false)
+    widget.SetCustomTextEnabled(cfg and cfg.CustomTextEnabled == true)
+    widget.SetCustomText((cfg and cfg.CustomText) or "")
 
     widget.Watermark = watermark
     widget.WatermarkText = watermarkText

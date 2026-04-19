@@ -114,7 +114,6 @@ local updater = Updater.new({
 })
 local settings = updater:GetSettings()
 
---for files api discord
 local logger = Logger.new("[phantom]", settings.debugLogs or settings.developerMode)
 fileApi.logger = logger
 http.logger = logger
@@ -142,6 +141,7 @@ local Services = {
 	RunService = service("RunService"),
 	Lighting = service("Lighting"),
 	HttpService = service("HttpService"),
+	StarterGui = service("StarterGui"),
 }
 local LocalPlayer = Services.Players.LocalPlayer
 local queueTeleport = executorQueueForTeleport or executorQueueOnTeleport or executorQueueOnTeleportLegacy
@@ -156,16 +156,16 @@ local arrayListWidget
 local watermarkWindow
 local sessionInfoWindow
 
+local uiFullyReady = false
+
 local function readOverlayToggleState(key, defaultValue)
 	if type(overlayState) ~= "table" then
 		return defaultValue == true
 	end
-
 	local value = overlayState[key]
 	if type(value) == "boolean" then
 		return value
 	end
-
 	return defaultValue == true
 end
 
@@ -180,29 +180,23 @@ local function shouldAutoEnableHideBadExecutorModules()
 	if env.phantomIsBadExecutor ~= true then
 		return false
 	end
-
 	if type(env.phantomMissingMainFunctions) ~= "table" then
 		return true
 	end
-
 	return next(env.phantomMissingMainFunctions) ~= nil
 end
 
 local function syncExecutorContextFromEnv()
 	env.phantomExecutor = type(env.phantomExecutor) == "table" and env.phantomExecutor or {}
-
 	if type(env.phantomExecutorInfo) == "table" then
 		env.phantomExecutor.info = env.phantomExecutorInfo
 	end
-
 	if type(env.phantomMissingMainFunctions) == "table" then
 		env.phantomExecutor.missingMainLookup = env.phantomMissingMainFunctions
 	end
-
 	if env.phantomIsBadExecutor ~= nil then
 		env.phantomExecutor.isBad = env.phantomIsBadExecutor == true
 	end
-
 	if env.phantomExecutor.hideUnsupportedModules == nil then
 		env.phantomExecutor.hideUnsupportedModules = false
 	end
@@ -246,7 +240,6 @@ local function getIcon(name)
 	if not executorIsFile(fullPath) or not executorGetCustomAsset then
 		return nil
 	end
-
 	local ok, asset = pcall(executorGetCustomAsset, fullPath)
 	if ok then
 		return asset
@@ -262,13 +255,16 @@ end
 
 local function readGuiTheme()
 	local defaults = {
-		H = 0.60,
-		S = 0.79,
-		V = 0.91,
+		H = 0.73,
+		S = 0.77,
+		V = 0.59,
 		RainbowMode = false,
 		RainbowSpeed = 1750,
+		AnimationSpeed = 1,
+		GlowSpeed = 1.5,
+		SecondaryColor = { R = 30, G = 8, B = 52 },
+		FontColor = { R = 238, G = 238, B = 243 },
 	}
-
 	if UI.GetThemeState then
 		local state = UI.GetThemeState() or {}
 		local palette = state.Palette or {}
@@ -278,9 +274,12 @@ local function readGuiTheme()
 			V = palette.V or defaults.V,
 			RainbowMode = state.RainbowMode == true,
 			RainbowSpeed = state.RainbowSpeed or defaults.RainbowSpeed,
+			AnimationSpeed = state.AnimationSpeed or defaults.AnimationSpeed,
+			GlowSpeed = state.GlowSpeed or defaults.GlowSpeed,
+			SecondaryColor = state.SecondaryColor or defaults.SecondaryColor,
+			FontColor = state.FontColor or defaults.FontColor,
 		}
 	end
-
 	return defaults
 end
 
@@ -300,18 +299,38 @@ local function updateGuiPalette(key, value)
 		S = theme.S,
 		V = theme.V,
 	})
-	end
+end
+
+local lastNonRainbowPalette = nil
+local function saveCurrentPaletteAsNormal()
+    if UI.GetThemeState then
+        local state = UI.GetThemeState() or {}
+        local palette = state.Palette or {}
+        lastNonRainbowPalette = {H = palette.H or 0.73, S = palette.S or 0.77, V = palette.V or 0.59,}
+    end
+end
 
 local function setGuiRainbowMode(enabled)
-	if UI.SetRainbowMode then
-		UI.SetRainbowMode(enabled)
-		return
-	end
+    enabled = enabled == true
 
-	UI.RainbowMode = enabled == true
-	if UI.PaletteSync then
-		UI.PaletteSync:Emit()
-	end
+    if UI.SetRainbowMode then
+        UI.SetRainbowMode(enabled)
+        
+        if not enabled and lastNonRainbowPalette then
+            setGuiPalette(lastNonRainbowPalette)
+        end
+        return
+    end
+
+    UI.RainbowMode = enabled
+
+    if not enabled and lastNonRainbowPalette then
+        setGuiPalette(lastNonRainbowPalette)
+    end
+
+    if UI.PaletteSync then
+        UI.PaletteSync:Emit()
+    end
 end
 
 local function setGuiRainbowSpeed(speed)
@@ -320,10 +339,33 @@ local function setGuiRainbowSpeed(speed)
 		UI.SetRainbowSpeed(value)
 		return
 	end
-
 	UI.RainbowSpeed = value
 	if UI.PaletteSync then
 		UI.PaletteSync:Emit()
+	end
+end
+
+local function setGuiSecondaryColor(color)
+	if UI.SetSecondaryColor then
+		UI.SetSecondaryColor(color)
+	end
+end
+
+local function setGuiFontColor(color)
+	if UI.SetFontColor then
+		UI.SetFontColor(color)
+	end
+end
+
+local function setGuiAnimationSpeed(speed)
+	if UI.SetAnimationSpeed then
+		UI.SetAnimationSpeed(speed)
+	end
+end
+
+local function setGuiGlowSpeed(speed)
+	if UI.SetGlowSpeed then
+		UI.SetGlowSpeed(speed)
 	end
 end
 
@@ -334,16 +376,40 @@ local function bindGuiTheme(callback)
 	end
 end
 
+local categoryIconMap = {
+	internal = "other",
+	movement = "blatant",
+	network = "misc",
+	inventory = "inventory",
+	combat = "combat",
+	build = "world",
+	utility = "utillity",
+	visuals = "render",
+}
+
 local tabs = UI.CreateDefaultTabs({
 	ShowIcons = true,
 	IconResolver = function(name)
-		return getIcon(name)
+		return getIcon(categoryIconMap[name] or name)
 	end,
+	Order = {
+		{ Name = "internal", Title = "Internal", Aliases = { "other", "settings", "config" } },
+		{ Name = "combat", Title = "Combat" },
+		{ Name = "movement", Title = "Movement", Aliases = { "blatant" } },
+		{ Name = "visuals", Title = "Visuals", Aliases = { "render" } },
+		{ Name = "utility", Title = "Utility", Aliases = { "utillity" } },
+		{ Name = "build", Title = "Build", Aliases = { "world" } },
+		{ Name = "network", Title = "Network", Aliases = { "misc" } },
+		{ Name = "inventory", Title = "Inventory" },
+	},
 })
 
 if UI.CreateArrayListWidget then
 	arrayListWidget = UI.CreateArrayListWidget({
 		Name = "array list",
+		Scale = tonumber(overlayState["arraylist scale"]) or 1,
+		WatermarkVisible = readOverlayToggleState("arraylist watermark", true),
+		LinesVisible = readOverlayToggleState("arraylist lines", true),
 	})
 	if arrayListWidget.SetVisible then
 		arrayListWidget.SetVisible(readOverlayToggleState("show arraylist", false))
@@ -355,6 +421,9 @@ if UI.CreateHudConfig then
 		Name = "settings hub",
 		StateFile = fileApi:Resolve(overlayStatePath),
 	})
+	if hudEditor and hudEditor.CaptureDefaultPosition then
+		hudEditor.CaptureDefaultPosition()
+	end
 	if hudEditor.SetDir then
 		hudEditor.SetDir(fileApi:Resolve("configs/" .. placeId))
 	end
@@ -363,6 +432,9 @@ if UI.CreateHudConfig then
 	end
 	if hudEditor.AddToggleRow then
 		hudEditor.AddToggleRow("rainbow gui", false, function(on)
+			if on then
+				saveCurrentPaletteAsNormal()
+			end
 			setGuiRainbowMode(on)
 		end)
 	end
@@ -391,6 +463,9 @@ if UI.CreateHudConfig then
 	end
 	if hudEditor.AddSectionHeader then
 		hudEditor.AddSectionHeader("HUD")
+	end
+	if arrayListWidget and hudEditor.AddSectionHeader then
+		hudEditor.AddSectionHeader("Overlay")
 	end
 	if UI.IsMobile and hudEditor.AddSectionHeader then
 		hudEditor.AddSectionHeader("Mobile Buttons")
@@ -423,21 +498,41 @@ if UI.CreateHudConfig then
 			arrayListWidget.SetScale(value)
 		end)
 	end
+	if arrayListWidget and arrayListWidget.SetWatermarkVisible and hudEditor.AddToggleRow then
+		hudEditor.AddToggleRow("arraylist watermark", true, function(on)
+			arrayListWidget.SetWatermarkVisible(on)
+		end)
+	end
+	if arrayListWidget and arrayListWidget.SetLinesVisible and hudEditor.AddToggleRow then
+		hudEditor.AddToggleRow("arraylist lines", true, function(on)
+			arrayListWidget.SetLinesVisible(on)
+		end)
+	end
 end
 
 if UI.CreateConfigBar and hudEditor then
 	configBar = UI.CreateConfigBar(hudEditor)
+	if configBar and configBar.CaptureDefaultPosition then
+		configBar.CaptureDefaultPosition()
+	end
 	if configBar and configBar.SetVisible then
 		configBar.SetVisible(readOverlayToggleState("show preset bar", false))
 	elseif configBar and configBar.Instance then
-		configBar.Instance.Visible = readOverlayToggleState("show preset bar", false)
+		local ok = pcall(function()
+			configBar.Instance.Visible = readOverlayToggleState("show preset bar", false)
+		end)
+		if not ok then
+			logger:Warn("configBar.Instance.Visible could not be set during init")
+		end
 	end
 	if hudEditor.AddToggleRow and configBar and configBar.Instance then
 		hudEditor.AddToggleRow("show preset bar", false, function(on)
 			if configBar.SetVisible then
 				configBar.SetVisible(on)
 			else
-				configBar.Instance.Visible = on
+				pcall(function()
+					configBar.Instance.Visible = on
+				end)
 			end
 		end)
 	end
@@ -455,13 +550,20 @@ if UI.CreateCustomWindow then
 		local padX = math.max(10, math.floor(vp.X * 0.012))
 		local padY = math.max(8,  math.floor(vp.Y * 0.012))
 		local gap  = math.max(20, math.floor(vp.Y * 0.1))
-		if watermarkWindow.Instance then
+		local storedFloatingLayout = UI.FloatingLayout or {}
+		if watermarkWindow.Instance and not storedFloatingLayout["watermarkFloater"] then
 			watermarkWindow.Instance.AnchorPoint = Vector2.new(0, 0)
 			watermarkWindow.Instance.Position    = UDim2.new(0, padX, 0, padY)
+			if watermarkWindow.CaptureDefaultPosition then
+				watermarkWindow.CaptureDefaultPosition()
+			end
 		end
-		if sessionInfoWindow.Instance then
+		if sessionInfoWindow.Instance and not storedFloatingLayout["session infoFloater"] then
 			sessionInfoWindow.Instance.AnchorPoint = Vector2.new(0, 0)
 			sessionInfoWindow.Instance.Position    = UDim2.new(0, padX, 0, padY + gap)
+			if sessionInfoWindow.CaptureDefaultPosition then
+				sessionInfoWindow.CaptureDefaultPosition()
+			end
 		end
 	end)
 
@@ -536,7 +638,7 @@ if UI.CreateCustomWindow then
 		releaseLabel.BackgroundTransparency = 1
 		releaseLabel.Size = UDim2.new(1, 0, 1, 0)
 		releaseLabel.Font = Enum.Font.Gotham
-		releaseLabel.Text = tostring(versionData.releaseTag or "local")
+		releaseLabel.Text = "v" .. (tostring(versionData.releaseTag or ""):match("build(%d+)") or "0")
 		releaseLabel.TextColor3 = Color3.fromRGB(170, 150, 255)
 		releaseLabel.TextSize = 9
 		releaseLabel.ZIndex = 12
@@ -854,11 +956,35 @@ function ops:lookup(name, prop, value)
 	end
 end
 
+local function safeGet(object, key)
+	if type(object) ~= "table" then return nil end
+	local ok, val = pcall(function() return object[key] end)
+	return ok and val or nil
+end
+
+local function safeCall(object, method, ...)
+	if type(object) ~= "table" then return end
+	local fn = object[method]
+	if type(fn) ~= "function" then return end
+	local ok, err = pcall(fn, object, ...)
+	if not ok then
+		logger:Warn("safeCall", method, err)
+	end
+end
+
+local function safeSetVisible(instance, state)
+	if typeof(instance) ~= "Instance" then return end
+	pcall(function()
+		if instance.Parent ~= nil then
+			instance.Visible = state == true
+		end
+	end)
+end
+
 local function copyWithoutRuntimeValues(value)
 	if type(value) ~= "table" then
 		return value
 	end
-
 	local clone = {}
 	for key, child in pairs(value) do
 		local childType = typeof(child)
@@ -867,6 +993,42 @@ local function copyWithoutRuntimeValues(value)
 		end
 	end
 	return clone
+end
+
+local function packUDim2(position)
+	if typeof(position) ~= "UDim2" then
+		return nil
+	end
+
+	return {
+		X = {
+			Scale = position.X.Scale,
+			Offset = position.X.Offset,
+		},
+		Y = {
+			Scale = position.Y.Scale,
+			Offset = position.Y.Offset,
+		},
+	}
+end
+
+local function unpackUDim2(position)
+	if type(position) ~= "table" then
+		return nil
+	end
+
+	local x = position.X
+	local y = position.Y
+	if type(x) ~= "table" or type(y) ~= "table" then
+		return nil
+	end
+
+	return UDim2.new(
+		tonumber(x.Scale) or 0,
+		tonumber(x.Offset) or 0,
+		tonumber(y.Scale) or 0,
+		tonumber(y.Offset) or 0
+	)
 end
 
 local function statePath(slot)
@@ -887,72 +1049,91 @@ end
 
 local function saveProfile(slot)
 	slot = setProfileSlot(slot or profileSlot)
+	if UI.saveTabPositions then
+		UI.saveTabPositions()
+	end
 	local data = {}
 
 	for name, object in next, UI.Registry do
 		if shouldPersistObject(object) and object.Type == "OptionsButton" then
-			data[name] = {
-				Enabled = object.API.Enabled,
-				Bind = object.API.Bind,
-				Type = object.Type,
-				Window = object.Window,
-			}
+			local api = safeGet(object, "API")
+			if api then
+				data[name] = {
+					Enabled = safeGet(api, "Enabled"),
+					Bind = safeGet(api, "Bind"),
+					Type = object.Type,
+					Window = object.Window,
+				}
+			end
 		elseif shouldPersistObject(object) and object.Type == "Toggle" then
-			data[name] = {
-				Enabled = object.API.Enabled,
-				Type = object.Type,
-				OptionsButton = object.OptionsButton,
-				CustomWindow = object.CustomWindow,
-			}
+			local api = safeGet(object, "API")
+			if api then
+				data[name] = {
+					Enabled = safeGet(api, "Enabled"),
+					Type = object.Type,
+					OptionsButton = object.OptionsButton,
+					CustomWindow = object.CustomWindow,
+				}
+			end
 		elseif shouldPersistObject(object) and object.Type == "Slider" then
-			data[name] = {
-				Value = object.API.Value,
-				Type = object.Type,
-				OptionsButton = object.OptionsButton,
-				CustomWindow = object.CustomWindow,
-			}
+			local api = safeGet(object, "API")
+			if api then
+				data[name] = {
+					Value = safeGet(api, "Value"),
+					Type = object.Type,
+					OptionsButton = object.OptionsButton,
+					CustomWindow = object.CustomWindow,
+				}
+			end
 		elseif shouldPersistObject(object) and object.Type == "Dropdown" then
-			data[name] = {
-				Value = object.API.Value,
-				Type = object.Type,
-				OptionsButton = object.OptionsButton,
-				CustomWindow = object.CustomWindow,
-			}
+			local api = safeGet(object, "API")
+			if api then
+				data[name] = {
+					Value = safeGet(api, "Value"),
+					Type = object.Type,
+					OptionsButton = object.OptionsButton,
+					CustomWindow = object.CustomWindow,
+				}
+			end
 		elseif shouldPersistObject(object) and object.Type == "Textbox" then
-			data[name] = {
-				Value = object.API.Value,
-				Type = object.Type,
-				OptionsButton = object.OptionsButton,
-				CustomWindow = object.CustomWindow,
-			}
+			local api = safeGet(object, "API")
+			if api then
+				data[name] = {
+					Value = safeGet(api, "Value"),
+					Type = object.Type,
+					OptionsButton = object.OptionsButton,
+					CustomWindow = object.CustomWindow,
+				}
+			end
 		elseif shouldPersistObject(object) and object.Type == "MultiDropdown" then
-			data[name] = {
-				Values = copyWithoutRuntimeValues(object.API.Values),
-				Type = object.Type,
-				OptionsButton = object.OptionsButton,
-				CustomWindow = object.CustomWindow,
-			}
+			local api = safeGet(object, "API")
+			if api then
+				data[name] = {
+					Values = copyWithoutRuntimeValues(safeGet(api, "Values")),
+					Type = object.Type,
+					OptionsButton = object.OptionsButton,
+					CustomWindow = object.CustomWindow,
+				}
+			end
 		elseif shouldPersistObject(object) and object.Type == "Textlist" then
-			data[name] = {
-				Values = copyWithoutRuntimeValues(object.API.Values),
-				Type = object.Type,
-				OptionsButton = object.OptionsButton,
-				CustomWindow = object.CustomWindow,
-			}
+			local api = safeGet(object, "API")
+			if api then
+				data[name] = {
+					Values = copyWithoutRuntimeValues(safeGet(api, "Values")),
+					Type = object.Type,
+					OptionsButton = object.OptionsButton,
+					CustomWindow = object.CustomWindow,
+				}
+			end
 		elseif shouldPersistObject(object) and object.Type == "CustomWindow" and object.Instance then
-			local position = object.Instance.Position
-			data[name] = {
-				Type = object.Type,
-				Position = {
-					X = { Scale = position.X.Scale, Offset = position.X.Offset },
-					Y = { Scale = position.Y.Scale, Offset = position.Y.Offset },
-				},
-			}
+			local packed = packUDim2(object.Instance.Position)
+			if packed then
+				data[name] = {
+					Type = object.Type,
+					Position = packed,
+				}
+			end
 		end
-	end
-
-	if UI.saveTabPositions then
-		UI.saveTabPositions()
 	end
 
 	local ok, err = fileApi:WriteJson(statePath(slot), data, { force = true })
@@ -967,8 +1148,14 @@ local function loadProfile(slot, silent)
 		return {}
 	end
 
+	if not uiFullyReady then
+		logger:Warn("loadProfile called before UI was fully ready – skipping")
+		return {}
+	end
+
 	slot = setProfileSlot(slot or profileSlot)
 	env.configloaded = false
+
 	local data = fileApi:ReadJson(statePath(slot), nil)
 	if type(data) ~= "table" then
 		env.configloaded = true
@@ -976,51 +1163,102 @@ local function loadProfile(slot, silent)
 	end
 
 	local staleKeys = {}
+	local customWindowLayoutChanged = false
 
 	for name, state in next, data do
-		local prop = state.Type == "OptionsButton" and "Window" or (state.CustomWindow and "CustomWindow" or "OptionsButton")
-		local object = ops:lookup(name, prop, state[prop])
-		if object and not shouldPersistObject(object) then
+		if type(state) ~= "table" then
 			staleKeys[#staleKeys + 1] = name
-		elseif object and shouldPersistObject(object) then
+			continue
+		end
+
+		local prop = state.Type == "OptionsButton" and "Window"
+			or (state.CustomWindow and "CustomWindow" or "OptionsButton")
+
+		local object = ops:lookup(name, prop, state[prop])
+
+		if not object then
+			continue
+		end
+
+		if not shouldPersistObject(object) then
+			staleKeys[#staleKeys + 1] = name
+			continue
+		end
+
+		local api = safeGet(object, "API")
+		if not api then
+			continue
+		end
+
+		local ok, err = pcall(function()
 			if state.Type == "OptionsButton" then
-				if state.Bind and state.Bind ~= "" and object.API.SetBind then
-					object.API.SetBind(state.Bind)
-				end
-				if state.Enabled ~= object.API.Enabled then
-					object.API.Toggle()
-				end
-			elseif state.Type == "Toggle" then
-				if state.Enabled ~= object.API.Enabled then
-					object.API.Toggle(true)
-				end
-			elseif state.Type == "Slider" then
-				object.API.Set(state.Value, true)
-			elseif state.Type == "Dropdown" then
-				object.API.SetValue(state.Value)
-			elseif state.Type == "Textbox" then
-				object.API.Set(state.Value)
-			elseif state.Type == "MultiDropdown" then
-				for _, valueState in next, state.Values or {} do
-					if valueState.Enabled then
-						object.API.ToggleValue(valueState.Value)
+				if state.Bind and state.Bind ~= "" then
+					if type(api.SetBind) == "function" then
+						api.SetBind(state.Bind)
 					end
 				end
-			elseif state.Type == "Textlist" then
-				for _, value in next, state.Values or {} do
-					object.API.Add(value)
+				local currentEnabled = safeGet(api, "Enabled")
+				if state.Enabled ~= nil and state.Enabled ~= currentEnabled then
+					if type(api.Toggle) == "function" then
+						api.Toggle()
+					end
 				end
-			elseif state.Type == "CustomWindow" and state.Position then
-				object.Instance.Position = UDim2.new(
-					state.Position.X.Scale,
-					state.Position.X.Offset,
-					state.Position.Y.Scale,
-					state.Position.Y.Offset
-				)
-				if object.API and object.API.NormalizePosition then
-					object.API.NormalizePosition()
+
+			elseif state.Type == "Toggle" then
+				local currentEnabled = safeGet(api, "Enabled")
+				if state.Enabled ~= nil and state.Enabled ~= currentEnabled then
+					if type(api.Toggle) == "function" then
+						api.Toggle(true)
+					end
+				end
+
+			elseif state.Type == "Slider" then
+				if state.Value ~= nil and type(api.Set) == "function" then
+					api.Set(state.Value, true)
+				end
+
+			elseif state.Type == "Dropdown" then
+				if state.Value ~= nil and type(api.SetValue) == "function" then
+					api.SetValue(state.Value)
+				end
+
+			elseif state.Type == "Textbox" then
+				if state.Value ~= nil and type(api.Set) == "function" then
+					api.Set(state.Value)
+				end
+
+			elseif state.Type == "MultiDropdown" then
+				if type(state.Values) == "table" and type(api.ToggleValue) == "function" then
+					for _, valueState in next, state.Values do
+						if type(valueState) == "table" and valueState.Enabled then
+							api.ToggleValue(valueState.Value)
+						end
+					end
+				end
+
+			elseif state.Type == "Textlist" then
+				if type(state.Values) == "table" and type(api.Add) == "function" then
+					for _, value in next, state.Values do
+						api.Add(value)
+					end
+				end
+
+			elseif state.Type == "CustomWindow" then
+				local position = unpackUDim2(state.Position)
+				if position and object.Instance then
+					object.Instance.Position = position
+					if type(api.NormalizePosition) == "function" then
+						api.NormalizePosition()
+					end
+					customWindowLayoutChanged = true
+				else
+					staleKeys[#staleKeys + 1] = name
 				end
 			end
+		end)
+
+		if not ok then
+			logger:Warn("loadProfile: error restoring", name, err)
 		end
 	end
 
@@ -1034,7 +1272,12 @@ local function loadProfile(slot, silent)
 		end
 	end
 
+	if customWindowLayoutChanged and UI.SaveLayout then
+		UI.SaveLayout()
+	end
+
 	env.configloaded = true
+
 	if not silent then
 		render:Toast({
 			title = "Profile",
@@ -1043,6 +1286,20 @@ local function loadProfile(slot, silent)
 		})
 	end
 	return data
+end
+
+local function scheduleLoadProfile(slot, silent)
+	task.spawn(function()
+		local deadline = os.clock() + 10
+		while not uiFullyReady and os.clock() < deadline do
+			task.wait(0.05)
+		end
+		if not uiFullyReady then
+			logger:Warn("scheduleLoadProfile: timed out waiting for uiFullyReady; loading anyway")
+			uiFullyReady = true
+		end
+		loadProfile(slot, silent)
+	end)
 end
 
 function ops:saveConfig(slot)
@@ -1107,7 +1364,6 @@ local function shutdown(reason, options)
 	if options.preserveRelaunch ~= true then
 		relaunchNonce = relaunchNonce + 1
 	end
-
 	if shuttingDown then
 		return
 	end
@@ -1119,10 +1375,16 @@ local function shutdown(reason, options)
 	end)
 	pcall(function()
 		for _, object in next, UI.Registry do
-			if (object.Type == "OptionsButton" or object.Type == "Toggle") and object.API.Enabled and object.API.Function then
-				object.API.Enabled = false
-				object.API.Value = false
-				task.spawn(object.API.Function)
+			local api = safeGet(object, "API")
+			if api then
+				local objType = safeGet(object, "Type")
+				if (objType == "OptionsButton" or objType == "Toggle")
+					and safeGet(api, "Enabled")
+					and type(safeGet(api, "Function")) == "function" then
+					api.Enabled = false
+					api.Value = false
+					task.spawn(api.Function)
+				end
 			end
 		end
 	end)
@@ -1171,19 +1433,16 @@ local function relaunchMain()
 		warn("[phantom] Main.lua missing for reload.")
 		return false
 	end
-
 	local chunk, err = loadstring(source, "@Phantom/Main.lua")
 	if not chunk then
 		warn("[phantom] failed to compile Main.lua: " .. tostring(err))
 		return false
 	end
-
 	local ok, runtimeError = pcall(chunk)
 	if not ok then
 		warn("[phantom] runtime error: " .. tostring(runtimeError))
 		return false
 	end
-
 	return true
 end
 
@@ -1229,6 +1488,8 @@ local function formatUpdateResult(result)
 	return tostring(result.error or result.status)
 end
 
+local loaderSettings
+
 do
 	local function fixMouse()
 		if Services.UserInputService.MouseBehavior ~= Enum.MouseBehavior.Default then
@@ -1236,82 +1497,914 @@ do
 		end
 	end
 
-	rootManager:AddConnection(Services.UserInputService:GetPropertyChangedSignal("MouseBehavior"):Connect(function()
-		if UI.Root.Visible then
+	local previousGuiController = env.phantomGuiFallbackController
+	if type(previousGuiController) == "table" and type(previousGuiController.Cleanup) == "function" then
+		pcall(previousGuiController.Cleanup)
+	end
+
+	local guiController = {
+		desiredVisible = UI and UI.Root and UI.Root.Visible == true,
+		applying = false,
+		connections = {},
+	}
+
+	local function trackGuiController(connection)
+		if not connection then
+			return nil
+		end
+		guiController.connections[#guiController.connections + 1] = connection
+		rootManager:AddConnection(connection)
+		return connection
+	end
+
+	function guiController.Cleanup()
+		for index = #guiController.connections, 1, -1 do
+			local connection = guiController.connections[index]
+			if connection and connection.Disconnect then
+				pcall(function() connection:Disconnect() end)
+			elseif connection and connection.Unbind then
+				pcall(function() connection:Unbind() end)
+			end
+			guiController.connections[index] = nil
+		end
+	end
+
+	env.phantomGuiFallbackController = guiController
+
+	local function syncGuiControllerState()
+		if loaderSettings and loaderSettings.SetEnabled and hudEditor and hudEditor.Instance then
+			local vis = false
+			pcall(function() vis = hudEditor.Instance.Visible == true end)
+			loaderSettings.SetEnabled(vis, true, true)
+		end
+	end
+
+	local function setGuiVisible(visible)
+		guiController.desiredVisible = visible == true
+
+		local function attemptApply()
+			if not UI or not UI.Root then
+				return false
+			end
+			local currentVisible = UI.Root.Visible == true
+			if currentVisible == guiController.desiredVisible then
+				syncGuiControllerState()
+				return true
+			end
+			if guiController.applying then
+				return false
+			end
+			guiController.applying = true
+			if guiController.desiredVisible then
+				fixMouse()
+			end
+			local ok = pcall(function()
+				if UI.SetVisible then
+					UI.SetVisible(guiController.desiredVisible)
+				elseif UI.Root.Visible ~= guiController.desiredVisible and UI.toggle then
+					UI.toggle()
+				end
+			end)
+			guiController.applying = false
+			if ok and UI.Root then
+				guiController.desiredVisible = UI.Root.Visible == true
+			end
+			syncGuiControllerState()
+			return ok and UI.Root and UI.Root.Visible == visible
+		end
+
+		if attemptApply() then
+			return true
+		end
+		task.defer(function()
+			attemptApply()
+			task.delay(0.1, attemptApply)
+		end)
+		return false
+	end
+
+	local function toggleLegacyGui()
+		local currentlyVisible = UI and UI.Root and UI.Root.Visible == true
+		return setGuiVisible(not currentlyVisible)
+	end
+
+	local function setCoreGuiVisible(coreGuiType, enabled)
+		if not Services.StarterGui or not Services.StarterGui.SetCoreGuiEnabled then
+			return false
+		end
+		local ok = pcall(function()
+			Services.StarterGui:SetCoreGuiEnabled(coreGuiType, enabled == true)
+		end)
+		return ok
+	end
+
+	local function syncTeamAwareControls(enabled)
+		for _, object in next, UI.Objects or {} do
+			if object.Type == "Toggle" then
+				local api = safeGet(object, "API")
+				if api and type(api.SetEnabled) == "function" then
+					local name = string.lower(tostring(safeGet(object, "Name") or ""))
+					if name == "teamcheck" or name == "team color" or name == "teamcolor" then
+						api.SetEnabled(enabled == true, true)
+					end
+				end
+			end
+		end
+	end
+
+	local primaryPresets = {
+		Violet  = Color3.fromRGB(86, 34, 150),
+		Cobalt  = Color3.fromRGB(54, 92, 176),
+		Crimson = Color3.fromRGB(155, 42, 68),
+		Emerald = Color3.fromRGB(44, 126, 96),
+		Amber   = Color3.fromRGB(171, 104, 36),
+	}
+	local secondaryPresets = {
+		Night  = Color3.fromRGB(30, 8, 52),
+		Ink    = Color3.fromRGB(16, 8, 28),
+		Ruby   = Color3.fromRGB(64, 14, 30),
+		Forest = Color3.fromRGB(20, 42, 31),
+		Steel  = Color3.fromRGB(24, 28, 40),
+	}
+	local fontPresets = {
+		Silver = Color3.fromRGB(238, 238, 243),
+		Ice    = Color3.fromRGB(214, 226, 255),
+		Sand   = Color3.fromRGB(242, 227, 204),
+		Mint   = Color3.fromRGB(214, 244, 228),
+	}
+
+	local keybindWindow
+	local keybindList
+
+	local function refreshKeybindWindow()
+		if not keybindList then
+			return
+		end
+		for _, child in ipairs(keybindList:GetChildren()) do
+			if not child:IsA("UIListLayout") then
+				child:Destroy()
+			end
+		end
+
+		local bindings = {}
+		for _, object in next, UI.Registry do
+			local api = safeGet(object, "API")
+			if object.Type == "OptionsButton" and api then
+				local bind = safeGet(api, "Bind")
+				local args = safeGet(object, "args") or {}
+				if bind and bind ~= "" and not (args.HideInUI == true) then
+					bindings[#bindings + 1] = {
+						Name = tostring(args.Name or object.Name or "module"),
+						Bind = tostring(bind),
+					}
+				end
+			end
+		end
+
+		table.sort(bindings, function(a, b)
+			if a.Bind == b.Bind then return a.Name < b.Name end
+			return a.Bind < b.Bind
+		end)
+
+		if #bindings == 0 then
+			local empty = Instance.new("TextLabel")
+			empty.Parent = keybindList
+			empty.BackgroundTransparency = 1
+			empty.Size = UDim2.new(1, 0, 0, 16)
+			empty.Font = Enum.Font.Gotham
+			empty.Text = "No binds assigned"
+			empty.TextColor3 = Color3.fromRGB(150, 150, 164)
+			empty.TextSize = 10
+			empty.TextXAlignment = Enum.TextXAlignment.Left
+			return
+		end
+
+		for _, binding in ipairs(bindings) do
+			local row = Instance.new("Frame")
+			row.Parent = keybindList
+			row.BackgroundColor3 = Color3.fromRGB(9, 9, 10)
+			row.BorderSizePixel = 0
+			row.Size = UDim2.new(1, 0, 0, 18)
+
+			local accent = Instance.new("Frame")
+			accent.Parent = row
+			accent.BackgroundColor3 = UI.kit:activeColor()
+			accent.BorderSizePixel = 0
+			accent.Position = UDim2.new(0, 0, 0.5, -5)
+			accent.Size = UDim2.new(0, 2, 0, 10)
+
+			local bindLabel = Instance.new("TextLabel")
+			bindLabel.Parent = row
+			bindLabel.BackgroundTransparency = 1
+			bindLabel.Position = UDim2.new(0, 8, 0, 0)
+			bindLabel.Size = UDim2.new(0, 52, 1, 0)
+			bindLabel.Font = Enum.Font.GothamBold
+			bindLabel.Text = "[" .. string.upper(binding.Bind) .. "]"
+			bindLabel.TextColor3 = Color3.fromRGB(236, 236, 243)
+			bindLabel.TextSize = 10
+			bindLabel.TextXAlignment = Enum.TextXAlignment.Left
+
+			local nameLabel = Instance.new("TextLabel")
+			nameLabel.Parent = row
+			nameLabel.BackgroundTransparency = 1
+			nameLabel.Position = UDim2.new(0, 62, 0, 0)
+			nameLabel.Size = UDim2.new(1, -62, 1, 0)
+			nameLabel.Font = Enum.Font.Gotham
+			nameLabel.Text = binding.Name
+			nameLabel.TextColor3 = Color3.fromRGB(168, 168, 180)
+			nameLabel.TextSize = 10
+			nameLabel.TextXAlignment = Enum.TextXAlignment.Left
+		end
+	end
+
+	trackGuiController(Services.UserInputService:GetPropertyChangedSignal("MouseBehavior"):Connect(function()
+		if UI.Root and UI.Root.Visible then
 			fixMouse()
 		end
 	end))
-
-	tabs.other.AddNew({
-		Name = "gui",
-		NoSave = true,
-		NoMobileButton = true,
-		Bind = "RightShift",
-		Function = function()
-			if not UI.Root.Visible then
+	if UI and UI.Root then
+		trackGuiController(UI.Root:GetPropertyChangedSignal("Visible"):Connect(function()
+			guiController.desiredVisible = UI.Root.Visible == true
+			if UI.Root.Visible then
 				fixMouse()
 			end
-			UI.toggle()
+			syncGuiControllerState()
+		end))
+	end
+
+	if UI.CreateCustomWindow then
+		keybindWindow = UI.CreateCustomWindow({ Name = "keybinds" })
+		keybindWindow.SetVisible(false)
+		local storedFloatingLayout = UI.FloatingLayout or {}
+		if keybindWindow.Instance and not storedFloatingLayout["keybindsFloater"] then
+			keybindWindow.Instance.AnchorPoint = Vector2.new(0, 0)
+			keybindWindow.Instance.Position = UDim2.new(0, 22, 0, 140)
+		end
+		if keybindWindow.CaptureDefaultPosition and not storedFloatingLayout["keybindsFloater"] then
+			keybindWindow.CaptureDefaultPosition()
+		end
+
+		local frame = keybindWindow.new("Frame")
+		frame.BackgroundColor3 = Color3.fromRGB(6, 6, 8)
+		frame.BorderSizePixel = 0
+		frame.Size = UDim2.new(0, 186, 0, 180)
+
+		local stroke = Instance.new("UIStroke")
+		stroke.Parent = frame
+		stroke.Transparency = 0.18
+		stroke.Thickness = 1
+
+		local headerGlow = Instance.new("Frame")
+		headerGlow.Parent = frame
+		headerGlow.BackgroundColor3 = UI.kit:activeColor()
+		headerGlow.BackgroundTransparency = 0.86
+		headerGlow.BorderSizePixel = 0
+		headerGlow.Size = UDim2.new(1, 0, 0, 42)
+		local headerGlowFade = Instance.new("UIGradient")
+		headerGlowFade.Parent = headerGlow
+		headerGlowFade.Rotation = 90
+		headerGlowFade.Transparency = NumberSequence.new({
+			NumberSequenceKeypoint.new(0, 0.1),
+			NumberSequenceKeypoint.new(1, 1),
+		})
+
+		local title = Instance.new("TextLabel")
+		title.Parent = frame
+		title.BackgroundTransparency = 1
+		title.Position = UDim2.new(0, 10, 0, 8)
+		title.Size = UDim2.new(1, -20, 0, 14)
+		title.Font = Enum.Font.GothamBold
+		title.Text = "Keybinds"
+		title.TextColor3 = Color3.fromRGB(236, 236, 243)
+		title.TextSize = 11
+		title.TextXAlignment = Enum.TextXAlignment.Left
+
+		local subtitle = Instance.new("TextLabel")
+		subtitle.Parent = frame
+		subtitle.BackgroundTransparency = 1
+		subtitle.Position = UDim2.new(0, 10, 0, 22)
+		subtitle.Size = UDim2.new(1, -20, 0, 12)
+		subtitle.Font = Enum.Font.Gotham
+		subtitle.Text = "Current module shortcuts"
+		subtitle.TextColor3 = Color3.fromRGB(124, 124, 138)
+		subtitle.TextSize = 9
+		subtitle.TextXAlignment = Enum.TextXAlignment.Left
+
+		local divider = Instance.new("Frame")
+		divider.Parent = frame
+		divider.BackgroundColor3 = Color3.fromRGB(18, 18, 22)
+		divider.BorderSizePixel = 0
+		divider.Position = UDim2.new(0, 10, 0, 42)
+		divider.Size = UDim2.new(1, -20, 0, 1)
+
+		local scroll = Instance.new("ScrollingFrame")
+		scroll.Parent = frame
+		scroll.BackgroundTransparency = 1
+		scroll.BorderSizePixel = 0
+		scroll.Position = UDim2.new(0, 10, 0, 48)
+		scroll.Size = UDim2.new(1, -20, 1, -58)
+		scroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+		scroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+		scroll.ScrollBarThickness = 1
+		scroll.ScrollBarImageColor3 = Color3.fromRGB(96, 96, 114)
+
+		keybindList = Instance.new("Frame")
+		keybindList.Parent = scroll
+		keybindList.BackgroundTransparency = 1
+		keybindList.Size = UDim2.new(1, 0, 1, 0)
+
+		local keybindLayout = Instance.new("UIListLayout")
+		keybindLayout.Parent = keybindList
+		keybindLayout.SortOrder = Enum.SortOrder.LayoutOrder
+		keybindLayout.Padding = UDim.new(0, 4)
+
+		bindGuiTheme(function()
+			local accent = UI.kit:activeColor()
+			stroke.Color = accent
+			headerGlow.BackgroundColor3 = accent
+		end)
+
+		refreshKeybindWindow()
+	end
+
+	if UI.BindSync then
+		rootManager:AddConnection(UI.BindSync:Bind(function()
+			refreshKeybindWindow()
+		end))
+	end
+
+	local internalPanel = tabs.internal or tabs.other
+
+	local function createInternalAction(name, callback, tooltip)
+		local action
+		action = internalPanel.AddNew({
+			Name = name,
+			NoSave = true,
+			Function = function(enabled)
+				if not enabled then return end
+				local ok, err = pcall(callback)
+				if not ok then
+					logger:Warn(name, err)
+					render:Toast({ title = name, text = tostring(err), duration = 3 })
+				end
+				if action and action.SetEnabled then
+					action.SetEnabled(false, true, true)
+				end
+			end,
+			Tooltip = tooltip,
+		})
+		return action
+	end
+
+	local function setSettingsHubVisible(on)
+		if hudEditor and hudEditor.Show and hudEditor.Hide then
+			if on == true then hudEditor.Show() else hudEditor.Hide() end
+		elseif hudEditor and hudEditor.Instance then
+			pcall(function() hudEditor.Instance.Visible = on == true end)
+		end
+	end
+
+	local function setPresetBarVisible(on)
+		if configBar and configBar.SetVisible then
+			configBar.SetVisible(on)
+		elseif configBar and configBar.Instance then
+			pcall(function() configBar.Instance.Visible = on == true end)
+		end
+	end
+
+	local keybindsModule = internalPanel.AddNew({
+		Name = "Keybind List",
+		NoSave = true,
+		Function = function(on)
+			if keybindWindow then
+				if on then refreshKeybindWindow() end
+				keybindWindow.SetVisible(on)
+			end
+		end,
+		Tooltip = "Show the active module shortcuts in a floating panel.",
+	})
+
+	trackGuiController(Services.UserInputService.InputBegan:Connect(function(input, gameProcessed)
+		if gameProcessed then return end
+		if UI and UI.IsRecording then return end
+		if Services.UserInputService:GetFocusedTextBox() then return end
+		if input.KeyCode == Enum.KeyCode.RightShift or input.KeyCode == Enum.KeyCode.LeftAlt then
+			toggleLegacyGui()
+		end
+	end))
+
+	internalPanel.AddNew({
+		Name = "Hide Unsupported",
+		NoSave = true,
+		Default = env.phantomHideBadExecutorModules == true,
+		Function = function(on)
+			setHideBadExecutorModules(on)
+			syncExecutorContextFromEnv()
+		end,
+		Tooltip = "Hide modules that your current executor cannot fully support.",
+	})
+
+	internalPanel.AddNew({
+		Name = "Hide Scoreboard",
+		NoSave = true,
+		Function = function(on)
+			setCoreGuiVisible(Enum.CoreGuiType.PlayerList, not on)
+		end,
+		Tooltip = "Hide the default Roblox player list.",
+	})
+
+	local altLoginAction
+	altLoginAction = internalPanel.AddNew({
+		Name = "Alt Login",
+		NoSave = true,
+		Function = function(enabled)
+			if not enabled then return end
+			render:Toast({
+				title = "Alt Login",
+				text = "Alt login is not available in this legacy runtime build.",
+				duration = 3,
+			})
+			if altLoginAction and altLoginAction.SetEnabled then
+				altLoginAction.SetEnabled(false, true, true)
+			end
+		end,
+		Tooltip = "Reserved for multi-account workflows in newer builds.",
+	})
+
+	loaderSettings = internalPanel.AddNew({
+		Name = "Config Panel",
+		NoSave = true,
+		NoSearch = true,
+		Bind = "Insert",
+		ExtraText = function()
+			local bind = loaderSettings and loaderSettings.Bind
+			local text = (bind and bind ~= "") and string.upper(bind) or "NONE"
+			return "[" .. text .. "]"
+		end,
+		Function = function(on)
+			setSettingsHubVisible(on)
+		end,
+		Tooltip = "Open the main settings, profiles, layout, and UI management controls.",
+	})
+
+	if hudEditor and hudEditor.Instance and loaderSettings and loaderSettings.SetEnabled then
+		rootManager:AddConnection(hudEditor.Instance:GetPropertyChangedSignal("Visible"):Connect(function()
+			local vis = false
+			pcall(function() vis = hudEditor.Instance.Visible == true end)
+			loaderSettings.SetEnabled(vis, true, true)
+		end))
+	end
+
+	internalPanel.AddNew({
+		Name = "Friend Mode",
+		NoSave = true,
+		Function = function(on)
+			env.phantomFriendPreference = on
+		end,
+		Tooltip = "Store a friend-safe targeting preference for supported modules.",
+	})
+
+	internalPanel.AddNew({
+		Name = "Team Sync",
+		NoSave = true,
+		Function = function(on)
+			syncTeamAwareControls(on)
+		end,
+		Tooltip = "Sync team-aware combat and ESP controls together.",
+	})
+
+	createInternalAction("Reload UI", function()
+		render:Toast({ title = "Phantom", text = "Reloading the interface runtime...", duration = 2 })
+		phantom.HotReload()
+	end, "Safely rebuild the full UI without leaving the server.")
+
+	createInternalAction("Reset UI Layout", function()
+		if UI.ResetLayout then UI.ResetLayout() end
+		render:Toast({ title = "Layout", text = "Restored the default interface layout.", duration = 2 })
+	end, "Restore every draggable window to the default layout.")
+
+	local hudModule = internalPanel.AddNew({
+		Name = "UI Theme",
+		NoSave = true,
+		Function = function() end,
+		Tooltip = "Open the HUD customization controls.",
+	})
+
+	local function applyModuleSearch(searchText)
+		local query = string.lower(tostring(searchText or "")):gsub("^%s+", ""):gsub("%s+$", "")
+		for _, object in next, UI.Registry do
+			local api = safeGet(object, "API")
+			if object.Type == "OptionsButton" and api and type(api.SetSearchVisible) == "function" then
+				local args = safeGet(object, "args") or {}
+				if args.NoSearch ~= true then
+					local label = string.lower(tostring(args.Name or object.Name or ""))
+					local visible = query == "" or string.find(label, query, 1, true) ~= nil
+					api.SetSearchVisible(visible)
+				end
+			end
+		end
+	end
+
+	local layoutPresetMap = {
+		["Default Layout"]  = "default",
+		["Compact Layout"]  = "compact",
+	}
+
+	local function currentLayoutPresetLabel()
+		local current = UI.GetLayoutPreset and UI.GetLayoutPreset() or "default"
+		for label, key in pairs(layoutPresetMap) do
+			if key == current then return label end
+		end
+		return "Default Layout"
+	end
+
+	local function applyLayoutPreset(label)
+		local presetKey = layoutPresetMap[label] or "default"
+		if UI.ApplyLayoutPreset then
+			UI.ApplyLayoutPreset(presetKey)
+		end
+		local camera = workspace.CurrentCamera
+		local viewport = camera and camera.ViewportSize or Vector2.new(1920, 1080)
+		local padX = math.max(18, math.floor(viewport.X * 0.018))
+		local padY = math.max(14, math.floor(viewport.Y * 0.018))
+		local stackGap = math.max(26, math.floor(viewport.Y * 0.095))
+
+		local function applyWindowPreset(windowApi, position)
+			if not (windowApi and windowApi.Instance and position) then return end
+			windowApi.Instance.Position = position
+			if windowApi.CaptureDefaultPosition then windowApi.CaptureDefaultPosition() end
+			if windowApi.SavePosition then windowApi.SavePosition() end
+		end
+
+		local overlayPositions = {
+			default  = UDim2.new(0.5, 0, 0.5, 0),
+			compact  = UDim2.new(0.68, 0, 0.42, 0),
+		}
+		local presetBarPositions = {
+			default  = UDim2.new(0.5, 0, 0, padY),
+			compact  = UDim2.new(0.34, 0, 0, padY),
+		}
+		local keybindPositions = {
+			default  = UDim2.new(0, padX, 0, padY + 132),
+			compact  = UDim2.new(0, padX, 0, padY + 106),
+		}
+
+		if hudEditor and hudEditor.Instance then
+			hudEditor.Instance.Position = overlayPositions[presetKey] or overlayPositions.default
+			if hudEditor.CaptureDefaultPosition then hudEditor.CaptureDefaultPosition() end
+			if hudEditor.SavePosition then hudEditor.SavePosition() end
+		end
+		if configBar and configBar.SetDefaultPosition then
+			configBar.Instance.Position = presetBarPositions[presetKey] or presetBarPositions.default
+			configBar.SetDefaultPosition(configBar.Instance.Position)
+			if configBar.Instance.Visible and configBar.SetVisible then
+				configBar.SetVisible(true)
+			end
+		end
+		if watermarkWindow then applyWindowPreset(watermarkWindow, UDim2.new(0, padX, 0, padY)) end
+		if sessionInfoWindow then applyWindowPreset(sessionInfoWindow, UDim2.new(0, padX, 0, padY + stackGap)) end
+		if keybindWindow then
+			applyWindowPreset(keybindWindow, keybindPositions[presetKey] or keybindPositions.default)
+		end
+		if UI.SaveLayout then UI.SaveLayout() end
+		render:Toast({ title = "Layout", text = "Applied " .. label .. ".", duration = 2 })
+	end
+
+	local function clearOverlayState()
+		overlayState = {}
+		fileApi:WriteJson(overlayStatePath, overlayState, { force = true })
+	end
+
+	if configBar and loaderSettings.CreateToggle then
+		loaderSettings.CreateToggle({
+			Name = "show preset bar",
+			Default = readOverlayToggleState("show preset bar", false),
+			Function = function(on) setPresetBarVisible(on) end,
+			Tooltip = "Display the small preset bar at the top of the screen.",
+		})
+	end
+
+	if UI.SetDraggingLocked and loaderSettings.CreateToggle then
+		loaderSettings.CreateToggle({
+			Name = "lock window dragging",
+			Default = false,
+			Function = function(on)
+				UI.SetDraggingLocked(on)
+				render:Toast({
+					title = "Layout",
+					text = on and "Window dragging locked." or "Window dragging unlocked.",
+					duration = 2,
+				})
+			end,
+			Tooltip = "Prevent accidental dragging while you use the menu.",
+		})
+	end
+
+	if UI.ApplyLayoutPreset and loaderSettings.CreateDropdown then
+		loaderSettings.CreateDropdown({
+			Name = "layout preset",
+			List = { "Default Layout", "Compact Layout"},
+			Default = currentLayoutPresetLabel(),
+			Function = function(value) applyLayoutPreset(value) end,
+			Tooltip = "Instantly reflow the full window layout without touching your module states.",
+		})
+	end
+
+	if UI.SetScaleMultiplier and loaderSettings.CreateSlider then
+		loaderSettings.CreateSlider({
+			Name = "ui scale",
+			Min = 0.7,
+			Max = 1.4,
+			Default = UI.GetScaleMultiplier and UI.GetScaleMultiplier() or 1,
+			Round = 1,
+			Function = function(value) UI.SetScaleMultiplier(value) end,
+			Tooltip = "Scale the interface responsively across laptop, desktop, and high-DPI viewports.",
+		})
+	end
+
+	local moduleSearchBox
+	if loaderSettings.CreateTextbox then
+		moduleSearchBox = loaderSettings.CreateTextbox({
+			Name = "module search",
+			Default = "",
+			Function = function(value) applyModuleSearch(value) end,
+			Tooltip = "Filter visible modules across every category window.",
+		})
+	end
+
+	if loaderSettings.CreateButton then
+		loaderSettings.CreateButton({
+			Name = "clear search",
+			Function = function()
+				if moduleSearchBox and moduleSearchBox.Set then
+					moduleSearchBox.Set("")
+				end
+				applyModuleSearch("")
+			end,
+			Tooltip = "Clear the current module filter and restore every module row.",
+		})
+	end
+
+	loaderSettings.CreateToggle({
+		Name = "Auto Update",
+		Default = settings.autoUpdate,
+		Function = function(on)
+			settings.autoUpdate = on
+			updater:SetSetting("autoUpdate", on)
 		end,
 	})
 
-	UI.Root.Visible = false
+	loaderSettings.CreateToggle({
+		Name = "Developer Mode",
+		Default = settings.developerMode,
+		Function = function(on)
+			settings.developerMode = on
+			phantom.developerMode = on
+			moduleLoader:SetDeveloperMode(on)
+			updater:SetSetting("developerMode", on)
+			logger:SetDebug(settings.debugLogs or on)
+		end,
+	})
+
+	loaderSettings.CreateToggle({
+		Name = "Debug Logs",
+		Default = settings.debugLogs,
+		Function = function(on)
+			settings.debugLogs = on
+			updater:SetSetting("debugLogs", on)
+			logger:SetDebug(on or settings.developerMode)
+		end,
+	})
+
+	if loaderSettings.CreateButton then
+		loaderSettings.CreateButton({
+			Name = "save current config",
+			Function = function()
+				saveProfile(profileSlot)
+				render:Toast({
+					title = "Profile",
+					text = "Saved " .. profileSlot .. ".json for " .. placeId,
+					duration = 2,
+				})
+			end,
+			Tooltip = "Save the active profile without opening the settings window.",
+		})
+
+		loaderSettings.CreateButton({
+			Name = "load current config",
+			Function = function()
+				loadProfile(profileSlot, false)
+			end,
+			Tooltip = "Reload the active profile immediately.",
+		})
+
+		if UI.ResetPositions then
+			loaderSettings.CreateButton({
+				Name = "reset positions only",
+				Function = function()
+					UI.ResetPositions()
+					render:Toast({ title = "Layout", text = "Reset all window positions.", duration = 2 })
+				end,
+				Tooltip = "Keep the current scale and theme, but move windows back to their preset anchors.",
+			})
+		end
+
+		if UI.ResetScale then
+			loaderSettings.CreateButton({
+				Name = "reset scale only",
+				Function = function()
+					UI.ResetScale()
+					render:Toast({ title = "Layout", text = "Reset UI scaling to the default value.", duration = 2 })
+				end,
+				Tooltip = "Restore the responsive scaler without changing saved positions or toggles.",
+			})
+		end
+
+		if UI.ResetLayout then
+			loaderSettings.CreateButton({
+				Name = "restore default layout",
+				Function = function()
+					UI.ResetLayout()
+					render:Toast({ title = "Layout", text = "Restored the default UI layout.", duration = 2 })
+				end,
+				Tooltip = "Move every draggable UI window back to its original position.",
+			})
+		end
+
+		if UI.FactoryResetUI then
+			loaderSettings.CreateButton({
+				Name = "full factory reset",
+				BackgroundColor = Color3.fromRGB(58, 20, 20),
+				Function = function()
+					clearOverlayState()
+					UI.FactoryResetUI()
+					render:Toast({
+						title = "Layout",
+						text = "Factory reset applied. Reloading the UI...",
+						duration = 2,
+					})
+					phantom.HotReload()
+				end,
+				Tooltip = "Reset theme, scaling, overlay settings, and layout state back to a clean factory baseline.",
+			})
+		end
+
+		loaderSettings.CreateButton({
+			Name = "reinject client",
+			Function = function()
+				render:Toast({ title = "Phantom", text = "Reinjecting the UI runtime...", duration = 2 })
+				phantom.HotReload()
+			end,
+			Tooltip = "Hot-reload Phantom without leaving the game.",
+		})
+
+		loaderSettings.CreateButton({
+			Name = "uninject client",
+			BackgroundColor = Color3.fromRGB(56, 18, 24),
+			Function = function()
+				render:Toast({ title = "Phantom", text = "Uninjecting the current runtime.", duration = 2 })
+				shutdown("user")
+			end,
+			Tooltip = "Unload Phantom and close every active window.",
+		})
+	end
+
+	local themeState = readGuiTheme()
+		local function applyInitialPalette()
+		if UI.SetPalette then
+			UI.SetPalette({
+				H = themeState.H,
+				S = themeState.S,
+				V = themeState.V,
+			})
+		elseif UI.kit and UI.kit.writePalette then
+			UI.kit:writePalette({
+				H = themeState.H,
+				S = themeState.S,
+				V = themeState.V,
+			})
+		end
+
+		if UI.kit and UI.kit.activeColor then
+			local activeCol = UI.kit:activeColor()
+			if UI.PaletteSync and UI.PaletteSync.Emit then
+				UI.PaletteSync:Emit()
+			end
+		end
+	end
+	applyInitialPalette()
+	task.defer(function()
+		task.wait(0.5)
+		saveCurrentPaletteAsNormal()
+	end)
+	hudModule.CreateDropdown({
+		Name = "Primary color",
+		List = { "Violet", "Cobalt", "Crimson", "Emerald", "Amber" },
+		Default = "Violet",
+		Function = function(value)
+			local color = primaryPresets[value]
+			if color then 
+				setGuiPalette(color) 
+				applyInitialPalette()
+			end
+		end,
+		Tooltip = "Swap the main accent used across active rows and highlights.",
+	})
+
+	hudModule.CreateDropdown({
+		Name = "Secondary color",
+		List = { "Night", "Ink", "Ruby", "Forest", "Steel" },
+		Default = "Night",
+		Function = function(value)
+			local color = secondaryPresets[value]
+			if color then setGuiSecondaryColor(color) end
+		end,
+		Tooltip = "Adjust the darker accent used behind active rows and panel glows.",
+	})
+
+	hudModule.CreateDropdown({
+		Name = "Font color",
+		List = { "Silver", "Ice", "Sand", "Mint" },
+		Default = "Silver",
+		Function = function(value)
+			local color = fontPresets[value]
+			if color then setGuiFontColor(color) end
+		end,
+		Tooltip = "Shift the UI text color without changing the accent color.",
+	})
+
+	hudModule.CreateSlider({
+		Name = "Animation speed",
+		Min = 0.5, Max = 2,
+		Default = themeState.AnimationSpeed,
+		Round = 1,
+		Function = function(value) setGuiAnimationSpeed(value) end,
+		Tooltip = "Scale the panel open, hover, and expand animation speed.",
+	})
+
+	hudModule.CreateSlider({
+		Name = "Glow speed",
+		Min = 0.5, Max = 3,
+		Default = themeState.GlowSpeed,
+		Round = 1,
+		Function = function(value) setGuiGlowSpeed(value) end,
+		Tooltip = "Adjust how quickly the active-row glow pulses.",
+	})
+
+	hudModule.CreateToggle({
+		Name = "Panel bend",
+		Default = true,
+		Function = function(on) env.phantomBendEffect = on end,
+		Tooltip = "Store the animated panel-bend preference for the legacy HUD.",
+	})
+
+	hudModule.CreateToggle({
+		Name = "Watermark",
+		Default = readOverlayToggleState("watermark", false),
+		Function = function(on)
+			if watermarkWindow then watermarkWindow.SetVisible(on) end
+		end,
+		Tooltip = "Show or hide the compact Phantom watermark window.",
+	})
+
+	hudModule.CreateToggle({
+		Name = "Gesture mode",
+		Default = false,
+		Function = function(on) env.phantomGestures = on end,
+		Tooltip = "Store the gesture preference for touch-first UI interactions.",
+	})
+
+	hudModule.CreateToggle({
+		Name = "Fast search",
+		Default = false,
+		Function = function(on) env.phantomDirectSearch = on end,
+		Tooltip = "Store the direct-search preference for future internal tooling.",
+	})
+
+	if hudModule.SetEnabled then
+		hudModule.SetEnabled(true, true, true)
+	end
+
+	if keybindsModule and keybindsModule.SetEnabled then
+		keybindsModule.SetEnabled(false, true, true)
+	end
+
+	setGuiVisible(false)
 end
 
-local loaderSettings = tabs.other.AddNew({
-	Name = "Loader Settings",
-	NoSave = true,
-	Function = function() end,
-})
-
-loaderSettings.CreateToggle({
-	Name = "Auto Update",
-	Default = settings.autoUpdate,
-	Function = function(on)
-		settings.autoUpdate = on
-		updater:SetSetting("autoUpdate", on)
-	end,
-})
-
-loaderSettings.CreateToggle({
-	Name = "Developer Mode",
-	Default = settings.developerMode,
-	Function = function(on)
-		settings.developerMode = on
-		phantom.developerMode = on
-		moduleLoader:SetDeveloperMode(on)
-		updater:SetSetting("developerMode", on)
-		logger:SetDebug(settings.debugLogs or on)
-	end,
-})
-
-loaderSettings.CreateToggle({
-	Name = "Debug Logs",
-	Default = settings.debugLogs,
-	Function = function(on)
-		settings.debugLogs = on
-		updater:SetSetting("debugLogs", on)
-		logger:SetDebug(on or settings.developerMode)
-	end,
-})
-
-local function createAction(name, callback)
+local function createAction(name, callback, options)
+	options = options or {}
 	local action
 	action = tabs.other.AddNew({
 		Name = name,
 		NoSave = true,
+		HideInUI = options.HideInUI == true,
 		Function = function(enabled)
-			if not enabled then
-				return
-			end
+			if not enabled then return end
 			local ok, err = pcall(callback)
 			if not ok then
 				logger:Warn(name, err)
-				render:Toast({
-					title = name,
-					text = tostring(err),
-					duration = 3,
-				})
+				render:Toast({ title = name, text = tostring(err), duration = 3 })
 			end
 			if action and action.SetEnabled and env.phantom then
 				action.SetEnabled(false, true, true)
@@ -1322,23 +2415,18 @@ local function createAction(name, callback)
 end
 
 if hudEditor then
-	createAction("Settings Hub", function()
-		hudEditor.Toggle()
-	end)
 	rootManager:AddConnection(Services.RunService.Heartbeat:Connect(function()
 		local saveRequest = hudEditor.SaveRequest
 		if saveRequest then
 			hudEditor.SaveRequest = nil
 			saveProfile(saveRequest)
-			if hudEditor.RefreshConfigs then
-				hudEditor.RefreshConfigs()
-			end
+			if hudEditor.RefreshConfigs then hudEditor.RefreshConfigs() end
 		end
 
 		local loadRequest = hudEditor.LoadRequest
 		if loadRequest then
 			hudEditor.LoadRequest = nil
-			loadProfile(loadRequest, false)
+			scheduleLoadProfile(loadRequest, false)
 		end
 
 		local deleteRequest = hudEditor.DeleteRequest
@@ -1348,19 +2436,13 @@ if hudEditor then
 			local ok, err = fileApi:Delete(statePath(targetSlot))
 			if not ok then
 				logger:Warn("failed to delete profile", targetSlot, err)
-				render:Toast({
-					title = "Profile",
-					text = "Failed to delete " .. targetSlot,
-					duration = 3,
-				})
+				render:Toast({ title = "Profile", text = "Failed to delete " .. targetSlot, duration = 3 })
 			else
 				if targetSlot == profileSlot then
 					setProfileSlot("default")
-					loadProfile(profileSlot, true)
+					scheduleLoadProfile(profileSlot, true)
 				end
-				if hudEditor.RefreshConfigs then
-					hudEditor.RefreshConfigs()
-				end
+				if hudEditor.RefreshConfigs then hudEditor.RefreshConfigs() end
 			end
 		end
 	end))
@@ -1368,43 +2450,30 @@ end
 
 createAction("Check Updates", function()
 	local result = updater:Check()
-	render:Toast({
-		title = "Updater",
-		text = formatUpdateResult(result),
-		duration = 3,
-	})
-end)
+	render:Toast({ title = "Updater", text = formatUpdateResult(result), duration = 3 })
+end, { HideInUI = false })
 
 createAction("Apply Update", function()
 	local result = updater:Apply(nil)
-	render:Toast({
-		title = "Updater",
-		text = formatUpdateResult(result),
-		duration = 4,
-	})
-end)
+	render:Toast({ title = "Updater", text = formatUpdateResult(result), duration = 4 })
+end, { HideInUI = false })
 
 createAction("Save Profile", function()
 	saveProfile(profileSlot)
-	render:Toast({
-		title = "Profile",
-		text = "Saved " .. profileSlot .. ".json for " .. placeId,
-		duration = 3,
-	})
-end)
+	render:Toast({ title = "Profile", text = "Saved " .. profileSlot .. ".json for " .. placeId, duration = 3 })
+end, { HideInUI = true })
 
 createAction("Load Profile", function()
-	loadProfile(profileSlot, false)
-end)
+	scheduleLoadProfile(profileSlot, false)
+end, { HideInUI = false })
 
 local hotReloadAction
 hotReloadAction = tabs.other.AddNew({
 	Name = "Hot Reload",
 	NoSave = true,
+	HideInUI = true,
 	Function = function(enabled)
-		if not enabled then
-			return
-		end
+		if not enabled then return end
 		if hotReloadAction and hotReloadAction.SetEnabled then
 			hotReloadAction.SetEnabled(false, true, true)
 		end
@@ -1415,10 +2484,9 @@ hotReloadAction = tabs.other.AddNew({
 tabs.other.AddNew({
 	Name = "Unload",
 	NoSave = true,
+	HideInUI = true,
 	Function = function(enabled)
-		if not enabled then
-			return
-		end
+		if not enabled then return end
 		shutdown("user")
 	end,
 })
@@ -1443,7 +2511,12 @@ end
 local placeLoaded = loadGameScript("game.place", "games/" .. placeId .. ".lua")
 
 setProfileSlot(profileSlot)
-loadProfile(profileSlot, true)
+
+task.defer(function()
+	task.wait()
+	uiFullyReady = true
+	scheduleLoadProfile(profileSlot, true)
+end)
 
 task.defer(function()
 	local ok, err = pcall(function()
@@ -1464,7 +2537,10 @@ end
 
 render:Toast({
 	title = "Phantom",
-	text = string.format("Loaded %s for %s. Press RightShift to toggle the UI.", versionData.full, placeId),
+	text = string.format(
+		"Loaded %s for %s. Press RightShift or LeftAlt to toggle the UI.",
+		versionData.full, placeId
+	),
 	duration = 3,
 })
 

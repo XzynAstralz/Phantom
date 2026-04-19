@@ -162,7 +162,6 @@ function Updater:BuildPlan(remoteManifest, localManifest, options)
 			local sameHash = not options.force and localEntry and entry.sha256 and localEntry.sha256 == entry.sha256 and exists
 
 			if sameHash then
-				-- Fast skip for unchanged files.
 			elseif self:_isPreserved(path) then
 				skipped[#skipped + 1] = { path = path, reason = "preserved" }
 			elseif settings.developerMode and not options.forceBootstrap and self:_isDeveloperProtected(path) and exists and not options.ignoreDeveloperMode then

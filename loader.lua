@@ -456,7 +456,6 @@ local function buildPlan(manifest)
 		local sameHash = localEntry and entry.sha256 and localEntry.sha256 == entry.sha256 and exists
 
 		if sameHash then
-			-- up to date
 		elseif isPreserved(path) then
 			plan.skipped[#plan.skipped + 1] = { path = path, reason = "preserved" }
 		elseif settings.developerMode and not forceBootstrap and isDeveloperProtected(path) and exists then
