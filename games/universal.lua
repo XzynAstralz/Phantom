@@ -17,10 +17,13 @@ local ReplicatedStorage = cloneref(services.ReplicatedStorage)
 local Lighting = cloneref(services.Lighting)
 local inputservice = cloneref(services.UserInputService)
 local Teams = services.Teams and cloneref(services.Teams) or game:FindFirstChildOfClass("Teams")
+local TeleportService = cloneref(services.TeleportService)
+local CoreGui = cloneref(services.CoreGui)
 local VirtualUser = services.VirtualUser and cloneref(services.VirtualUser) or game:GetService("VirtualUser")
 local lplr = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
 local mouse = lplr:GetMouse()
+local workspace = cloneref(services.Workspace)
 
 local lib = phantom.UI
 local funcs = phantom.ops
@@ -375,6 +378,45 @@ runcode(function()
         Max = 300,
         Default = 90,
         Round = 1,
+    })
+end)
+
+runcode(function()
+    local FastStop = {}
+    local Strength = {}
+
+    FastStop = lib.Registry.combatPanel.API.CreateOptionsButton({
+        Name = "FastStop",
+        Function = function(callback)
+            if callback then
+                RunLoops:BindToHeartbeat("FastStop", function()
+                    local root = PlayerUtility.GetRoot()
+                    local humanoid = PlayerUtility.GetHumanoid()
+
+                    if not PlayerUtility.IsAlive() or not root or not humanoid then
+                        return
+                    end
+
+                    if humanoid.MoveDirection.Magnitude <= 0 then
+                        root.Velocity = Vector3.new(root.Velocity.X * (1 - Strength.Value), root.Velocity.Y, root.Velocity.Z * (1 - Strength.Value))
+
+                        if Strength.Value >= 0.9 then
+                            root.Velocity = Vector3.new(0, root.Velocity.Y, 0)
+                        end
+                    end
+                end)
+            else
+                RunLoops:UnbindFromHeartbeat("FastStop")
+            end
+        end
+    })
+
+    Strength = FastStop.CreateSlider({
+        Name = "Strength",
+        Min = 0,
+        Max = 1,
+        Default = 0.8,
+        Round = 2
     })
 end)
 
@@ -1092,5 +1134,264 @@ runcode(function()
         Min = 0,
         Max = 100,
         Default = 0
+    })
+end)
+
+runcode(function()
+    local NoClip = {}
+
+    NoClip = lib.Registry.blatantPanel.API.CreateOptionsButton({
+        Name = "NoClip",
+        Function = function(callback)
+            if callback then
+                RunLoops:BindToHeartbeat("NoClip", function()
+                    local character = PlayerUtility.GetCharacter()
+                    if not character then return end
+                    for _, part in ipairs(character:GetDescendants()) do
+                        if part:IsA("BasePart") then
+                            part.CanCollide = false
+                        end
+                    end
+                end)
+                funcs:onExit("NoClip", function()
+                    local character = PlayerUtility.GetCharacter()
+                    if character then
+                        for _, part in ipairs(character:GetDescendants()) do
+                            if part:IsA("BasePart") then
+                                part.CanCollide = true
+                            end
+                        end
+                    end
+                end)
+            else
+                RunLoops:UnbindFromHeartbeat("NoClip")
+                local character = PlayerUtility.GetCharacter()
+                if character then
+                    for _, part in ipairs(character:GetDescendants()) do
+                        if part:IsA("BasePart") then
+                            part.CanCollide = true
+                        end
+                    end
+                end
+            end
+        end
+    })
+end)
+
+runcode(function()
+    local AutoRejoin = {}
+    local ServerHop = {}
+    local Rejoin = {}
+    local rejoinConn = nil
+    local guiConn = nil
+
+    local function doRejoin()
+        TeleportService:Teleport(game.PlaceId, lplr)
+    end
+
+    local function doServerHop()
+        local ok, result = pcall(function()
+            local code = TeleportService:ReserveServer(game.PlaceId)
+            TeleportService:TeleportToPrivateServer(game.PlaceId, code, {lplr})
+        end)
+        if not ok then
+            pcall(doRejoin)
+        end
+    end
+
+    AutoRejoin = lib.Registry.utillityPanel.API.CreateOptionsButton({
+        Name = "AutoRejoin",
+        Tooltip = "Automatically rejoins if you get kicked or disconnected.",
+        Function = function(callback)
+            if callback then
+                guiConn = CoreGui:WaitForChild("RobloxPromptGui"):WaitForChild("promptOverlay").ChildAdded:Connect(function(Kick)
+                    if Kick.Name == "ErrorPrompt" then
+                        local msgArea = Kick:FindFirstChild("MessageArea")
+                        local errorFrame = msgArea and msgArea:FindFirstChild("ErrorFrame")
+
+                        if errorFrame then
+                            task.wait(2)
+                            doRejoin()
+                        end
+                    end
+                end)
+            else
+                if guiConn then
+                    guiConn:Disconnect()
+                    guiConn = nil
+                end
+            end
+        end
+    })
+    Rejoin = lib.Registry.utillityPanel.API.CreateOptionsButton({
+        Name = "Rejoin",
+        Tooltip = "Instantly rejoins the current game when clicked.",
+        Default = false,
+        Function = function(callback)
+            if callback then
+                doRejoin()
+
+                if Rejoin.Enabled then
+                    Rejoin.Toggle()
+                end
+            end
+        end
+    })
+
+    ServerHop = lib.Registry.utillityPanel.API.CreateOptionsButton({
+        Name = "ServerHop",
+        Tooltip = "Switches you to a different server.",
+        Function = function(callback)
+            if callback then
+                notification("Hopping server...")
+                task.delay(1, doServerHop)
+
+                if ServerHop.Enabled then
+                    ServerHop.Toggle()
+                end
+            end
+        end
+    })
+end)
+
+runcode(function()
+    local FPSBoost = {}
+    local RemoveParticles = {}
+    local RemoveDecals = {}
+    local DisableShadows = {}
+    local RemoveFog = {}
+    local RenderDist = {}
+
+    local origShadows = Lighting.GlobalShadows
+    local origFogEnd = Lighting.FogEnd
+    local origFogStart = Lighting.FogStart
+    local origFogColor = Lighting.FogColor
+    local disabledFX = {}
+    local hiddenDecals = {}
+
+    local function collectAndDisable(className, prop, newVal)
+        for _, v in ipairs(workspace:GetDescendants()) do
+            if v:IsA(className) then
+                table.insert(disabledFX, {inst = v, prop = prop, old = v[prop]})
+                pcall(function() v[prop] = newVal end)
+            end
+        end
+    end
+
+    local function restoreAll()
+        for _, entry in ipairs(disabledFX) do
+            if entry.inst and entry.inst.Parent then
+                pcall(function() entry.inst[entry.prop] = entry.old end)
+            end
+        end
+        disabledFX = {}
+        for _, entry in ipairs(hiddenDecals) do
+            if entry.inst and entry.inst.Parent then
+                pcall(function() entry.inst.Transparency = entry.old end)
+            end
+        end
+        hiddenDecals = {}
+    end
+
+    FPSBoost = lib.Registry.renderPanel.API.CreateOptionsButton({
+        Name = "FPSBooster",
+        Function = function(callback)
+            if not callback then
+                if DisableShadows.Enabled then
+                    Lighting.GlobalShadows = origShadows
+                end
+                if RemoveFog.Enabled then
+                    Lighting.FogEnd   = origFogEnd
+                    Lighting.FogStart = origFogStart
+                    Lighting.FogColor = origFogColor
+                end
+                restoreAll()
+                RunLoops:UnbindFromHeartbeat("FPSBoostFog")
+            end
+        end
+    })
+
+    RemoveParticles = FPSBoost.CreateToggle({
+        Name = "Particles",
+        Default = false,
+        Function = function(callback)
+            if callback then
+                for _, className in ipairs({"ParticleEmitter", "Fire", "Smoke", "Sparkles"}) do
+                    collectAndDisable(className, "Enabled", false)
+                end
+                notification("Particles disabled")
+            else
+                restoreAll()
+            end
+        end
+    })
+
+    RemoveDecals = FPSBoost.CreateToggle({
+        Name = "Decals",
+        Default = false,
+        Function = function(callback)
+            if callback then
+                for _, v in ipairs(workspace:GetDescendants()) do
+                    if v:IsA("Decal") or v:IsA("Texture") then
+                        table.insert(hiddenDecals, {inst = v, old = v.Transparency})
+                        pcall(function() v.Transparency = 1 end)
+                    end
+                end
+                notification("Decals hidden")
+            else
+                for _, entry in ipairs(hiddenDecals) do
+                    if entry.inst and entry.inst.Parent then
+                        pcall(function() entry.inst.Transparency = entry.old end)
+                    end
+                end
+                hiddenDecals = {}
+            end
+        end
+    })
+
+    DisableShadows = FPSBoost.CreateToggle({
+        Name = "Shadows",
+        Default = false,
+        Function = function(callback)
+            if callback then
+                origShadows = Lighting.GlobalShadows
+                Lighting.GlobalShadows = false
+            else
+                Lighting.GlobalShadows = origShadows
+            end
+        end
+    })
+
+    RemoveFog = FPSBoost.CreateToggle({
+        Name = "RemoveFog",
+        Default = false,
+        Function = function(callback)
+            if callback then
+                origFogEnd   = Lighting.FogEnd
+                origFogStart = Lighting.FogStart
+                origFogColor = Lighting.FogColor
+                RunLoops:BindToHeartbeat("FPSBoostFog", function()
+                    Lighting.FogEnd = 1e6
+                end)
+            else
+                RunLoops:UnbindFromHeartbeat("FPSBoostFog")
+                Lighting.FogEnd   = origFogEnd
+                Lighting.FogStart = origFogStart
+                Lighting.FogColor = origFogColor
+            end
+        end
+    })
+
+    RenderDist = FPSBoost.CreateSlider({
+        Name = "RenderDist",
+        Min = 64,
+        Max = 2048,
+        Default = 2048,
+        Round = 0,
+        Function = function()
+            if FPSBoost.Enabled then
+                workspace.StreamingTargetRadius = RenderDist.Value
+            end
+        end
     })
 end)

@@ -60,7 +60,7 @@ local data = {
     }
 }
 
-for _, v in ipairs({"Antideath", "Gravity", "ESP", "AntiFall", "TriggerBot", "AimAssist", "BreadCrumbs", "Speed", "Fly", "AntiAFK", "AntiFall", "Antideath", "AutoClicker"}) do
+for _, v in ipairs({"Antideath", "Gravity", "ESP", "AntiFall", "TriggerBot", "AimAssist", "BreadCrumbs", "Speed", "Fly", "AntiAFK", "AntiFall", "Antideath", "AutoClicker", "ServerHop", "NoClip"}) do
     UI.kit:deregister(v .. "Module")
 end
 
