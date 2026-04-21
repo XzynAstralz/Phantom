@@ -1489,7 +1489,6 @@ local function formatUpdateResult(result)
 end
 
 local loaderSettings
-
 do
 	local function fixMouse()
 		if Services.UserInputService.MouseBehavior ~= Enum.MouseBehavior.Default then
@@ -2270,29 +2269,6 @@ do
 	end
 
 	local themeState = readGuiTheme()
-		local function applyInitialPalette()
-		if UI.SetPalette then
-			UI.SetPalette({
-				H = themeState.H,
-				S = themeState.S,
-				V = themeState.V,
-			})
-		elseif UI.kit and UI.kit.writePalette then
-			UI.kit:writePalette({
-				H = themeState.H,
-				S = themeState.S,
-				V = themeState.V,
-			})
-		end
-
-		if UI.kit and UI.kit.activeColor then
-			local activeCol = UI.kit:activeColor()
-			if UI.PaletteSync and UI.PaletteSync.Emit then
-				UI.PaletteSync:Emit()
-			end
-		end
-	end
-	applyInitialPalette()
 	task.defer(function()
 		task.wait(0.5)
 		saveCurrentPaletteAsNormal()
@@ -2302,10 +2278,10 @@ do
 		List = { "Violet", "Cobalt", "Crimson", "Emerald", "Amber" },
 		Default = "Violet",
 		Function = function(value)
+			repeat task.wait(0.1) until env.configloaded
 			local color = primaryPresets[value]
-			if color then 
-				setGuiPalette(color) 
-				applyInitialPalette()
+			if color then
+				setGuiPalette(color)
 			end
 		end,
 		Tooltip = "Swap the main accent used across active rows and highlights.",
