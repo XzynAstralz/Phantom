@@ -45,10 +45,6 @@ local Fly = {}
 local SpeedSlider = {}
 local Speed = {}
 
-repeat
-    task.wait()
-until lplr.Character
-
 function PlayerUtility.GetCharacter(plr)
     return (plr or lplr).Character
 end
@@ -200,6 +196,10 @@ local function bindCharacter(character)
     end
 
     cleanupBodyVelocity()
+
+    if not character then
+        return
+    end
 
     local humanoid = character:FindFirstChildOfClass("Humanoid") or character:WaitForChild("Humanoid", 5)
     local rootPart = character:FindFirstChild("HumanoidRootPart") or character:WaitForChild("HumanoidRootPart", 5)

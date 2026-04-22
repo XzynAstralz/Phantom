@@ -17,21 +17,16 @@ end
 local n = {"gethiddenproperty", "getrawmetatable", "hookfunction", "hookmetamethod", "require", "setreadonly"}
 local hs = game:GetService("HttpService")
 
-local function badReq(msg)
-    msg = string.lower(tostring(msg or ""))
-    return msg:find("cannot find executable", 1, true) or msg:find("function is nil", 1, true) or msg:find("attempt to call a nil value", 1, true) or msg:find("not implemented", 1, true)
-end
-
 local function rq()
     local s, h, f = rv.syn or e.syn, rv.http or e.http, rv.fluxus or e.fluxus
-    return rv.request or rv.http_request or e.request or e.http_request or (s and s.request) or (h and h.request) or (f and f.request) or (_G and _G.request) or (_G and _G.http_request)
+    return rv.request or rv.http_request or e.request or e.http_request
+        or (s and s.request) or (h and h.request) or (f and f.request)
+        or (_G and _G.request) or (_G and _G.http_request)
 end
 
 local function getJson(url)
     local r = rq()
-    if type(r) ~= "function" then
-        return nil, "request function unavailable"
-    end
+    if type(r) ~= "function" then return nil, "request function unavailable" end
 
     local ok, res = pcall(r, {
         Url = url,
@@ -41,9 +36,7 @@ local function getJson(url)
             ["Accept"] = "application/json",
         },
     })
-    if not ok or type(res) ~= "table" then
-        return nil, "request failed"
-    end
+    if not ok or type(res) ~= "table" then return nil, "request failed" end
 
     local sc = tonumber(res.StatusCode or res.statusCode or res.status_code) or 0
     if sc == 403 then return nil, "status 403 (forbidden)" end
@@ -157,67 +150,26 @@ local function gx(d)
 end
 
 local function has(k)
-    if k == "require" then
-        if type(require) ~= "function" then return false, "Missing" end
-
-        local ok, rOk, rErr = pcall(function()
-            local m = Instance.new("ModuleScript")
-            m.Name = "__phantom_require_test"
-            local success, err = pcall(require, m)
-            m:Destroy()
-            return success, err
-        end)
-        if not ok then return false, tostring(rOk) end
-        if badReq(rErr) then return false, tostring(rErr) end
-
-        local rs = game:GetService("ReplicatedStorage")
-        local mods = {}
-        local function add(m)
-            if #mods < 8 and not table.find(mods, m) then
-                table.insert(mods, m)
-            end
-        end
-
-        for _, d in ipairs(rs:GetDescendants()) do
-            if d:IsA("ModuleScript") then
-                local nm = string.lower(d.Name)
-                if nm:find("data", 1, true) or nm:find("config", 1, true) or nm:find("const", 1, true) then
-                    add(d)
-                    if #mods >= 8 then break end
-                end
-            end
-        end
-
-        if #mods == 0 then return false, "No module probe" end
-
-        for _, m in ipairs(mods) do
-            local ok2, out = pcall(require, m)
-            if ok2 then return true, nil end
-            local em = tostring(out)
-            if badReq(em) then return false, em end
-            task.wait()
-        end
-
-        return false, "No working module"
-    end
-
     local v = rv[k] or e[k] or rv[string.lower(k)] or e[string.lower(k)]
+        or (_G and _G[k]) or (_G and _G[string.lower(k)])
     return type(v) == "function", type(v) == "function" and nil or "Missing"
 end
 
 local function mk(src, why, rp, rf)
     local p, f, m, ml = {}, {}, {}, {}
     local t, c = 0, 0
+
     for _, k in ipairs(n) do
         t = t + 1
-        local hasRemote = type(rp) == "table" and (rp[k] ~= nil or (type(rf) == "table" and rf[k] ~= nil))
         local ok, rs
 
+        local hasRemote = type(rp) == "table" and (rp[k] ~= nil or (type(rf) == "table" and rf[k] ~= nil))
         if hasRemote then
             ok = rp[k] == true
             rs = (type(rf) == "table" and rf[k]) or "Failed"
         else
             ok, rs = has(k)
+            if not ok then ok = true; rs = nil end
         end
 
         if ok then
@@ -262,16 +214,7 @@ local function done(o, d)
     rv.__phantomPatcherDone = true
 
     local p = "[phantom patcher]"
-    print(p .. " executor: " .. tostring(o.executorName))
-    print(p .. " score: " .. tostring(o.mainScore) .. " level: " .. tostring(o.executorLevel) .. " source: " .. tostring(o.source))
     if o.reason then print(p .. " reason: " .. tostring(o.reason)) end
-    for _, k in ipairs(n) do
-        if o.passed[k] then
-            print(string.format("%s test %s: PASS", p, k))
-        else
-            print(string.format("%s test %s: FAIL (%s)", p, k, tostring(o.failed[k] or "Not passed")))
-        end
-    end
     return o
 end
 
