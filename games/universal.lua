@@ -1,3 +1,7 @@
+local ReplicatedFirst = game:GetService("ReplicatedFirst")
+repeat
+    task.wait()
+until ReplicatedFirst
 local services = {}
 local PlayerUtility = {}
 

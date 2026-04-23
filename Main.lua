@@ -146,6 +146,7 @@ local Services = {
 local LocalPlayer = Services.Players.LocalPlayer
 local queueTeleport = executorQueueForTeleport or executorQueueOnTeleport or executorQueueOnTeleportLegacy
 local placeId = tostring(game.PlaceId)
+local gameId = tonumber(game.GameId) and tostring(game.GameId) or ""
 local creatorId = tonumber(game.CreatorId) and tostring(game.CreatorId) or ""
 local profileSlot = "default"
 local overlayStatePath = "config/overlay.cfg.json"
@@ -208,6 +209,17 @@ if shouldAutoEnableHideBadExecutorModules() then
 end
 syncExecutorContextFromEnv()
 
+local function placeScriptPath()
+	return "games/" .. placeId .. ".lua"
+end
+
+local function gameScriptPath()
+	if gameId == "" or gameId == "0" then
+		return nil
+	end
+	return "games/" .. gameId .. ".lua"
+end
+
 local function creatorScriptPath()
 	if creatorId == "" or creatorId == "0" then
 		return nil
@@ -215,16 +227,60 @@ local function creatorScriptPath()
 	return "games/" .. creatorId .. ".lua"
 end
 
-local function creatorScriptExists()
-	local path = creatorScriptPath()
+local function scriptExists(path)
 	return path ~= nil and fileApi:IsFile(path)
+end
+
+local function placeScriptExists()
+	return scriptExists(placeScriptPath())
+end
+
+local function creatorScriptExists()
+	return scriptExists(creatorScriptPath())
+end
+
+local function gameScriptExists()
+	return scriptExists(gameScriptPath())
+end
+
+local function resolvedGameScriptPath()
+	local placePath = placeScriptPath()
+	if scriptExists(placePath) then
+		return placePath
+	end
+
+	local gamePath = gameScriptPath()
+	if scriptExists(gamePath) then
+		return gamePath
+	end
+
+	return placePath
 end
 
 local function activeGameKey()
 	if creatorScriptExists() then
 		return creatorId
 	end
+	if placeScriptExists() then
+		return placeId
+	end
+	if gameScriptExists() then
+		return gameId
+	end
 	return placeId
+end
+
+local function activeModuleLabel()
+	if creatorScriptExists() then
+		return "creator " .. creatorId
+	end
+	if placeScriptExists() then
+		return "place " .. placeId
+	end
+	if gameScriptExists() then
+		return "game " .. gameId
+	end
+	return "place " .. placeId
 end
 
 if type(overlayState) == "table" and overlayState.__preload == true then
@@ -758,7 +814,7 @@ if UI.CreateCustomWindow then
 			uptimeValue.Text = formatDuration(os.clock() - sessionStarted)
 			pingValue.Text = tostring(ping) .. " ms"
 			fpsValue.Text = tostring(math.floor(fpsEstimate + 0.5))
-			moduleValue.Text = creatorScriptExists() and ("creator " .. creatorId) or ("place " .. placeId)
+			moduleValue.Text = activeModuleLabel()
 		end))
 	end
 
@@ -918,10 +974,10 @@ end
 
 function ops:placeScript()
 	local creatorPath = creatorScriptPath()
-	if creatorPath and fileApi:IsFile(creatorPath) then
+	if scriptExists(creatorPath) then
 		return fileApi:Read(creatorPath, "") or ""
 	end
-	return fileApi:Read("games/" .. placeId .. ".lua", "") or ""
+	return fileApi:Read(resolvedGameScriptPath(), "") or ""
 end
 
 function ops:creatorScript()
@@ -1337,7 +1393,7 @@ moduleLoader:RegisterPath("game.universal", "games/universal.lua", { cache = fal
 if creatorScriptPath() then
 	moduleLoader:RegisterPath("game.creator", creatorScriptPath(), { cache = false, hotReload = true })
 end
-moduleLoader:RegisterPath("game.place", "games/" .. placeId .. ".lua", { cache = false, hotReload = true })
+moduleLoader:RegisterPath("game.place", resolvedGameScriptPath(), { cache = false, hotReload = true })
 
 local patcherInfo
 pcall(function()
@@ -2481,10 +2537,10 @@ end
 
 local universalLoaded = loadGameScript("game.universal", "games/universal.lua")
 local creatorLoaded = true
-if creatorScriptPath() and creatorScriptPath() ~= ("games/" .. placeId .. ".lua") then
+if creatorScriptPath() and creatorScriptPath() ~= resolvedGameScriptPath() then
 	creatorLoaded = loadGameScript("game.creator", creatorScriptPath())
 end
-local placeLoaded = loadGameScript("game.place", "games/" .. placeId .. ".lua")
+local placeLoaded = loadGameScript("game.place", resolvedGameScriptPath())
 
 setProfileSlot(profileSlot)
 

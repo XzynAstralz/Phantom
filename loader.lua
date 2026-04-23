@@ -22,6 +22,9 @@ local HttpService = game:GetService("HttpService")
 local ROOT = "Phantom"
 local REPO_OWNER = "XzynAstralz"
 local REPO_NAME = "Phantom"
+local LOADER_PLACE_ID = tostring(game.PlaceId)
+local LOADER_GAME_ID = tonumber(game.GameId) and tostring(game.GameId) or ""
+local LOADER_DISPLAY_ID = LOADER_GAME_ID ~= "" and LOADER_GAME_ID or LOADER_PLACE_ID
 
 local function normalize(path)
 	path = tostring(path or "")
@@ -333,7 +336,9 @@ local function createLoaderUi()
 		subtitle.Position = UDim2.new(0, 18, 0, 44)
 		subtitle.Size = UDim2.new(1, -36, 0, 16)
 		subtitle.Font = Enum.Font.Gotham
-		subtitle.Text = "GameID " .. tostring(game.PlaceId)
+		subtitle.Text = LOADER_GAME_ID ~= ""
+			and string.format("GameID %s  PlaceID %s", LOADER_GAME_ID, LOADER_PLACE_ID)
+			or ("PlaceID " .. LOADER_PLACE_ID)
 		subtitle.TextColor3 = Color3.fromRGB(165, 174, 190)
 		subtitle.TextSize = 12
 		subtitle.TextXAlignment = Enum.TextXAlignment.Left
@@ -393,7 +398,7 @@ local function createLoaderUi()
 				pcall(function()
 					local ratio = total > 0 and math.clamp(complete / total, 0, 1) or 0
 					fill.Size = UDim2.new(ratio, 0, 1, 0)
-					detail.Text = string.format("%d/%d  %s", complete, total, tostring(current or game.PlaceId))
+					detail.Text = string.format("%d/%d  %s", complete, total, tostring(current or LOADER_DISPLAY_ID))
 				end)
 			end,
 			Destroy = function()
@@ -495,7 +500,7 @@ local function applyUpdatePlan(manifest, plan)
 		end
 	end
 
-	ui:SetProgress(total, total, tostring(game.PlaceId))
+	ui:SetProgress(total, total, LOADER_DISPLAY_ID)
 	return failures
 end
 
@@ -510,7 +515,7 @@ if remoteManifest then
 		updateStatus = "up-to-date"
 		writeJson("cache/release-manifest.json", remoteManifest)
 		ui:SetStatus("Up to date")
-		ui:SetProgress(1, 1, tostring(game.PlaceId))
+		ui:SetProgress(1, 1, LOADER_DISPLAY_ID)
 		ui:Destroy()
 	else
 		updateStatus = "updated"
@@ -527,7 +532,7 @@ if remoteManifest then
 	end
 else
 	ui:SetStatus("GitHub unavailable. Using local files.")
-	ui:SetProgress(0, 0, tostring(game.PlaceId))
+	ui:SetProgress(0, 0, LOADER_DISPLAY_ID)
 	ui:Destroy()
 	if not isfile(resolve("Main.lua")) then
 		return warn("[phantom] unable to bootstrap runtime: " .. tostring(releaseOrError))
