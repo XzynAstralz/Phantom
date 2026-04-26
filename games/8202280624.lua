@@ -54,6 +54,7 @@ local RuntimeState = {
     Character = nil,
     Humanoid = nil,
     RootPart = nil,
+    Tool = nil,
     Blocking = false,
     StunState = false,
     LastAction = {},
@@ -96,7 +97,7 @@ local EMOTES = {"wave", "dance", "cheer", "laugh", "point"}
 local PromptCache = {
     Map = nil,
     Entries = {},
-    Updated = 0,
+    Lookup = {},
 }
 local GeneratorSolverPayloads = {
     {Wires = true, Switches = true, Lever = true},
@@ -107,93 +108,37 @@ local GeneratorSolverPayloads = {
     {Action = "Lever"},
 }
 
-local function loadPlayerUtility()
-    local loadedUtility = nil
-
-    if phantom and phantom.module and phantom.module.Load then
-        local ok, utility = pcall(function()
-            return phantom.module:Load("utility")
-        end)
-
-        if ok and type(utility) == "table" then
-            loadedUtility = utility
-        end
-    end
-
-    if not loadedUtility and type(readfile) == "function" and type(loadstring) == "function" then
-        local ok, utility = pcall(function()
-            return loadstring(readfile("Phantom/lib/Utility.lua"))()
-        end)
-
-        if ok and type(utility) == "table" then
-            loadedUtility = utility
-        end
-    end
-
-    return loadedUtility
-end
-
-local PlayerUtility = loadPlayerUtility()
-
-local function safeRequire(m)
-    if not m then return nil end
-    local ok, r = pcall(require, m)
-    return ok and r or nil
-end
-
-local function safeUtilityCall(methodName, ...)
-    local method = PlayerUtility and PlayerUtility[methodName]
-    if type(method) ~= "function" then
-        return nil, false
-    end
-
-    local ok, result = pcall(method, ...)
-    return result, ok
-end
+local PlayerUtility = phantom.module:Load("utility") or loadstring(readfile("Phantom/lib/Utility.lua"))()
 
 local modulesFolder = ReplicatedStorage:FindFirstChild("Modules")
-local toolKitFolder = modulesFolder and modulesFolder:FindFirstChild("ToolKit")
-local TaskKit = safeRequire(toolKitFolder and toolKitFolder:FindFirstChild("Tasks"))
-local DoorKit = safeRequire(toolKitFolder and toolKitFolder:FindFirstChild("Doors"))
 
-local Warp = safeRequire(modulesFolder and modulesFolder:FindFirstChild("Warp"))
-local WarpInput = nil
-if Warp and Warp.Client then
-    pcall(function() WarpInput = Warp.Client("Input") end)
+local toLower = function(v) return string.lower(tostring(v or "")) end
+
+local notify = function(text) pcall(notification, text) end
+
+local getDesc = function(instance)
+    if not instance then return {} end
+    local ok, r = pcall(function() return instance:GetDescendants() end)
+    return ok and r or {}
 end
 
-local function toLower(v)
-    return string.lower(tostring(v or ""))
-end
-
-local function safeNotify(text)
-    pcall(function() notification(text) end)
-end
-
-local function disconnectConnection(key)
+local disconnect = function(key)
     local c = Connections[key]
     if c then c:Disconnect(); Connections[key] = nil end
 end
 
-local function refreshCharacter()
-    local utilityCharacter, utilityCharacterOk = safeUtilityCall("GetCharacter", lplr)
-    RuntimeState.Character = utilityCharacterOk and typeof(utilityCharacter) == "Instance" and utilityCharacter or lplr.Character
-    RuntimeState.Humanoid  = PlayerUtility and PlayerUtility.lplrHumanoid or (RuntimeState.Character and RuntimeState.Character:FindFirstChildOfClass("Humanoid") or nil)
-    RuntimeState.RootPart  = PlayerUtility and PlayerUtility.lplrRoot or (RuntimeState.Character and RuntimeState.Character:FindFirstChild("HumanoidRootPart") or nil)
-end
-
-local function safeSetAttribute(instance, attr, value)
+local setAttr = function(instance, attr, value)
     if not instance then return false end
     return pcall(function() instance:SetAttribute(attr, value) end)
 end
 
-local function safeGetAttribute(instance, attr, fallback)
+local getAttr = function(instance, attr, fallback)
     if not instance then return fallback end
     local ok, r = pcall(function() return instance:GetAttribute(attr) end)
     return (ok and r ~= nil) and r or fallback
 end
 
-local function hasTag(instance, tagName)
+local hasTag = function(instance, tagName)
     if not instance then return false end
     local ok, r = pcall(function() return instance:HasTag(tagName) end)
     if ok then return r end
@@ -201,190 +146,775 @@ local function hasTag(instance, tagName)
     return ok2 and r2 or false
 end
 
-local function removeTag(instance, tagName)
+local removeTag = function(instance, tagName)
     if not instance then return end
     if not pcall(function() instance:RemoveTag(tagName) end) then
         pcall(function() CollectionService:RemoveTag(instance, tagName) end)
     end
 end
 
-local function isAliveCharacter(character)
-    if not character then return false end
-    local player = Players:GetPlayerFromCharacter(character)
-    if player then
-        local alive, ok = safeUtilityCall("IsAlive", player)
-        if ok then
-            return alive == true
-        end
-    end
-    local hum  = character:FindFirstChildOfClass("Humanoid")
-    local root = character:FindFirstChild("HumanoidRootPart")
-    return hum ~= nil and root ~= nil and hum.Health > 0 and hum:GetState() ~= Enum.HumanoidStateType.Dead
-end
-
-local function IsAlive()
-    refreshCharacter()
-    local alive, ok = safeUtilityCall("IsAlive", lplr)
-    if ok then
-        return alive == true
-    end
-    return isAliveCharacter(RuntimeState.Character)
-end
-
-local function getPrimaryPart(instance)
+local getPart
+getPart = function(instance)
     if not instance then return nil end
-    if instance:IsA("ProximityPrompt") then return getPrimaryPart(instance.Parent) end
-    if instance:IsA("BasePart") then return instance end
+
+    if instance:IsA("ProximityPrompt") then
+        return getPart(instance.Parent)
+    end
+
+    if instance:IsA("BasePart") or instance:IsA("MeshPart") then
+        return instance
+    end
+
     if instance:IsA("Attachment") then
         return (instance.Parent and instance.Parent:IsA("BasePart")) and instance.Parent or nil
     end
+
     if instance:IsA("Model") then
-        return instance.PrimaryPart or instance:FindFirstChild("Root") or instance:FindFirstChild("HumanoidRootPart") or instance:FindFirstChildWhichIsA("BasePart", true)
+        return instance.PrimaryPart or  instance:FindFirstChild("Root") or instance:FindFirstChild("HumanoidRootPart") or instance:FindFirstChildWhichIsA("BasePart", true)
     end
+
     return nil
 end
 
-local function getDisplayName(instance)
-    if not instance then return "Unknown" end
-    if instance:IsA("Model") then
-        local lp = Players:GetPlayerFromCharacter(instance)
-        if lp then return lp.Name end
-    end
-    return instance.Name
+local createEntryState = function()
+    return {
+        Entries = {},
+        Lookup = {},
+    }
 end
 
-local function getDistanceTo(instance)
-    refreshCharacter()
-    local root = RuntimeState.RootPart
-    local target = getPrimaryPart(instance)
+local clearEntryState = function(state)
+    table.clear(state.Entries)
+    table.clear(state.Lookup)
+end
+
+local addEntry = function(state, instance)
+    if not instance then return false end
+    local count = state.Lookup[instance] or 0
+    state.Lookup[instance] = count + 1
+    if count == 0 then
+        state.Entries[#state.Entries + 1] = instance
+        return true
+    end
+    return false
+end
+
+local removeEntry = function(state, instance)
+    local count = state.Lookup[instance]
+    if not count then return false end
+    if count > 1 then
+        state.Lookup[instance] = count - 1
+        return false
+    end
+    state.Lookup[instance] = nil
+    for i = #state.Entries, 1, -1 do
+        if state.Entries[i] == instance then
+            table.remove(state.Entries, i)
+            break
+        end
+    end
+    return true
+end
+
+local disconnectConnections = function(connectionTable)
+    for key, connection in pairs(connectionTable) do
+        if connection then
+            connection:Disconnect()
+        end
+        connectionTable[key] = nil
+    end
+end
+
+local compactLower = function(value)
+    return (toLower(value):gsub("%s+", ""))
+end
+
+local nameHasKeyword = function(name, keywords)
+    for _, keyword in ipairs(keywords or {}) do
+        if name:find(keyword, 1, true) then
+            return true
+        end
+    end
+    return false
+end
+
+local matchesClasses = function(instance, classNames)
+    if not classNames then return true end
+    for _, className in ipairs(classNames) do
+        if instance:IsA(className) then
+            return true
+        end
+    end
+    return false
+end
+
+local createContainerMatcher = function(tokens, exactMatch, classNames)
+    local compactTokens = {}
+    for _, token in ipairs(tokens or {}) do
+        compactTokens[#compactTokens + 1] = compactLower(token)
+    end
+    return function(instance)
+        if not matchesClasses(instance, classNames or {"Folder", "Model"}) then
+            return false
+        end
+        local name = compactLower(instance.Name)
+        for _, token in ipairs(compactTokens) do
+            if exactMatch then
+                if name == token then
+                    return true
+                end
+            elseif name:find(token, 1, true) then
+                return true
+            end
+        end
+        return false
+    end
+end
+
+local createFallbackMatcher = function(keywords, classNames, validator)
+    return function(instance)
+        if not matchesClasses(instance, classNames or {"Model", "BasePart", "Folder"}) then
+            return false
+        end
+        local name = toLower(instance.Name)
+        if not nameHasKeyword(name, keywords) then
+            return false
+        end
+        return not validator or validator(instance, name)
+    end
+end
+
+local createTrackedGroup = function(containerMatcher, fallbackMatcher)
+    return {
+        ContainerMatcher = containerMatcher,
+        FallbackMatcher = fallbackMatcher,
+        Containers = {},
+        Primary = createEntryState(),
+        Fallback = createEntryState(),
+    }
+end
+
+local CharacterPartCache = createEntryState()
+local CharacterConnections = {}
+local PlayerFolderCache = {
+    Root = nil,
+    RootConnections = {},
+    Survivor = createEntryState(),
+    Killer = createEntryState(),
+    RefreshQueued = false,
+}
+PlayerFolderCache.Survivor.Folder = nil
+PlayerFolderCache.Survivor.Connections = {}
+PlayerFolderCache.Killer.Folder = nil
+PlayerFolderCache.Killer.Connections = {}
+
+local MapCache = {
+    Root = nil,
+    MapsFolder = nil,
+    Connections = {},
+    RootConnections = {},
+    RefreshQueued = false,
+    Groups = {
+        Generators = createTrackedGroup(
+            createContainerMatcher({"Generators"})
+        ),
+        FuseBoxes = createTrackedGroup(
+            createContainerMatcher({"FuseBoxes", "Fuse Boxes"})
+        ),
+        Batteries = createTrackedGroup(
+            createContainerMatcher({"Batteries"})
+        ),
+        Exits = createTrackedGroup(
+            createContainerMatcher({"Escapes"})
+        ),
+        Objectives = createTrackedGroup(
+            createContainerMatcher({"Points", "GenPoints", "FusePoints", "AnnouncementPoints"}, true, {"Folder"}),
+            nil
+        ),
+        Beartrap = createTrackedGroup(
+            nil,
+            createFallbackMatcher({"beartrap", "bear trap"}, {"Model", "BasePart"}, function(_, name)
+                return not name:find("spring", 1, true)
+            end)
+        ),
+        Springtrap = createTrackedGroup(
+            nil,
+            createFallbackMatcher({"springtrap", "spring trap"}, {"Model", "BasePart"}, function(instance)
+                return getPart(instance) ~= nil
+            end)
+        ),
+        EnnardMinion = createTrackedGroup(
+            nil,
+            createFallbackMatcher({"minion", "ennard"}, {"Model"}, function(instance, name)
+                return name:find("minion", 1, true) or (name:find("ennard", 1, true) and not instance:FindFirstChildOfClass("Humanoid"))
+            end)
+        ),
+    },
+}
+
+local IgnoreCache = {
+    Root = nil,
+    RootConnections = {},
+    TrapFolder = nil,
+    TrapConnections = {},
+    Beartraps = createEntryState(),
+    Springtraps = createEntryState(),
+    Minions = createEntryState(),
+    RefreshQueued = false,
+}
+
+local InfiniteStaminaState = {
+    Enabled = false,
+    Character = nil,
+    Map = nil,
+    LastMax = 100,
+}
+
+local refreshPlayerFolderCache
+local refreshMapTracker
+local refreshIgnoreTracker
+local queuePlayerFolderRefresh
+local queueMapRefresh
+local queueIgnoreRefresh
+local bindRuntimeCharacter
+
+local bindTrackedFolder = function(state, folder)
+    if state.Folder == folder then return end
+    disconnectConnections(state.Connections)
+    state.Folder = folder
+    clearEntryState(state)
+    if not folder then return end
+    for _, child in ipairs(folder:GetChildren()) do
+        addEntry(state, child)
+    end
+    state.Connections.ChildAdded = folder.ChildAdded:Connect(function(child)
+        addEntry(state, child)
+    end)
+    state.Connections.ChildRemoved = folder.ChildRemoved:Connect(function(child)
+        removeEntry(state, child)
+    end)
+    state.Connections.AncestryChanged = folder.AncestryChanged:Connect(function(_, parent)
+        if not parent or folder.Parent ~= PlayerFolderCache.Root then
+            queuePlayerFolderRefresh()
+        end
+    end)
+end
+
+queuePlayerFolderRefresh = function()
+    if PlayerFolderCache.RefreshQueued then return end
+    PlayerFolderCache.RefreshQueued = true
+    task.defer(function()
+        PlayerFolderCache.RefreshQueued = false
+        refreshPlayerFolderCache(true)
+    end)
+end
+
+refreshPlayerFolderCache = function(force)
+    local root = Workspace:FindFirstChild("PLAYERS")
+    if force or PlayerFolderCache.Root ~= root then
+        disconnectConnections(PlayerFolderCache.RootConnections)
+        PlayerFolderCache.Root = root
+        if root then
+            PlayerFolderCache.RootConnections.ChildAdded = root.ChildAdded:Connect(function(child)
+                if child.Name == "ALIVE" or child.Name == "KILLER" then
+                    queuePlayerFolderRefresh()
+                end
+            end)
+            PlayerFolderCache.RootConnections.ChildRemoved = root.ChildRemoved:Connect(function(child)
+                if child.Name == "ALIVE" or child.Name == "KILLER" then
+                    queuePlayerFolderRefresh()
+                end
+            end)
+            PlayerFolderCache.RootConnections.AncestryChanged = root.AncestryChanged:Connect(function(_, parent)
+                if not parent then
+                    queuePlayerFolderRefresh()
+                end
+            end)
+        end
+    end
+    bindTrackedFolder(PlayerFolderCache.Survivor, root and root:FindFirstChild("ALIVE") or nil)
+    bindTrackedFolder(PlayerFolderCache.Killer, root and root:FindFirstChild("KILLER") or nil)
+    return root
+end
+
+local resolveMapRoot = function()
+    local mapsFolder = Workspace:FindFirstChild("MAPS")
+    if mapsFolder then
+        local gameMap = mapsFolder:FindFirstChild("GAME MAP")
+        if gameMap then
+            return gameMap, mapsFolder
+        end
+    end
+    for _, child in ipairs(Workspace:GetChildren()) do
+        if child:IsA("Model") and (child.Name:find("MAP", 1, true) or child.Name:find("Game", 1, true)) then
+            return child, mapsFolder
+        end
+    end
+    return nil, mapsFolder
+end
+
+local detachGroupContainer
+local attachGroupContainer
+
+local clearTrackedGroup = function(group)
+    local containers = {}
+    for container in pairs(group.Containers) do
+        containers[#containers + 1] = container
+    end
+    for _, container in ipairs(containers) do
+        detachGroupContainer(group, container)
+    end
+    clearEntryState(group.Primary)
+    clearEntryState(group.Fallback)
+end
+
+detachGroupContainer = function(group, container)
+    local state = group.Containers[container]
+    if not state then return end
+    group.Containers[container] = nil
+    disconnectConnections(state.Connections)
+    for child in pairs(state.Children) do
+        removeEntry(group.Primary, child)
+        state.Children[child] = nil
+    end
+end
+
+attachGroupContainer = function(group, container)
+    if group.Containers[container] then return end
+    local state = {
+        Connections = {},
+        Children = {},
+    }
+    group.Containers[container] = state
+
+    local trackChild = function(child)
+        if state.Children[child] then return end
+        state.Children[child] = true
+        addEntry(group.Primary, child)
+    end
+
+    local untrackChild = function(child)
+        if not state.Children[child] then return end
+        state.Children[child] = nil
+        removeEntry(group.Primary, child)
+    end
+
+    for _, child in ipairs(container:GetChildren()) do
+        trackChild(child)
+    end
+
+    state.Connections.ChildAdded = container.ChildAdded:Connect(trackChild)
+    state.Connections.ChildRemoved = container.ChildRemoved:Connect(untrackChild)
+    state.Connections.AncestryChanged = container.AncestryChanged:Connect(function(_, parent)
+        if not parent then
+            detachGroupContainer(group, container)
+        end
+    end)
+end
+
+local handleMapDescendantAdded = function(descendant)
+    if descendant:IsA("ProximityPrompt") then
+        addEntry(PromptCache, descendant)
+    end
+    for _, group in pairs(MapCache.Groups) do
+        local isContainer = group.ContainerMatcher and group.ContainerMatcher(descendant) or false
+        if isContainer then
+            attachGroupContainer(group, descendant)
+        elseif group.FallbackMatcher and group.FallbackMatcher(descendant) then
+            addEntry(group.Fallback, descendant)
+        end
+    end
+end
+
+local handleMapDescendantRemoving = function(descendant)
+    if descendant:IsA("ProximityPrompt") then
+        removeEntry(PromptCache, descendant)
+    end
+    for _, group in pairs(MapCache.Groups) do
+        if group.Containers[descendant] then
+            detachGroupContainer(group, descendant)
+        elseif group.Fallback.Lookup[descendant] then
+            removeEntry(group.Fallback, descendant)
+        end
+    end
+end
+
+local bindMapsFolderTracker = function(folder)
+    if MapCache.MapsFolder == folder then return end
+    disconnectConnections(MapCache.RootConnections)
+    MapCache.MapsFolder = folder
+    if not folder then return end
+    MapCache.RootConnections.ChildAdded = folder.ChildAdded:Connect(function()
+        queueMapRefresh()
+    end)
+    MapCache.RootConnections.ChildRemoved = folder.ChildRemoved:Connect(function()
+        queueMapRefresh()
+    end)
+    MapCache.RootConnections.AncestryChanged = folder.AncestryChanged:Connect(function(_, parent)
+        if not parent then
+            queueMapRefresh()
+        end
+    end)
+end
+
+queueMapRefresh = function()
+    if MapCache.RefreshQueued then return end
+    MapCache.RefreshQueued = true
+    task.defer(function()
+        MapCache.RefreshQueued = false
+        refreshMapTracker(true)
+    end)
+end
+
+refreshMapTracker = function(force)
+    local map, mapsFolder = resolveMapRoot()
+    bindMapsFolderTracker(mapsFolder)
+    if force or MapCache.Root ~= map then
+        disconnectConnections(MapCache.Connections)
+        MapCache.Root = map
+        PromptCache.Map = map
+        clearEntryState(PromptCache)
+        for _, group in pairs(MapCache.Groups) do
+            clearTrackedGroup(group)
+        end
+        if map then
+            for _, descendant in ipairs(map:GetDescendants()) do
+                handleMapDescendantAdded(descendant)
+            end
+            MapCache.Connections.DescendantAdded = map.DescendantAdded:Connect(handleMapDescendantAdded)
+            MapCache.Connections.DescendantRemoving = map.DescendantRemoving:Connect(handleMapDescendantRemoving)
+            MapCache.Connections.AncestryChanged = map.AncestryChanged:Connect(function(_, parent)
+                if not parent then
+                    queueMapRefresh()
+                end
+            end)
+        end
+    end
+    return map
+end
+
+local isBeartrapName = function(name)
+    return name:find("bear", 1, true) and not name:find("spring", 1, true)
+end
+
+local isSpringtrapName = function(name)
+    return name:find("spring", 1, true) ~= nil
+end
+
+local bindTrapFolder = function(folder)
+    if IgnoreCache.TrapFolder == folder then return end
+    disconnectConnections(IgnoreCache.TrapConnections)
+    IgnoreCache.TrapFolder = folder
+    clearEntryState(IgnoreCache.Beartraps)
+    clearEntryState(IgnoreCache.Springtraps)
+    if not folder then return end
+
+    local classifyTrap = function(instance, present)
+        local name = toLower(instance.Name)
+        if isBeartrapName(name) then
+            if present then addEntry(IgnoreCache.Beartraps, instance) else removeEntry(IgnoreCache.Beartraps, instance) end
+        end
+        if isSpringtrapName(name) then
+            if present then addEntry(IgnoreCache.Springtraps, instance) else removeEntry(IgnoreCache.Springtraps, instance) end
+        end
+    end
+
+    for _, child in ipairs(folder:GetChildren()) do
+        classifyTrap(child, true)
+    end
+
+    IgnoreCache.TrapConnections.ChildAdded = folder.ChildAdded:Connect(function(child)
+        classifyTrap(child, true)
+    end)
+    IgnoreCache.TrapConnections.ChildRemoved = folder.ChildRemoved:Connect(function(child)
+        classifyTrap(child, false)
+    end)
+    IgnoreCache.TrapConnections.AncestryChanged = folder.AncestryChanged:Connect(function(_, parent)
+        if not parent or folder.Parent ~= IgnoreCache.Root then
+            queueIgnoreRefresh()
+        end
+    end)
+end
+
+queueIgnoreRefresh = function()
+    if IgnoreCache.RefreshQueued then return end
+    IgnoreCache.RefreshQueued = true
+    task.defer(function()
+        IgnoreCache.RefreshQueued = false
+        refreshIgnoreTracker(true)
+    end)
+end
+
+refreshIgnoreTracker = function(force)
+    local root = Workspace:FindFirstChild("IGNORE")
+    if force or IgnoreCache.Root ~= root then
+        disconnectConnections(IgnoreCache.RootConnections)
+        IgnoreCache.Root = root
+        clearEntryState(IgnoreCache.Minions)
+        if root then
+            for _, descendant in ipairs(root:GetDescendants()) do
+                if descendant:IsA("Model") then
+                    local name = toLower(descendant.Name)
+                    if name:find("minion", 1, true) or (name:find("ennard", 1, true) and not descendant:FindFirstChildOfClass("Humanoid")) then
+                        addEntry(IgnoreCache.Minions, descendant)
+                    end
+                end
+            end
+            IgnoreCache.RootConnections.ChildAdded = root.ChildAdded:Connect(function(child)
+                if child.Name == "Trap" then
+                    bindTrapFolder(root:FindFirstChild("Trap"))
+                end
+            end)
+            IgnoreCache.RootConnections.ChildRemoved = root.ChildRemoved:Connect(function(child)
+                if child.Name == "Trap" then
+                    bindTrapFolder(root:FindFirstChild("Trap"))
+                end
+            end)
+            IgnoreCache.RootConnections.DescendantAdded = root.DescendantAdded:Connect(function(descendant)
+                if descendant:IsA("Model") then
+                    local name = toLower(descendant.Name)
+                    if name:find("minion", 1, true) or (name:find("ennard", 1, true) and not descendant:FindFirstChildOfClass("Humanoid")) then
+                        addEntry(IgnoreCache.Minions, descendant)
+                    end
+                end
+            end)
+            IgnoreCache.RootConnections.DescendantRemoving = root.DescendantRemoving:Connect(function(descendant)
+                if descendant:IsA("Model") then
+                    removeEntry(IgnoreCache.Minions, descendant)
+                end
+            end)
+            IgnoreCache.RootConnections.AncestryChanged = root.AncestryChanged:Connect(function(_, parent)
+                if not parent then
+                    queueIgnoreRefresh()
+                end
+            end)
+        end
+    end
+    bindTrapFolder(root and root:FindFirstChild("Trap") or nil)
+    return root
+end
+
+bindRuntimeCharacter = function(character, useFallback)
+    disconnectConnections(CharacterConnections)
+    clearEntryState(CharacterPartCache)
+
+    RuntimeState.Character = character
+    if not RuntimeState.Character and useFallback ~= false then
+        RuntimeState.Character = lplr.Character or PlayerUtility.lplrCharacter
+    end
+
+    RuntimeState.Humanoid = nil
+    RuntimeState.RootPart = nil
+    RuntimeState.Tool = nil
+
+    local activeCharacter = RuntimeState.Character
+    if not activeCharacter then return end
+
+    RuntimeState.Humanoid = activeCharacter:FindFirstChildOfClass("Humanoid") or PlayerUtility.lplrHumanoid
+    RuntimeState.RootPart = activeCharacter:FindFirstChild("HumanoidRootPart") or activeCharacter:FindFirstChild("Root") or activeCharacter:FindFirstChildWhichIsA("BasePart", true) or PlayerUtility.lplrRoot
+    RuntimeState.Tool = activeCharacter:FindFirstChildOfClass("Tool")
+
+    for _, descendant in ipairs(activeCharacter:GetDescendants()) do
+        if descendant:IsA("BasePart") then
+            addEntry(CharacterPartCache, descendant)
+        end
+    end
+
+    CharacterConnections.ChildAdded = activeCharacter.ChildAdded:Connect(function(child)
+        if child:IsA("Humanoid") then
+            RuntimeState.Humanoid = child
+        elseif child:IsA("Tool") then
+            RuntimeState.Tool = child
+        end
+    end)
+    CharacterConnections.ChildRemoved = activeCharacter.ChildRemoved:Connect(function(child)
+        if child == RuntimeState.Humanoid then
+            RuntimeState.Humanoid = activeCharacter:FindFirstChildOfClass("Humanoid") or PlayerUtility.lplrHumanoid
+        elseif child == RuntimeState.Tool then
+            RuntimeState.Tool = activeCharacter:FindFirstChildOfClass("Tool")
+        end
+    end)
+    CharacterConnections.DescendantAdded = activeCharacter.DescendantAdded:Connect(function(descendant)
+        if descendant:IsA("BasePart") then
+            addEntry(CharacterPartCache, descendant)
+            if descendant.Name == "HumanoidRootPart" or descendant.Name == "Root" or not RuntimeState.RootPart then
+                RuntimeState.RootPart = descendant
+            end
+        end
+    end)
+    CharacterConnections.DescendantRemoving = activeCharacter.DescendantRemoving:Connect(function(descendant)
+        if descendant:IsA("BasePart") then
+            removeEntry(CharacterPartCache, descendant)
+            if descendant == RuntimeState.RootPart then
+                RuntimeState.RootPart = activeCharacter:FindFirstChild("HumanoidRootPart") or activeCharacter:FindFirstChild("Root") or activeCharacter:FindFirstChildWhichIsA("BasePart", true) or PlayerUtility.lplrRoot
+            end
+        end
+    end)
+    CharacterConnections.AncestryChanged = activeCharacter.AncestryChanged:Connect(function(_, parent)
+        if not parent then
+            bindRuntimeCharacter(nil, false)
+        end
+    end)
+end
+
+Connections.WorkspaceChildAdded = Workspace.ChildAdded:Connect(function(child)
+    if child.Name == "PLAYERS" then
+        queuePlayerFolderRefresh()
+    elseif child.Name == "MAPS" or (child:IsA("Model") and (child.Name:find("MAP", 1, true) or child.Name:find("Game", 1, true))) then
+        queueMapRefresh()
+    elseif child.Name == "IGNORE" then
+        queueIgnoreRefresh()
+    end
+end)
+
+Connections.WorkspaceChildRemoved = Workspace.ChildRemoved:Connect(function(child)
+    if child.Name == "PLAYERS" then
+        queuePlayerFolderRefresh()
+    elseif child.Name == "MAPS" or (child:IsA("Model") and (child.Name:find("MAP", 1, true) or child.Name:find("Game", 1, true))) then
+        queueMapRefresh()
+    elseif child.Name == "IGNORE" then
+        queueIgnoreRefresh()
+    end
+end)
+
+Connections.CharacterAdded = lplr.CharacterAdded:Connect(function(character)
+    bindRuntimeCharacter(character)
+end)
+Connections.CharacterRemoving = lplr.CharacterRemoving:Connect(function(character)
+    if RuntimeState.Character == character then
+        bindRuntimeCharacter(nil, false)
+    end
+end)
+
+bindRuntimeCharacter(lplr.Character or PlayerUtility.lplrCharacter)
+refreshPlayerFolderCache(true)
+refreshMapTracker(true)
+refreshIgnoreTracker(true)
+
+local distTo = function(instance)
+    local root = RuntimeState.RootPart or PlayerUtility.lplrRoot
+    local target = getPart(instance)
     if not (root and target) then return math.huge end
     return (root.Position - target.Position).Magnitude
 end
 
-local function getMap()
-    local mapsFolder = Workspace:FindFirstChild("MAPS")
-    if mapsFolder then
-        local gameMap = mapsFolder:FindFirstChild("GAME MAP")
-        if gameMap then return gameMap end
-    end
-    
-    for _, v in ipairs(Workspace:GetChildren()) do
-        if v:IsA("Model") and (v.Name:find("MAP", 1, true) or v.Name:find("Game", 1, true)) then
-            return v
+local getMap = function()
+    return MapCache.Root or refreshMapTracker()
+end
+
+local getTaskList = function(folderName, keywords)
+    local group = MapCache.Groups[folderName]
+    if group then
+        if #group.Primary.Entries > 0 then
+            return group.Primary.Entries
         end
-    end
-    return nil
-end
-
-
-local function safeGetChildren(obj)
-    if not obj then return {} end
-    local success, result = pcall(function() return obj:GetChildren() end)
-    return success and result or {}
-end
-
-local function safeGetDescendants(obj)
-    if not obj then return {} end
-    local success, result = pcall(function() return obj:GetDescendants() end)
-    return success and result or {}
-end
-
-local function invalidatePromptCache()
-    PromptCache.Map = nil
-    PromptCache.Entries = {}
-    PromptCache.Updated = 0
-end
-
-local function getMapPrompts(forceRefresh)
-    local map = getMap()
-    if not map then
-        invalidatePromptCache()
-        return {}
-    end
-
-    local now = tick()
-    if not forceRefresh and PromptCache.Map == map and now - PromptCache.Updated <= 0.4 then
-        return PromptCache.Entries
-    end
-
-    local prompts = {}
-    for _, descendant in ipairs(safeGetDescendants(map)) do
-        if descendant:IsA("ProximityPrompt") then
-            prompts[#prompts + 1] = descendant
-        end
-    end
-
-    PromptCache.Map = map
-    PromptCache.Entries = prompts
-    PromptCache.Updated = now
-    return prompts
-end
-
-local function getFolderChildren(folderName)
-    local map = getMap()
-    local folder = map and map:FindFirstChild(folderName)
-    return folder and safeGetChildren(folder) or {}
-end
-
-local function getTaskList(method, fallbackFolder, keywords)
-    if TaskKit and TaskKit[method] then
-        local ok, r = pcall(TaskKit[method], TaskKit, getMap())
-        if ok and type(r) == "table" and #r > 0 then
-            return r
-        end
+        return group.Fallback.Entries
     end
 
     local map = getMap()
     if not map then return {} end
-
-    local results = {}
-    local seen = {}
-
-    local function addIfNew(obj)
-        if obj and not seen[obj] then
-            seen[obj] = true
-            table.insert(results, obj)
-        end
+    local results, seen = {}, {}
+    local addIfNew = function(obj)
+        if obj and not seen[obj] then seen[obj] = true; results[#results + 1] = obj end
     end
-
-    local folder = map:FindFirstChild(fallbackFolder)
+    local folder = map:FindFirstChild(folderName)
     if folder then
-        for _, child in ipairs(folder:GetChildren()) do
-            addIfNew(child)
+        for _, child in ipairs(folder:GetChildren()) do addIfNew(child) end
+        if #results > 0 then return results end
+    end
+    for _, desc in ipairs(map:GetDescendants()) do
+        if (desc:IsA("Folder") or desc:IsA("Model")) and
+           string.find(string.lower(desc.Name), string.lower(folderName), 1, true) then
+            for _, child in ipairs(desc:GetChildren()) do addIfNew(child) end
         end
     end
-
-    if #results == 0 then
+    if #results > 0 then return results end
+    if keywords then
         for _, desc in ipairs(map:GetDescendants()) do
-            if (desc:IsA("Folder") or desc:IsA("Model")) and 
-               string.find(string.lower(desc.Name), string.lower(fallbackFolder), 1, true) then
-                
-                for _, child in ipairs(desc:GetChildren()) do
-                    addIfNew(child)
+            if desc:IsA("Model") or desc:IsA("BasePart") or desc:IsA("Folder") then
+                local n = string.lower(desc.Name)
+                for _, kw in ipairs(keywords) do
+                    if string.find(n, kw, 1, true) then addIfNew(desc); break end
                 end
             end
         end
     end
+    return results
+end
 
-    if #results == 0 and keywords and #keywords > 0 then
-        for _, desc in ipairs(map:GetDescendants()) do
-            if desc:IsA("Model") or desc:IsA("BasePart") or desc:IsA("Folder") then  -- added Folder too
-                local nameLower = string.lower(desc.Name)
-                for _, kw in ipairs(keywords) do
-                    if string.find(nameLower, string.lower(kw), 1, true) then
-                        addIfNew(desc)
-                        break
+local getMapPrompts = function()
+    local map = getMap()
+    if not map then
+        PromptCache.Map = nil
+        clearEntryState(PromptCache)
+        return {}
+    end
+    if PromptCache.Map ~= map then
+        refreshMapTracker(true)
+    end
+    return PromptCache.Entries
+end
+
+local getDoors = function()
+    local source = getTaskList("Doors", {"door"})
+
+    local results, seen = {}, {}
+    
+    local addDoor = function(obj)
+        if not obj or seen[obj] then return end
+        local n = string.lower(obj.Name)
+        if n:find("locked") or n == "lockeddoors" then return end
+        seen[obj] = true
+        results[#results + 1] = obj
+    end
+
+    for _, door in ipairs(source) do
+        addDoor(door)
+    end
+
+    local map = getMap()
+    if map and map.Doors then
+        local doorsFolder = map.Doors
+        for i, door in ipairs(doorsFolder:GetChildren()) do
+            addDoor(door)
+        end
+        local doubleDoorsFolder = doorsFolder:FindFirstChild("Double Doors")
+        if doubleDoorsFolder then
+            for _, doubleDoor in ipairs(doubleDoorsFolder:GetChildren()) do
+                addDoor(doubleDoor)
+            end
+        end
+    end
+
+    local ignoreFolder = workspace:FindFirstChild("IGNORE")
+    if ignoreFolder then
+        for _, door in ipairs(ignoreFolder:GetChildren()) do
+            local doorName = string.lower(door.Name)
+            if doorName:match("^door%d*$") then
+                addDoor(door)
+            end
+        end
+    end
+
+    local gameMapFolder = getMap()
+    if gameMapFolder then
+        local doubleDoors = gameMapFolder:FindFirstChild("Double Doors")
+        if doubleDoors then
+            for _, doubleDoor in ipairs(doubleDoors:GetChildren()) do
+                local typesFolder = doubleDoor:FindFirstChild("Types")
+                if typesFolder then
+                    local subfolder1 = typesFolder:FindFirstChild("1")
+                    if subfolder1 then
+                        local door1 = subfolder1:FindFirstChild("Door1")
+                        if door1 then
+                            addDoor(door1)
+                        end
+                        local door2 = subfolder1:FindFirstChild("Door2")
+                        if door2 then
+                            addDoor(door2)
+                        end
                     end
                 end
-            end
-        end
-    end
-
-    if #results == 0 and fallbackFolder and fallbackFolder ~= "" then
-        local searchTerm = string.lower(fallbackFolder)
-        for _, desc in ipairs(map:GetDescendants()) do
-            if string.find(string.lower(desc.Name), searchTerm, 1, true) then
-                addIfNew(desc)
             end
         end
     end
@@ -392,263 +922,117 @@ local function getTaskList(method, fallbackFolder, keywords)
     return results
 end
 
-local function isValidDoor(obj)
-    if not obj then return false end
+local getGenerators = function() return getTaskList("Generators", {"generator", "gen"}) end
+local getFuseBoxes = function() return getTaskList("FuseBoxes",  {"fuse", "fusebox"}) end
+local getBatteries = function() return getTaskList("Batteries",  {"battery"}) end
 
-    local name = string.lower(obj.Name)
-
-    if name:find("locked") then return false end
-    if name == "lockeddoors" then return false end
-
-    return true
-end
-
-local function collectDoors(folder, results)
-    if not folder then return end
-
-    for _, d in ipairs(folder:GetChildren()) do
-        if isValidDoor(d) then
-            table.insert(results, d)
-        end
-    end
-end
-
-local function getDoors()
+local mapObjects = function(keywords, validator)
     local map = getMap()
     if not map then return {} end
-
-    local results = {}
-
-    collectDoors(map:FindFirstChild("Doors"), results)
-    collectDoors(map:FindFirstChild("Double Doors"), results)
-
-    if #results > 0 then
-        return results
-    end
-
-    if DoorKit and DoorKit.GetDoors then
-        local ok, r = pcall(DoorKit.GetDoors, DoorKit, map)
-        if ok and type(r) == "table" then
-            local filtered = {}
-
-            for _, d in ipairs(r) do
-                if isValidDoor(d) then
-                    table.insert(filtered, d)
+    local results, seen = {}, {}
+    for _, d in ipairs(map:GetDescendants()) do
+        if d:IsA("Model") or d:IsA("BasePart") then
+            local target = d:IsA("BasePart") and (d.Parent:IsA("Model") and d.Parent or d) or d
+            if not seen[target] then
+                local n = string.lower(target.Name)
+                for _, kw in ipairs(keywords) do
+                    if n:find(kw, 1, true) then
+                        if not validator or validator(target) then
+                            seen[target] = true; results[#results + 1] = target
+                        end
+                        break
+                    end
                 end
             end
-
-            if #filtered > 0 then
-                return filtered
-            end
         end
     end
-
-    local fallback = getTaskList(nil, "Doors", {"door"})
-    local filtered = {}
-
-    for _, d in ipairs(fallback) do
-        if isValidDoor(d) then
-            table.insert(filtered, d)
-        end
-    end
-
-    return filtered
+    return results
 end
 
-local function mergeLists(...)
+local mergeLists = function(...)
     local merged, seen = {}, {}
     for _, list in ipairs({...}) do
         for _, entry in ipairs(list) do
-            if entry and not seen[entry] then
-                seen[entry] = true
-                table.insert(merged, entry)
-            end
+            if entry and not seen[entry] then seen[entry] = true; merged[#merged + 1] = entry end
         end
     end
     return merged
 end
 
-local function nameMatchesKeywords(instance, keywords)
-    local blob = toLower(instance and instance.Name or "")
-    for _, kw in ipairs(keywords or {}) do
-        if blob:find(kw, 1, true) then return true end
+local getObjectives = function()
+    if not getMap() then return {} end
+    return MapCache.Groups.Objectives.Primary.Entries
+end
+
+local getExits = function()
+    return getTaskList("Exits", {"exit", "escape"})
+end
+
+local getBeartraps = function()
+    if #IgnoreCache.Beartraps.Entries > 0 then
+        return IgnoreCache.Beartraps.Entries
     end
-    return false
+    return MapCache.Groups.Beartrap.Fallback.Entries
 end
 
-local function collectMapObjects(keywords, validator)
-    local map = getMap()
-    if not map then return {} end
-    local results, seen = {}, {}
-    
-    for _, d in ipairs(map:GetDescendants()) do
-        if (d:IsA("Model") or d:IsA("BasePart")) then
-            local target = d:IsA("BasePart") and (d.Parent:IsA("Model") and d.Parent or d) or d
-            if not seen[target] then
-                local nameLower = string.lower(target.Name)
-                local match = false
-                for _, kw in ipairs(keywords) do
-                    if nameLower:find(kw, 1, true) then
-                        match = true
-                        break
-                    end
-                end
-                if match and (not validator or validator(target)) then
-                    seen[target] = true
-                    table.insert(results, target)
-                end
-            end
-        end
+local getSpringtrapTraps = function()
+    if #IgnoreCache.Springtraps.Entries > 0 then
+        return IgnoreCache.Springtraps.Entries
     end
-    return results
+    return MapCache.Groups.Springtrap.Fallback.Entries
 end
 
-local function getGenerators()
-    local map = getMap()
-    if not map then return {} end
-
-    local folder = map:FindFirstChild("Generators")
-    if folder then
-        return folder:GetChildren()
+local getEnnardMinions = function()
+    if #IgnoreCache.Minions.Entries > 0 then
+        return IgnoreCache.Minions.Entries
     end
-
-    return getTaskList("GetGenerators", "Generators", {"generator", "gen"})
+    return MapCache.Groups.EnnardMinion.Fallback.Entries
 end
 
-local function getFuseBoxes()
-    local map = getMap()
-    if not map then return {} end
-
-    local folder = map:FindFirstChild("FuseBoxes") or map:FindFirstChild("Fuse")
-    if folder then
-        return folder:GetChildren()
+local getPlayerFolders = function()
+    if not PlayerFolderCache.Root and Workspace:FindFirstChild("PLAYERS") then
+        refreshPlayerFolderCache(true)
     end
-
-    return getTaskList("GetFuseBoxes", "FuseBoxes", {"fuse", "fusebox"})
+    return PlayerFolderCache.Survivor.Folder, PlayerFolderCache.Killer.Folder
 end
 
-local function getBatteries()
-    local map = getMap()
-    if not map then return {} end
-
-    local folder = map:FindFirstChild("Batteries")
-    if folder then
-        return folder:GetChildren()
-    end
-
-    return getTaskList("GetBatteries", "Batteries", {"battery"})
-end
-
-local function getObjectives()
-    return mergeLists(getFolderChildren("Points"), getFolderChildren("GenPoints"), getFolderChildren("FusePoints"), getFolderChildren("AnnouncementPoints"))
-end
-local function getExits()
-    return mergeLists(getFolderChildren("Exits"), collectMapObjects({"exit", "escape"}, function(i) return getPrimaryPart(i) ~= nil end))
-end
-local function getBeartraps()
-    local results = {}
-    local folder = workspace:FindFirstChild("IGNORE") and workspace.IGNORE:FindFirstChild("Trap")
-
-    if folder then
-        for _, obj in ipairs(folder:GetChildren()) do
-            local n = string.lower(obj.Name)
-            if n:find("bear", 1, true) and not n:find("spring", 1, true) then
-                table.insert(results, obj)
-            end
-        end
-        if #results > 0 then return results end
-    end
-
-    return collectMapObjects({"beartrap", "bear trap"}, function(i)
-        local n = string.lower(i.Name)
-        return not n:find("spring", 1, true)
-    end)
-end
-local function getSpringtrapTraps()
-    local results = {}
-    local folder = workspace:FindFirstChild("IGNORE") and workspace.IGNORE:FindFirstChild("Trap")
-
-    if folder then
-        for _, obj in ipairs(folder:GetChildren()) do
-            local n = string.lower(obj.Name)
-            if n:find("spring", 1, true) then
-                table.insert(results, obj)
-            end
-        end
-        if #results > 0 then return results end
-    end
-
-    return collectMapObjects({"springtrap", "spring trap"}, function(i)
-        return getPrimaryPart(i) ~= nil
-    end)
-end
-local function getEnnardMinions()
-    local results = {}
-    local ignore = workspace:FindFirstChild("IGNORE")
-
-    if ignore then
-        for _, obj in ipairs(ignore:GetDescendants()) do
-            if obj:IsA("Model") then
-                local n = string.lower(obj.Name)
-                if n:find("minion", 1, true) 
-                    or (n:find("ennard", 1, true) and not obj:FindFirstChildOfClass("Humanoid")) then
-                    table.insert(results, obj)
-                end
-            end
-        end
-        if #results > 0 then return results end
-    end
-
-    return collectMapObjects({"minion", "ennard"}, function(i)
-        local n = string.lower(i.Name)
-        return n:find("minion", 1, true)
-            or (n:find("ennard", 1, true) and not i:FindFirstChildOfClass("Humanoid"))
-    end)
-end
-local function getPlayerFolders()
-    local pf = Workspace:FindFirstChild("PLAYERS")
-    return pf and pf:FindFirstChild("ALIVE") or nil, pf and pf:FindFirstChild("KILLER") or nil
-end
-
-local function getSurvivorCharacters()
+local getSurvivorCharacters = function()
     local aliveFolder = getPlayerFolders()
     local out = {}
-    if aliveFolder then
-        for _, c in ipairs(safeGetChildren(aliveFolder)) do
-            if c ~= RuntimeState.Character and isAliveCharacter(c) then
-                table.insert(out, c)
-            end
+    if not aliveFolder then return out end
+    for _, c in ipairs(PlayerFolderCache.Survivor.Entries) do
+        if c ~= RuntimeState.Character and c.Parent == aliveFolder and PlayerUtility.IsAlive(Players:GetPlayerFromCharacter(c)) then
+            out[#out + 1] = c
         end
     end
     return out
 end
 
-local function getKillerCharacters()
+local getKillerCharacters = function()
     local _, killerFolder = getPlayerFolders()
     local out = {}
-    if killerFolder then
-        for _, c in ipairs(safeGetChildren(killerFolder)) do
-            if c ~= RuntimeState.Character and isAliveCharacter(c) then
-                table.insert(out, c)
-            end
+    if not killerFolder then return out end
+    for _, c in ipairs(PlayerFolderCache.Killer.Entries) do
+        if c ~= RuntimeState.Character and c.Parent == killerFolder and PlayerUtility.IsAlive(Players:GetPlayerFromCharacter(c)) then
+            out[#out + 1] = c
         end
     end
     return out
 end
 
-local function isLocalKiller()
+local lkillr = function()
     local _, kf = getPlayerFolders()
     return RuntimeState.Character ~= nil and kf ~= nil and RuntimeState.Character.Parent == kf
 end
 
-local function getClosestCharacter(characters, maxDistance, ignoreUndetectable)
+local closestChar = function(characters, maxDistance, ignoreUndetectable)
     local best, bestDist = nil, maxDistance or math.huge
     for _, c in ipairs(characters) do
-        local root = getPrimaryPart(c)
+        local root = getPart(c)
         if root then
             local ok = not ignoreUndetectable or (not hasTag(c, "UNDETECTABLE") and not hasTag(c, "Imitation"))
             if ok then
-                local d = getDistanceTo(root)
+                local d = distTo(root)
                 if d < bestDist then best = c; bestDist = d end
             end
         end
@@ -656,28 +1040,28 @@ local function getClosestCharacter(characters, maxDistance, ignoreUndetectable)
     return best, bestDist
 end
 
-local function getClosestCombatTarget(maxDist)
-    local targets = isLocalKiller() and getSurvivorCharacters() or getKillerCharacters()
-    return getClosestCharacter(targets, maxDist, true)
+local closestTarget = function(maxDist)
+    local targets = lkillr() and getSurvivorCharacters() or getKillerCharacters()
+    return closestChar(targets, maxDist, true)
 end
 
-local function getClosestKiller(maxDist)
-    return getClosestCharacter(getKillerCharacters(), maxDist, true)
+local closestKiller = function(maxDist)
+    return closestChar(getKillerCharacters(), maxDist, true)
 end
 
-local function getClosestFromList(list, maxDist, validator)
+local closestIn = function(list, maxDist, validator)
     local best, bestDist = nil, maxDist or math.huge
     for _, item in ipairs(list) do
-        local part = getPrimaryPart(item)
+        local part = getPart(item)
         if part and (not validator or validator(item)) then
-            local d = getDistanceTo(part)
+            local d = distTo(part)
             if d < bestDist then best = item; bestDist = d end
         end
     end
     return best, bestDist
 end
 
-local function promptMatches(prompt, keywords)
+local promptOk = function(prompt, keywords)
     if not prompt or not prompt:IsA("ProximityPrompt") or not prompt.Enabled then return false end
     if not keywords or #keywords == 0 then return true end
     local blob = toLower(prompt.Name .. " " .. prompt.ActionText .. " " .. prompt.ObjectText)
@@ -687,33 +1071,32 @@ local function promptMatches(prompt, keywords)
     return false
 end
 
-local function findPromptInInstance(instance, keywords)
+local findPrompt
+findPrompt = function(instance, keywords)
     if not instance then return nil end
-    if instance:IsA("ProximityPrompt") and promptMatches(instance, keywords) then return instance end
-    for _, d in ipairs(safeGetDescendants(instance)) do
-        if d:IsA("ProximityPrompt") and promptMatches(d, keywords) then return d end
+    if instance:IsA("ProximityPrompt") and promptOk(instance, keywords) then return instance end
+    for _, d in ipairs(instance:GetDescendants()) do
+        if d:IsA("ProximityPrompt") and promptOk(d, keywords) then return d end
     end
     return nil
 end
 
-local function findPromptInMap(keywords, maxDist)
+local findMapPrompt = function(keywords, maxDist)
     local bestPrompt, bestDist = nil, maxDist or math.huge
     for _, d in ipairs(getMapPrompts()) do
-        if d:IsA("ProximityPrompt") and promptMatches(d, keywords) then
-            local dist = getDistanceTo(d.Parent)
+        if d:IsA("ProximityPrompt") and promptOk(d, keywords) then
+            local dist = distTo(d.Parent)
             if dist < bestDist then bestPrompt = d; bestDist = dist end
         end
     end
     return bestPrompt, bestDist
 end
 
-local function firePrompt(prompt)
+local firePrompt = function(prompt)
     if not prompt or not prompt.Enabled then return false end
     local holdDuration = math.max(prompt.HoldDuration or 0, 0.02)
     if fireproximityprompt then
-        if pcall(function() fireproximityprompt(prompt, holdDuration + 0.02) end) then
-            return true
-        end
+        if pcall(function() fireproximityprompt(prompt, holdDuration + 0.02) end) then return true end
     end
     return pcall(function()
         prompt:InputHoldBegin()
@@ -722,45 +1105,45 @@ local function firePrompt(prompt)
     end)
 end
 
-local function moveNearInstance(instance, yOffset)
-    refreshCharacter()
-    if not (RuntimeState.RootPart and instance) then return false end
-    local part = getPrimaryPart(instance)
+local moveTo = function(instance, yOffset)
+    local root = RuntimeState.RootPart or PlayerUtility.lplrRoot
+    if not (root and instance) then return false end
+    local part = getPart(instance)
     if not part then return false end
-    local pos = part.Position + Vector3.new(0, yOffset or 2.5, 0)
-    RuntimeState.RootPart.CFrame = CFrame.lookAt(pos, part.Position)
+    root.CFrame = CFrame.lookAt(part.Position + Vector3.new(0, yOffset or 2.5, 0), part.Position)
     return true
 end
 
-local function readyAction(key, delay)
-    local now  = tick()
+local throttle = function(key, delay)
+    local now = tick()
     local prev = RuntimeState.LastAction[key] or 0
-    if now - prev >= delay then
-        RuntimeState.LastAction[key] = now
-        return true
-    end
+    if now - prev >= delay then RuntimeState.LastAction[key] = now; return true end
     return false
 end
 
-local function getEquippedTool()
-    refreshCharacter()
-    if not RuntimeState.Character then return nil end
-    for _, c in ipairs(RuntimeState.Character:GetChildren()) do
-        if c:IsA("Tool") then return c end
+local getTool = function()
+    if RuntimeState.Tool and RuntimeState.Tool.Parent == RuntimeState.Character then
+        return RuntimeState.Tool
     end
-    return nil
+    if RuntimeState.Character then
+        RuntimeState.Tool = RuntimeState.Character:FindFirstChildOfClass("Tool")
+    end
+    return RuntimeState.Tool
 end
 
-local function fireDescendantChannels(root, keywords, ...)
+local fireChannels = function(root, keywords, ...)
     if not root then return false end
     local args = table.pack(...)
     for _, d in ipairs(root:GetDescendants()) do
-        if nameMatchesKeywords(d, keywords) then
+        local n = toLower(d.Name)
+        local match = false
+        for _, kw in ipairs(keywords) do if n:find(kw, 1, true) then match = true; break end end
+        if match then
             local ok = false
-            if     d:IsA("RemoteEvent")    then ok = pcall(d.FireServer,    d, table.unpack(args, 1, args.n))
-            elseif d:IsA("BindableEvent")  then ok = pcall(d.Fire,          d, table.unpack(args, 1, args.n))
-            elseif d:IsA("RemoteFunction") then ok = pcall(d.InvokeServer,  d, table.unpack(args, 1, args.n))
-            elseif d:IsA("BindableFunction") then ok = pcall(d.Invoke,      d, table.unpack(args, 1, args.n))
+            if     d:IsA("RemoteEvent")      then ok = pcall(d.FireServer,   d, table.unpack(args, 1, args.n))
+            elseif d:IsA("BindableEvent")    then ok = pcall(d.Fire,         d, table.unpack(args, 1, args.n))
+            elseif d:IsA("RemoteFunction")   then ok = pcall(d.InvokeServer, d, table.unpack(args, 1, args.n))
+            elseif d:IsA("BindableFunction") then ok = pcall(d.Invoke,       d, table.unpack(args, 1, args.n))
             end
             if ok then return true end
         end
@@ -768,11 +1151,11 @@ local function fireDescendantChannels(root, keywords, ...)
     return false
 end
 
-local function setBlockHeld(holding)
+local setBlock = function(holding)
     if RuntimeState.Blocking == holding then return end
     RuntimeState.Blocking = holding
-    local tool = getEquippedTool()
-    if tool then fireDescendantChannels(tool, {"block", "guard", "parry"}, holding) end
+    local tool = getTool()
+    if tool then fireChannels(tool, {"block", "guard", "parry"}, holding) end
     if holding then
         if mouse2press   then pcall(mouse2press)   end
     else
@@ -780,11 +1163,11 @@ local function setBlockHeld(holding)
     end
 end
 
-local function performSwing()
-    local tool = getEquippedTool()
+local swing = function()
+    local tool = getTool()
     if tool then
         pcall(function() tool:Activate() end)
-        fireDescendantChannels(tool, {"swing", "attack", "slash", "hit"})
+        fireChannels(tool, {"swing", "attack", "slash", "hit"})
     end
     if mouse1click then
         pcall(mouse1click)
@@ -794,36 +1177,54 @@ local function performSwing()
     end
 end
 
-local function isPromptTargetFinished(instance)
+local isDone = function(instance)
     for _, flag in ipairs({"Done","Completed","Fixed","Repaired","Powered","Opened","Open","Finished"}) do
-        if safeGetAttribute(instance, flag, nil) == true then return true end
+        if getAttr(instance, flag, nil) == true then return true end
     end
-    local p = safeGetAttribute(instance, "Progress", nil) or safeGetAttribute(instance, "Completion", nil) or safeGetAttribute(instance, "Percent",    nil)
+    local p = getAttr(instance, "Progress", nil)
+        or getAttr(instance, "Completion", nil)
+        or getAttr(instance, "Percent", nil)
     return type(p) == "number" and p >= 100
 end
 
-local function tryInteractWithTarget(target, keywords)
-    local prompt = findPromptInInstance(target, keywords) or findPromptInInstance(target)
-    if not prompt or isPromptTargetFinished(target) then return false end
+local closestInteract = function(instances, keywords, maxDist)
+    local best, bestDist = nil, maxDist or math.huge
+    for _, instance in ipairs(instances or {}) do
+        if instance and instance.Parent and not isDone(instance) then
+            local prompt = findPrompt(instance, keywords) or findPrompt(instance)
+            if prompt and prompt.Enabled then
+                local dist = distTo(instance)
+                if dist < bestDist then best = instance; bestDist = dist end
+            end
+        end
+    end
+    return best, bestDist
+end
+
+local interact = function(target, keywords)
+    local prompt = findPrompt(target, keywords) or findPrompt(target)
+    if not prompt or isDone(target) then return false end
     local maxActivationDistance = math.max((prompt.MaxActivationDistance or 0) + 1.5, 8)
-    if getDistanceTo(target) > maxActivationDistance then
-        moveNearInstance(target, 2.5)
+    if distTo(target) > maxActivationDistance then
+        moveTo(target, 2.5)
         task.delay(0.05, function() firePrompt(prompt) end)
         return true
     end
     return firePrompt(prompt)
 end
 
-local function isPostEffect(i)
-    return i:IsA("BlurEffect") or i:IsA("ColorCorrectionEffect") or i:IsA("BloomEffect") or i:IsA("SunRaysEffect") or i:IsA("DepthOfFieldEffect")
+local isPostEffect = function(i)
+    return i:IsA("BlurEffect") or i:IsA("ColorCorrectionEffect") or i:IsA("BloomEffect")
+        or i:IsA("SunRaysEffect") or i:IsA("DepthOfFieldEffect")
 end
 
-local function shouldHideGuiEffect(i)
+local shouldHideGuiEffect = function(i)
     local n = toLower(i.Name)
-    return n:find("static",1,true) or n:find("vignette",1,true) or n:find("blur",1,true) or n:find("blood",1,true) or n:find("noise",1,true)    or n:find("flash",1,true)
+    return n:find("static",1,true) or n:find("vignette",1,true) or n:find("blur",1,true)
+        or n:find("blood",1,true) or n:find("noise",1,true) or n:find("flash",1,true)
 end
 
-local function applyFullbright()
+local applyFB = function()
     if not SavedStates.Fullbright then
         SavedStates.Fullbright = {
             Brightness     = Lighting.Brightness,
@@ -842,19 +1243,19 @@ local function applyFullbright()
     Lighting.GlobalShadows  = false
 end
 
-local function restoreFullbright()
+local restoreFB = function()
     if not SavedStates.Fullbright then return end
     local fb = SavedStates.Fullbright
-    Lighting.Brightness = fb.Brightness
-    Lighting.Ambient = fb.Ambient
+    Lighting.Brightness     = fb.Brightness
+    Lighting.Ambient        = fb.Ambient
     Lighting.OutdoorAmbient = fb.OutdoorAmbient
-    Lighting.ClockTime = fb.ClockTime
-    Lighting.FogEnd = fb.FogEnd
-    Lighting.GlobalShadows = fb.GlobalShadows
-    SavedStates.Fullbright = nil
+    Lighting.ClockTime      = fb.ClockTime
+    Lighting.FogEnd         = fb.FogEnd
+    Lighting.GlobalShadows  = fb.GlobalShadows
+    SavedStates.Fullbright  = nil
 end
 
-local function restoreCharacterCollision()
+local restoreCollision = function()
     for part, prev in pairs(SavedStates.CharacterCollision) do
         if typeof(part) == "Instance" and part.Parent and part:IsA("BasePart") then
             part.CanCollide = prev
@@ -863,8 +1264,8 @@ local function restoreCharacterCollision()
     table.clear(SavedStates.CharacterCollision)
 end
 
-local function protectCharacterCollision(character)
-    for _, d in ipairs(character:GetDescendants()) do
+local noCollide = function(character)
+    for _, d in ipairs(CharacterPartCache.Entries) do
         if d:IsA("BasePart") then
             if SavedStates.CharacterCollision[d] == nil then
                 SavedStates.CharacterCollision[d] = d.CanCollide
@@ -874,7 +1275,7 @@ local function protectCharacterCollision(character)
     end
 end
 
-local function restoreTrapParts()
+local restoreTraps = function()
     for part, state in pairs(SavedStates.TrapParts) do
         if typeof(part) == "Instance" and part.Parent and part:IsA("BasePart") then
             part.CanCollide   = state.CanCollide
@@ -885,12 +1286,12 @@ local function restoreTrapParts()
     table.clear(SavedStates.TrapParts)
 end
 
-local function neutralizeTrapPart(part)
+local defusePart = function(part)
     if not part or not part:IsA("BasePart") then return end
     if SavedStates.TrapParts[part] == nil then
         SavedStates.TrapParts[part] = {
-            CanCollide = part.CanCollide,
-            CanTouch = part.CanTouch,
+            CanCollide   = part.CanCollide,
+            CanTouch     = part.CanTouch,
             Transparency = part.Transparency,
         }
     end
@@ -899,55 +1300,51 @@ local function neutralizeTrapPart(part)
     pcall(function() part.CanTouch = false end)
 end
 
-local function ensureHudLabel()
-    if RuntimeState.HudLabel and RuntimeState.HudLabel.Parent then
-        return RuntimeState.HudLabel
-    end
-    
+local getHud = function()
+    if RuntimeState.HudLabel and RuntimeState.HudLabel.Parent then return RuntimeState.HudLabel end
     local label = Instance.new("TextLabel")
-    label.Name = "KillerDistanceHUD"
-    label.AnchorPoint = Vector2.new(0.5, 0)
-    label.Position = UDim2.new(0.5, 0, 0, 20)
-    label.Size = UDim2.new(0, 280, 0, 38)
-    label.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
+    label.Name                   = "KillerDistanceHUD"
+    label.AnchorPoint            = Vector2.new(0.5, 0)
+    label.Position               = UDim2.new(0.5, 0, 0, 20)
+    label.Size                   = UDim2.new(0, 280, 0, 38)
+    label.BackgroundColor3       = Color3.fromRGB(15, 15, 15)
     label.BackgroundTransparency = 0.25
-    label.BorderSizePixel = 0
-    label.Font = Enum.Font.GothamBold
-    label.TextColor3 = Color3.fromRGB(255, 255, 255)
-    label.TextSize = 16
+    label.BorderSizePixel        = 0
+    label.Font                   = Enum.Font.GothamBold
+    label.TextColor3             = Color3.fromRGB(255, 255, 255)
+    label.TextSize               = 16
     label.TextStrokeTransparency = 0
-    label.Text = "Killer Distance: waiting..."
-    label.Parent = OverlayGui
-    
-    RuntimeState.HudLabel = label
+    label.Text                   = "Killer Distance: waiting..."
+    label.Parent                 = OverlayGui
+    RuntimeState.HudLabel        = label
     return label
 end
 
-local function destroyHudLabel()
+local removeHud = function()
     if RuntimeState.HudLabel then
         RuntimeState.HudLabel:Destroy()
         RuntimeState.HudLabel = nil
     end
 end
 
-local function destroyESPEntry(entry)
+local removeESP = function(entry)
     if entry.Highlight then entry.Highlight:Destroy() end
     if entry.Billboard then entry.Billboard:Destroy() end
 end
 
-local function clearESPBucket(name)
+local clearESP = function(name)
     for inst, entry in pairs(ESPCache[name]) do
-        destroyESPEntry(entry)
+        removeESP(entry)
         ESPCache[name][inst] = nil
     end
 end
 
-local function clearAllESP()
-    for name in pairs(ESPCache) do clearESPBucket(name) end
+local clearAllESP = function()
+    for name in pairs(ESPCache) do clearESP(name) end
 end
 
-local function ensureESPEntry(bucketName, instance, text, color)
-    local part = getPrimaryPart(instance)
+local upsertESP = function(bucketName, instance, text, color)
+    local part = getPart(instance)
     if not part then return end
 
     ESPCache[bucketName] = ESPCache[bucketName] or {}
@@ -1003,7 +1400,7 @@ local function ensureESPEntry(bucketName, instance, text, color)
 end
 
 local MAX_DISTANCE = nil
-local function updateESPBucket(name, instances, textFn, color)
+local function updateESP(name, instances, textFn, color)
     ESPCache[name] = ESPCache[name] or {}
     local cache = ESPCache[name]
 
@@ -1011,13 +1408,13 @@ local function updateESPBucket(name, instances, textFn, color)
 
     for _, inst in ipairs(instances or {}) do
         if inst and inst.Parent then
-            local part = getPrimaryPart(inst)
+            local part = getPart(inst)
             if part then
-                if not MAX_DISTANCE or getDistanceTo(inst) <= MAX_DISTANCE then
+                if not MAX_DISTANCE or distTo(inst) <= MAX_DISTANCE then
                     local success, text = pcall(textFn, inst)
                     if success and text and text ~= "" then
                         seen[inst] = true
-                        ensureESPEntry(name, inst, text, color)
+                        upsertESP(name, inst, text, color)
                     end
                 end
             end
@@ -1026,27 +1423,24 @@ local function updateESPBucket(name, instances, textFn, color)
 
     for inst, entry in pairs(cache) do
         if not seen[inst] or not (inst and inst.Parent) then
-            destroyESPEntry(entry)
+            removeESP(entry)
             cache[inst] = nil
         end
     end
 end
 
 local function formatDist(instance)
-    local d = getDistanceTo(instance)
+    local d = distTo(instance)
     return d == math.huge and "?" or tostring(math.floor(d))
 end
 
-local function buildWorldESPText(prefix, instance)
-    local progress =
-        safeGetAttribute(instance, "Progress")
-        or safeGetAttribute(instance, "Completion")
-        or safeGetAttribute(instance, "Percent")
+local function worldESP(prefix, instance)
+    local progress = getAttr(instance, "Progress") or getAttr(instance, "Completion") or getAttr(instance, "Percent")
 
     local status = ""
     if type(progress) == "number" then
         status = string.format(" (%d%%)", math.floor(progress))
-    elseif isPromptTargetFinished(instance) then
+    elseif isDone(instance) then
         status = " [DONE]"
     end
 
@@ -1058,20 +1452,22 @@ local function buildWorldESPText(prefix, instance)
     )
 end
 
-local function buildPlayerESPText(character, showRole, role, showHealth, showStamina)
-    local lines = {}
-    table.insert(lines, showRole and (role .. ": " .. getDisplayName(character)) or getDisplayName(character))
+local function playerESP(character, showRole, role, showHealth, showStamina)
+    local plr      = Players:GetPlayerFromCharacter(character)
+    local dispName = plr and plr.DisplayName or character.Name
+    local lines    = {}
+    table.insert(lines, showRole and (role .. ": " .. dispName) or dispName)
     if showHealth then
         local hum = character:FindFirstChildOfClass("Humanoid")
         table.insert(lines, "HP: " .. tostring(math.floor(hum and hum.Health or 0)))
     end
     if showStamina then
-        table.insert(lines, "STA: " .. tostring(math.floor(safeGetAttribute(character, "Stamina", 0) or 0)))
+        table.insert(lines, "STA: " .. tostring(math.floor(getAttr(character, "Stamina", 0) or 0)))
     end
     return table.concat(lines, "\n")
 end
 
-local function activateVisibleGuiButton(keywords)
+local function clickGui(keywords)
     local pg = PlayerGui or lplr:FindFirstChildOfClass("PlayerGui")
     if not pg then return false end
     for _, d in ipairs(pg:GetDescendants()) do
@@ -1098,7 +1494,7 @@ local function activateVisibleGuiButton(keywords)
     return false
 end
 
-local function isGuiChainVisible(instance)
+local function guiVisible(instance)
     local current = instance
     while current do
         if current:IsA("GuiObject") and not current.Visible then
@@ -1112,10 +1508,10 @@ local function isGuiChainVisible(instance)
     return instance ~= nil and instance.Parent ~= nil
 end
 
-local function activateVisibleGuiButtonInRoot(root, keywords)
+local function clickGuiIn(root, keywords)
     if not root then return false end
-    for _, d in ipairs(safeGetDescendants(root)) do
-        if d:IsA("GuiButton") and isGuiChainVisible(d) then
+    for _, d in ipairs(getDesc(root)) do
+        if d:IsA("GuiButton") and guiVisible(d) then
             local blob = toLower(d.Name) .. (d:IsA("TextButton") and (" " .. toLower(d.Text)) or "")
             for _, kw in ipairs(keywords or {}) do
                 if blob:find(kw, 1, true) then
@@ -1130,7 +1526,7 @@ local function activateVisibleGuiButtonInRoot(root, keywords)
     return false
 end
 
-local function safeFireChannel(channel, ...)
+local function fireChannel(channel, ...)
     if not channel then return false end
     local args = table.pack(...)
     if channel:IsA("RemoteEvent") then
@@ -1158,15 +1554,15 @@ local function getGeneratorPanel()
 end
 
 local function solveGeneratorPanel(generatorMain, event)
-    if generatorMain and isGuiChainVisible(generatorMain) then
-        if activateVisibleGuiButtonInRoot(generatorMain, {"wire", "switch", "lever", "repair"}) then
+    if generatorMain and guiVisible(generatorMain) then
+        if clickGuiIn(generatorMain, {"wire", "switch", "lever", "repair"}) then
             return true
         end
     end
 
     if event then
         for _, payload in ipairs(GeneratorSolverPayloads) do
-            if safeFireChannel(event, payload) then
+            if fireChannel(event, payload) then
                 return true
             end
         end
@@ -1175,13 +1571,60 @@ local function solveGeneratorPanel(generatorMain, event)
     return false
 end
 
-local function getClosestInteractiveTarget(instances, keywords, maxDist)
+local function getStaminaMax(character, fallback)
+    return getAttr(character, "MaxStamina", nil)
+        or getAttr(character, "StaminaMax", nil)
+        or getAttr(character, "MaxSprint", nil)
+        or fallback
+        or 100
+end
+
+local function refillStamina(character, fallback)
+    if not character then return nil end
+    local max = getStaminaMax(character, fallback)
+    if getAttr(character, "Stamina") ~= max then
+        setAttr(character, "Stamina", max)
+    end
+    if getAttr(character, "Sprint") ~= max then
+        setAttr(character, "Sprint", max)
+    end
+    if getAttr(character, "Sprinting", false) then
+        setAttr(character, "Sprinting", false)
+    end
+    return max
+end
+
+local function resetInfiniteStaminaState()
+    InfiniteStaminaState.Character = nil
+    InfiniteStaminaState.Map = nil
+    InfiniteStaminaState.LastMax = 100
+end
+
+local function applyInfiniteStamina()
+    local character = RuntimeState.Character
+    if not character or not PlayerUtility.lplrIsAlive then
+        resetInfiniteStaminaState()
+        return
+    end
+
+    local map = getMap()
+    if InfiniteStaminaState.Character ~= character or InfiniteStaminaState.Map ~= map then
+        InfiniteStaminaState.Character = character
+        InfiniteStaminaState.Map = map
+        InfiniteStaminaState.LastMax = 100
+    end
+
+    local max = refillStamina(character, InfiniteStaminaState.LastMax)
+    InfiniteStaminaState.LastMax = max or InfiniteStaminaState.LastMax
+end
+
+local function closestInteract(instances, keywords, maxDist)
     local best, bestDist = nil, maxDist or math.huge
     for _, instance in ipairs(instances or {}) do
-        if instance and instance.Parent and not isPromptTargetFinished(instance) then
-            local prompt = findPromptInInstance(instance, keywords) or findPromptInInstance(instance)
+        if instance and instance.Parent and not isDone(instance) then
+            local prompt = findPrompt(instance, keywords) or findPrompt(instance)
             if prompt and prompt.Enabled then
-                local dist = getDistanceTo(instance)
+                local dist = distTo(instance)
                 if dist < bestDist then
                     best = instance
                     bestDist = dist
@@ -1192,11 +1635,11 @@ local function getClosestInteractiveTarget(instances, keywords, maxDist)
     return best, bestDist
 end
 
-local function playRandomEmote()
-    refreshCharacter()
-    if not RuntimeState.Humanoid then return false end
+local function randEmote()
+    local humanoid = RuntimeState.Humanoid or PlayerUtility.lplrHumanoid
+    if not humanoid then return false end
     local emote = EMOTES[math.random(1, #EMOTES)]
-    if pcall(function() RuntimeState.Humanoid:PlayEmote(emote) end) then return true end
+    if pcall(function() humanoid:PlayEmote(emote) end) then return true end
     local pg = lplr:FindFirstChildOfClass("PlayerGui")
     if not pg then return false end
     for _, d in ipairs(pg:GetDescendants()) do
@@ -1211,25 +1654,6 @@ local function playRandomEmote()
     return false
 end
 
-refreshCharacter()
-
-Connections.CharacterAdded = lplr.CharacterAdded:Connect(function(character)
-    RuntimeState.Character = character
-    RuntimeState.Humanoid  = character:WaitForChild("Humanoid", 10)
-    RuntimeState.RootPart  = character:WaitForChild("HumanoidRootPart", 10)
-    RuntimeState.StunState = false
-    RuntimeState.Blocking  = false
-end)
-
-Connections.CharacterRemoving = lplr.CharacterRemoving:Connect(function()
-    RuntimeState.Character = nil
-    RuntimeState.Humanoid  = nil
-    RuntimeState.RootPart  = nil
-    RuntimeState.Blocking  = false
-    disconnectConnection("StunAlert")
-    restoreCharacterCollision()
-end)
-
 ops:onExit("70845479499574_cleanup", function()
     for _, key in ipairs({
         "AutoBlock", "AutoSwing", "AntiConfusion", "AutoUnstun", "AntiRagdoll",
@@ -1243,13 +1667,12 @@ ops:onExit("70845479499574_cleanup", function()
         RunLoops:UnbindFromHeartbeat(key)
     end
 
-    setBlockHeld(false)
-    restoreCharacterCollision()
-    restoreTrapParts()
-    restoreFullbright()
+    setBlock(false)
+    restoreCollision()
+    restoreTraps()
+    restoreFB()
     clearAllESP()
-    destroyHudLabel()
-    invalidatePromptCache()
+    removeHud()
 
     if ScreenEffectConnections then
         for _, connection in ipairs(ScreenEffectConnections) do
@@ -1258,19 +1681,37 @@ ops:onExit("70845479499574_cleanup", function()
         ScreenEffectConnections = nil
     end
 
-    safeSetAttribute(lplr, "ShowHitboxes", SavedStates.PlayerAttributes.ShowHitboxes ~= nil and SavedStates.PlayerAttributes.ShowHitboxes or false)
+    setAttr(lplr, "ShowHitboxes", SavedStates.PlayerAttributes.ShowHitboxes ~= nil and SavedStates.PlayerAttributes.ShowHitboxes or false)
     if SavedStates.PlayerAttributes.CameraShake ~= nil then
-        safeSetAttribute(lplr, "CameraShake", SavedStates.PlayerAttributes.CameraShake)
+        setAttr(lplr, "CameraShake", SavedStates.PlayerAttributes.CameraShake)
     end
 
-    disconnectConnection("CharacterAdded")
-    disconnectConnection("CharacterRemoving")
-    disconnectConnection("StunAlert")
+    disconnect("StunAlert")
+    disconnect("WorkspaceChildAdded")
+    disconnect("WorkspaceChildRemoved")
+    disconnect("CharacterAdded")
+    disconnect("CharacterRemoving")
 
-    if RuntimeState.Humanoid then
+    InfiniteStaminaState.Enabled = false
+    resetInfiniteStaminaState()
+
+    disconnectConnections(CharacterConnections)
+    clearEntryState(CharacterPartCache)
+    disconnectConnections(PlayerFolderCache.RootConnections)
+    disconnectConnections(PlayerFolderCache.Survivor.Connections)
+    disconnectConnections(PlayerFolderCache.Killer.Connections)
+    disconnectConnections(MapCache.Connections)
+    disconnectConnections(MapCache.RootConnections)
+    disconnectConnections(IgnoreCache.RootConnections)
+    disconnectConnections(IgnoreCache.TrapConnections)
+    for _, group in pairs(MapCache.Groups) do
+        clearTrackedGroup(group)
+    end
+
+    if PlayerUtility.lplrHumanoid then
         pcall(function()
-            RuntimeState.Humanoid:SetStateEnabled(Enum.HumanoidStateType.Ragdoll,     true)
-            RuntimeState.Humanoid:SetStateEnabled(Enum.HumanoidStateType.FallingDown, true)
+            PlayerUtility.lplrHumanoid:SetStateEnabled(Enum.HumanoidStateType.Ragdoll,     true)
+            PlayerUtility.lplrHumanoid:SetStateEnabled(Enum.HumanoidStateType.FallingDown, true)
         end)
     end
 
@@ -1302,21 +1743,20 @@ runcode(function()
         Function = function(callback)
             if callback then
                 RunLoops:BindToHeartbeat("AutoBlock", function()
-                    if not IsAlive() then setBlockHeld(false); return end
-                    local rootPart = RuntimeState.RootPart
-                    local target, distance = getClosestCombatTarget(18)
-                    local targetRoot = getPrimaryPart(target)
+                    if not PlayerUtility.lplrIsAlive or not RuntimeState.RootPart then setBlock(false); return end
+                    local target, distance = closestTarget(18)
+                    local targetRoot = getPart(target)
                     if targetRoot then
-                        local dir = (rootPart.Position - targetRoot.Position)
+                        local dir = (RuntimeState.RootPart.Position - targetRoot.Position)
                         local dot = dir.Magnitude > 0 and targetRoot.CFrame.LookVector:Dot(dir.Unit) or -1
-                        setBlockHeld(distance <= 9 or dot > 0.1)
+                        setBlock(distance <= 9 or dot > 0.1)
                     else
-                        setBlockHeld(false)
+                        setBlock(false)
                     end
                 end)
             else
                 RunLoops:UnbindFromHeartbeat("AutoBlock")
-                setBlockHeld(false)
+                setBlock(false)
             end
         end
     })
@@ -1326,10 +1766,10 @@ runcode(function()
         Function = function(callback)
             if callback then
                 RunLoops:BindToHeartbeat("AutoSwing", function()
-                    if not IsAlive() then return end
-                    local target, distance = getClosestCombatTarget(11)
-                    if target and distance <= 11 and readyAction("AutoSwing", 0.18) then
-                        performSwing()
+                    if not PlayerUtility.lplrIsAlive then return end
+                    local target, distance = closestTarget(11)
+                    if target and distance <= 11 and throttle("AutoSwing", 0.18) then
+                        swing()
                     end
                 end)
             else
@@ -1343,7 +1783,7 @@ runcode(function()
         Function = function(callback)
             if callback then
                 RunLoops:BindToHeartbeat("AntiConfusion", function()
-                    if not IsAlive() then return end
+                    if not PlayerUtility.lplrIsAlive then return end
                     removeTag(RuntimeState.Character, "Confusion")
                 end)
             else
@@ -1357,14 +1797,12 @@ runcode(function()
         Function = function(callback)
             if callback then
                 RunLoops:BindToHeartbeat("AutoUnstun", function()
-                    if not IsAlive() then return end
-                    local char = RuntimeState.Character
-                    local hum  = RuntimeState.Humanoid
-                    safeSetAttribute(char, "Stun", false)
-                    removeTag(char, "CantMove")
-                    removeTag(char, "StopAnim")
-                    removeTag(char, "KillAnims")
-                    hum.PlatformStand = false
+                    if not PlayerUtility.lplrIsAlive or not RuntimeState.Character or not RuntimeState.Humanoid then return end
+                    setAttr(RuntimeState.Character, "Stun", false)
+                    removeTag(RuntimeState.Character, "CantMove")
+                    removeTag(RuntimeState.Character, "StopAnim")
+                    removeTag(RuntimeState.Character, "KillAnims")
+                    RuntimeState.Humanoid.PlatformStand = false
                 end)
             else
                 RunLoops:UnbindFromHeartbeat("AutoUnstun")
@@ -1376,19 +1814,19 @@ runcode(function()
         Name = "Stun Alert",
         Function = function(callback)
             if callback then
-                disconnectConnection("StunAlert")
+                disconnect("StunAlert")
                 RuntimeState.StunState = false
-                if RuntimeState.Character then
-                    Connections.StunAlert = RuntimeState.Character:GetAttributeChangedSignal("Stun"):Connect(function()
-                            local stunned = RuntimeState.Character and safeGetAttribute(RuntimeState.Character, "Stun", false) or false
+                if lplr.Character then
+                    Connections.StunAlert = lplr.Character:GetAttributeChangedSignal("Stun"):Connect(function()
+                            local stunned = lplr.Character and getAttr(lplr.Character, "Stun", false) or false
                             if stunned and not RuntimeState.StunState then
-                            safeNotify("Stun Alert: you are stunned")
+                            notify("Stun Alert: you are stunned")
                         end
                         RuntimeState.StunState = not not stunned
                     end)
                 end
             else
-                disconnectConnection("StunAlert")
+                disconnect("StunAlert")
                 RuntimeState.StunState = false
             end
         end
@@ -1399,19 +1837,17 @@ runcode(function()
         Function = function(callback)
             if callback then
                 RunLoops:BindToHeartbeat("AntiRagdoll", function()
-                    if not IsAlive() then return end
-                    local char = RuntimeState.Character
-                    local hum  = RuntimeState.Humanoid
-                    safeSetAttribute(char, "Ragdoll", false)
-                    removeTag(char, "Ragdoll")
+                    if not PlayerUtility.lplrIsAlive or not RuntimeState.Character or not RuntimeState.Humanoid then return end
+                    setAttr(RuntimeState.Character, "Ragdoll", false)
+                    removeTag(RuntimeState.Character, "Ragdoll")
                     pcall(function()
-                        hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll,     false)
-                        hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
+                        RuntimeState.Humanoid:SetStateEnabled(Enum.HumanoidStateType.Ragdoll,     false)
+                        RuntimeState.Humanoid:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
                     end)
-                    hum.PlatformStand = false
-                    local state = hum:GetState()
+                    RuntimeState.Humanoid.PlatformStand = false
+                    local state = RuntimeState.Humanoid:GetState()
                     if state == Enum.HumanoidStateType.Ragdoll or state == Enum.HumanoidStateType.FallingDown or state == Enum.HumanoidStateType.PlatformStanding then
-                        hum:ChangeState(Enum.HumanoidStateType.GettingUp)
+                        RuntimeState.Humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
                     end
                 end)
             else
@@ -1420,6 +1856,11 @@ runcode(function()
                     pcall(function()
                         RuntimeState.Humanoid:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, true)
                         RuntimeState.Humanoid:SetStateEnabled(Enum.HumanoidStateType.FallingDown, true)
+                    end)
+                elseif PlayerUtility.lplrHumanoid then
+                    pcall(function()
+                        PlayerUtility.lplrHumanoid:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, true)
+                        PlayerUtility.lplrHumanoid:SetStateEnabled(Enum.HumanoidStateType.FallingDown, true)
                     end)
                 end
             end
@@ -1431,8 +1872,8 @@ runcode(function()
         Function = function(callback)
             if callback then
                 RunLoops:BindToHeartbeat("HideBlockAnim", function()
-                    if not IsAlive() then return end
-                    for _, track in ipairs(RuntimeState.Humanoid:GetPlayingAnimationTracks()) do
+                    if not PlayerUtility.lplrIsAlive then return end
+                    for _, track in ipairs(PlayerUtility.lplrHumanoid:GetPlayingAnimationTracks()) do
                         local n = toLower(track.Name .. " " .. (track.Animation and track.Animation.Name or ""))
                         if n:find("block",1,true) or n:find("guard",1,true) or n:find("parry",1,true) then
                             pcall(function() track:Stop(0) end)
@@ -1450,12 +1891,12 @@ runcode(function()
         Function = function(callback)
             if callback then
                 RunLoops:BindToHeartbeat("BlockCameraShake", function()
-                    safeSetAttribute(lplr, "CameraShake", false)
+                    setAttr(lplr, "CameraShake", false)
                 end)
             else
                 RunLoops:UnbindFromHeartbeat("BlockCameraShake")
                 if SavedStates.PlayerAttributes.CameraShake ~= nil then
-                    safeSetAttribute(lplr, "CameraShake", SavedStates.PlayerAttributes.CameraShake)
+                    setAttr(lplr, "CameraShake", SavedStates.PlayerAttributes.CameraShake)
                 end
             end
         end
@@ -1565,20 +2006,12 @@ runcode(function()
         Function = function(callback)
             if callback then
                 RunLoops:BindToHeartbeat("AutoBarricade", function()
-                    if not IsAlive() or isLocalKiller() then return end
-                    if not readyAction("AutoBarricade", 0.5) then return end
-                    local door = getClosestFromList(getDoors(), 60, function(instance)
-                        if DoorKit and DoorKit.IsBarricading then
-                            local ok, v = pcall(DoorKit.IsBarricading, DoorKit, instance)
-                            if ok and v then return false end
-                        end
-                        if DoorKit and DoorKit.IsDoorBarricaded then
-                            local ok, v = pcall(DoorKit.IsDoorBarricaded, DoorKit, instance)
-                            if ok and v then return false end
-                        end
-                        return not safeGetAttribute(instance, "HOLD", false)
+                    if not PlayerUtility.lplrIsAlive or lkillr() then return end
+                    if not throttle("AutoBarricade", 0.5) then return end
+                    local door = closestIn(getDoors(), 60, function(instance)
+                        return not getAttr(instance, "HOLD", false)
                     end)
-                    if door then tryInteractWithTarget(door, {"barricade"}) end
+                    if door then interact(door, {"barricade"}) end
                 end)
             else
                 RunLoops:UnbindFromHeartbeat("AutoBarricade")
@@ -1591,15 +2024,15 @@ runcode(function()
         Function = function(callback)
             if callback then
                 RunLoops:BindToHeartbeat("AutoEscape", function()
-                    if not IsAlive() or isLocalKiller() then return end
-                    if not readyAction("AutoEscape", 0.45) then return end
-                    local exitTarget = getClosestFromList(getExits(), 250)
+                    if not PlayerUtility.lplrIsAlive or lkillr() then return end
+                    if not throttle("AutoEscape", 0.45) then return end
+                    local exitTarget = closestIn(getExits(), 250)
                     if exitTarget then
-                        tryInteractWithTarget(exitTarget, {"escape", "exit", "open", "leave"})
+                        interact(exitTarget, {"escape", "exit", "open", "leave"})
                     else
-                        local exitPrompt = findPromptInMap({"escape", "exit", "leave"}, 250)
+                        local exitPrompt = findMapPrompt({"escape", "exit", "leave"}, 250)
                         if exitPrompt then
-                            tryInteractWithTarget(exitPrompt, {"escape", "exit", "leave"})
+                            interact(exitPrompt, {"escape", "exit", "leave"})
                         end
                     end
                 end)
@@ -1613,17 +2046,17 @@ runcode(function()
         Name = "Infinite Stamina",
         Function = function(callback)
             if callback then
-                local lastMax = 100
+                InfiniteStaminaState.Enabled = true
+                resetInfiniteStaminaState()
+                applyInfiniteStamina()
                 RunLoops:BindToHeartbeat("InfiniteStamina", function()
-                    refreshCharacter()
-                    if not IsAlive() then return end
-                    local char = RuntimeState.Character
-                    local max  = safeGetAttribute(char, "MaxStamina", nil) or safeGetAttribute(char, "StaminaMax",  nil) or safeGetAttribute(char, "MaxSprint",   nil) or 100
-                    safeSetAttribute(char, "Stamina", max)
-                    safeSetAttribute(char, "Sprint", max)
-                    safeSetAttribute(char, "Sprinting", false)
+                    if InfiniteStaminaState.Enabled then
+                        applyInfiniteStamina()
+                    end
                 end)
             else
+                InfiniteStaminaState.Enabled = false
+                resetInfiniteStaminaState()
                 RunLoops:UnbindFromHeartbeat("InfiniteStamina")
             end
         end
@@ -1634,12 +2067,12 @@ runcode(function()
         Function = function(callback)
             if callback then
                 RunLoops:BindToHeartbeat("NoClip", function()
-                    if not IsAlive() then return end
-                    protectCharacterCollision(RuntimeState.Character)
+                    if not PlayerUtility.lplrIsAlive or not RuntimeState.Character then return end
+                    noCollide(RuntimeState.Character)
                 end)
             else
                 RunLoops:UnbindFromHeartbeat("NoClip")
-                restoreCharacterCollision()
+                restoreCollision()
             end
         end
     })
@@ -1649,13 +2082,10 @@ runcode(function()
         Function = function(callback)
             if callback then
                 RunLoops:BindToHeartbeat("AntiSlide", function()
-                    if not IsAlive() then return end
-                    local char = RuntimeState.Character
-                    local hum  = RuntimeState.Humanoid
-                    local root = RuntimeState.RootPart
-                    removeTag(char, "SlowStop")
-                    if hum.MoveDirection.Magnitude <= 0.05 then
-                        root.AssemblyLinearVelocity = Vector3.new(0, root.AssemblyLinearVelocity.Y, 0)
+                    if not PlayerUtility.lplrIsAlive or not RuntimeState.Character or not RuntimeState.Humanoid or not RuntimeState.RootPart then return end
+                    removeTag(RuntimeState.Character, "SlowStop")
+                    if RuntimeState.Humanoid.MoveDirection.Magnitude <= 0.05 then
+                        RuntimeState.RootPart.AssemblyLinearVelocity = Vector3.new(0, RuntimeState.RootPart.AssemblyLinearVelocity.Y, 0)
                     end
                 end)
             else
@@ -1669,11 +2099,11 @@ runcode(function()
         Function = function(callback)
             if callback then
                 RunLoops:BindToHeartbeat("Fullbright", function()
-                    applyFullbright()
+                    applyFB()
                 end)
             else
                 RunLoops:UnbindFromHeartbeat("Fullbright")
-                restoreFullbright()
+                restoreFB()
             end
         end
     })
@@ -1704,16 +2134,16 @@ runcode(function()
         Function = function(callback)
             if callback then
                 RunLoops:BindToHeartbeat("SurvivorESP", function()
-                    if not readyAction("SurvivorESPTick", 0.15) then return end
+                    if not throttle("SurvivorESPTick", 0.15) then return end
                     pcall(function()
-                        updateESPBucket("Survivor", getSurvivorCharacters(), function(character)
-                            return buildPlayerESPText(character, true, "Survivor", HealthESP, StaminaESP)
+                        updateESP("Survivor", getSurvivorCharacters(), function(character)
+                            return playerESP(character, true, "Survivor", HealthESP, StaminaESP)
                         end, ESPColors.Survivor)
                     end)
                 end)
             else
                 RunLoops:UnbindFromHeartbeat("SurvivorESP")
-                clearESPBucket("Survivor")
+                clearESP("Survivor")
             end
         end
     })
@@ -1723,16 +2153,16 @@ runcode(function()
         Function = function(callback)
             if callback then
                 RunLoops:BindToHeartbeat("KillerESP", function()
-                    if not readyAction("KillerESPTick", 0.15) then return end
+                    if not throttle("KillerESPTick", 0.15) then return end
                     pcall(function()
-                        updateESPBucket("Killer", getKillerCharacters(), function(character)
-                            return buildPlayerESPText(character, true, "Killer", HealthESP, StaminaESP)
+                        updateESP("Killer", getKillerCharacters(), function(character)
+                            return playerESP(character, true, "Killer", HealthESP, StaminaESP)
                         end, ESPColors.Killer)
                     end)
                 end)
             else
                 RunLoops:UnbindFromHeartbeat("KillerESP")
-                clearESPBucket("Killer")
+                clearESP("Killer")
             end
         end
     })
@@ -1742,16 +2172,16 @@ runcode(function()
         Function = function(callback)
             if callback then
                 RunLoops:BindToHeartbeat("GeneratorESP", function()
-                    if not readyAction("GeneratorESPTick", 0.15) then return end
+                    if not throttle("GeneratorESPTick", 0.15) then return end
                     pcall(function()
-                        updateESPBucket("Generator", getGenerators(), function(instance)
-                            return buildWorldESPText("Generator", instance)
+                        updateESP("Generator", getGenerators(), function(instance)
+                            return worldESP("Generator", instance)
                         end, ESPColors.Generator)
                     end)
                 end)
             else
                 RunLoops:UnbindFromHeartbeat("GeneratorESP")
-                clearESPBucket("Generator")
+                clearESP("Generator")
             end
         end
     })
@@ -1761,16 +2191,16 @@ runcode(function()
         Function = function(callback)
             if callback then
                 RunLoops:BindToHeartbeat("FuseBoxESP", function()
-                    if not readyAction("FuseBoxESPTick", 0.15) then return end
+                    if not throttle("FuseBoxESPTick", 0.15) then return end
                     pcall(function()
-                        updateESPBucket("FuseBox", getFuseBoxes(), function(instance)
-                            return buildWorldESPText("FuseBox", instance)
+                        updateESP("FuseBox", getFuseBoxes(), function(instance)
+                            return worldESP("FuseBox", instance)
                         end, ESPColors.FuseBox)
                     end)
                 end)
             else
                 RunLoops:UnbindFromHeartbeat("FuseBoxESP")
-                clearESPBucket("FuseBox")
+                clearESP("FuseBox")
             end
         end
     })
@@ -1780,16 +2210,16 @@ runcode(function()
         Function = function(callback)
             if callback then
                 RunLoops:BindToHeartbeat("BatteryESP", function()
-                    if not readyAction("BatteryESPTick", 0.15) then return end
+                    if not throttle("BatteryESPTick", 0.15) then return end
                     pcall(function()
-                        updateESPBucket("Battery", getBatteries(), function(instance)
-                            return buildWorldESPText("Battery", instance)
+                        updateESP("Battery", getBatteries(), function(instance)
+                            return worldESP("Battery", instance)
                         end, ESPColors.Battery)
                     end)
                 end)
             else
                 RunLoops:UnbindFromHeartbeat("BatteryESP")
-                clearESPBucket("Battery")
+                clearESP("Battery")
             end
         end
     })
@@ -1799,16 +2229,16 @@ runcode(function()
         Function = function(callback)
             if callback then
                 RunLoops:BindToHeartbeat("DoorESP", function()
-                    if not readyAction("DoorESPTick", 0.15) then return end
+                    if not throttle("DoorESPTick", 0.15) then return end
                     pcall(function()
-                        updateESPBucket("Door", getDoors(), function(instance)
-                            return buildWorldESPText("Door", instance)
+                        updateESP("Door", getDoors(), function(instance)
+                            return worldESP("Door", instance)
                         end, ESPColors.Door)
                     end)
                 end)
             else
                 RunLoops:UnbindFromHeartbeat("DoorESP")
-                clearESPBucket("Door")
+                clearESP("Door")
             end
         end
     })
@@ -1818,16 +2248,16 @@ runcode(function()
         Function = function(callback)
             if callback then
                 RunLoops:BindToHeartbeat("ExitESP", function()
-                    if not readyAction("ExitESPTick", 0.15) then return end
+                    if not throttle("ExitESPTick", 0.15) then return end
                     pcall(function()
-                        updateESPBucket("Exit", getExits(), function(instance)
-                            return buildWorldESPText("Exit", instance)
+                        updateESP("Exit", getExits(), function(instance)
+                            return worldESP("Exit", instance)
                         end, ESPColors.Exit)
                     end)
                 end)
             else
                 RunLoops:UnbindFromHeartbeat("ExitESP")
-                clearESPBucket("Exit")
+                clearESP("Exit")
             end
         end
     })
@@ -1837,16 +2267,16 @@ runcode(function()
         Function = function(callback)
             if callback then
                 RunLoops:BindToHeartbeat("BeartrapESP", function()
-                    if not readyAction("BeartrapESPTick", 0.15) then return end
+                    if not throttle("BeartrapESPTick", 0.15) then return end
                     pcall(function()
-                        updateESPBucket("Beartrap", getBeartraps(), function(instance)
-                            return buildWorldESPText("Beartrap", instance)
+                        updateESP("Beartrap", getBeartraps(), function(instance)
+                            return worldESP("Beartrap", instance)
                         end, ESPColors.Beartrap)
                     end)
                 end)
             else
                 RunLoops:UnbindFromHeartbeat("BeartrapESP")
-                clearESPBucket("Beartrap")
+                clearESP("Beartrap")
             end
         end
     })
@@ -1856,16 +2286,16 @@ runcode(function()
         Function = function(callback)
             if callback then
                 RunLoops:BindToHeartbeat("EnnardMinionsESP", function()
-                    if not readyAction("EnnardESPTick", 0.15) then return end
+                    if not throttle("EnnardESPTick", 0.15) then return end
                     pcall(function()
-                        updateESPBucket("EnnardMinion", getEnnardMinions(), function(instance)
-                            return buildWorldESPText("Ennard Minion", instance)
+                        updateESP("EnnardMinion", getEnnardMinions(), function(instance)
+                            return worldESP("Ennard Minion", instance)
                         end, ESPColors.EnnardMinion)
                     end)
                 end)
             else
                 RunLoops:UnbindFromHeartbeat("EnnardMinionsESP")
-                clearESPBucket("EnnardMinion")
+                clearESP("EnnardMinion")
             end
         end
     })
@@ -1875,16 +2305,16 @@ runcode(function()
         Function = function(callback)
             if callback then
                 RunLoops:BindToHeartbeat("ObjectiveESP", function()
-                    if not readyAction("ObjectiveESPTick", 0.15) then return end
+                    if not throttle("ObjectiveESPTick", 0.15) then return end
                     pcall(function()
-                        updateESPBucket("Objective", getObjectives(), function(instance)
-                            return buildWorldESPText("Objective", instance)
+                        updateESP("Objective", getObjectives(), function(instance)
+                            return worldESP("Objective", instance)
                         end, ESPColors.Objective)
                     end)
                 end)
             else
                 RunLoops:UnbindFromHeartbeat("ObjectiveESP")
-                clearESPBucket("Objective")
+                clearESP("Objective")
             end
         end
     })
@@ -1892,7 +2322,7 @@ runcode(function()
     RenderPanel.CreateOptionsButton({
         Name = "Hitbox Viewer",
         Function = function(callback)
-            safeSetAttribute(lplr, "ShowHitboxes", callback and true or (SavedStates.PlayerAttributes.ShowHitboxes ~= nil and SavedStates.PlayerAttributes.ShowHitboxes or false))
+            setAttr(lplr, "ShowHitboxes", callback and true or (SavedStates.PlayerAttributes.ShowHitboxes ~= nil and SavedStates.PlayerAttributes.ShowHitboxes or false))
         end
     })
 end)
@@ -1905,10 +2335,10 @@ runcode(function()
         Function = function(callback)
             if callback then
                 RunLoops:BindToHeartbeat("AutoShake", function()
-                    if not IsAlive() then return end
-                    if not readyAction("AutoShake", 0.08) then return end
-                    if not activateVisibleGuiButton({"shake", "wiggle", "struggle"}) then
-                        local prompt = findPromptInMap({"shake", "wiggle", "struggle"}, 20)
+                    if not PlayerUtility.lplrIsAlive then return end
+                    if not throttle("AutoShake", 0.08) then return end
+                    if not clickGui({"shake", "wiggle", "struggle"}) then
+                        local prompt = findMapPrompt({"shake", "wiggle", "struggle"}, 20)
                         if prompt then firePrompt(prompt) end
                     end
                 end)
@@ -1923,16 +2353,16 @@ runcode(function()
         Function = function(callback)
             if callback then
                 RunLoops:BindToHeartbeat("FastItemPickup", function()
-                    if not IsAlive() or isLocalKiller() then return end
-                    if not readyAction("FastItemPickup", 0.12) then return end
+                    if not PlayerUtility.lplrIsAlive or lkillr() then return end
+                    if not throttle("FastItemPickup", 0.12) then return end
 
-                    local target = getClosestInteractiveTarget(getBatteries(), {"pickup", "take", "grab", "collect", "battery", "fuse"}, 16)
+                    local target = closestInteract(getBatteries(), {"pickup", "take", "grab", "collect", "battery", "fuse"}, 16)
                     if target then
-                        tryInteractWithTarget(target, {"pickup", "take", "grab", "collect", "battery", "fuse"})
+                        interact(target, {"pickup", "take", "grab", "collect", "battery", "fuse"})
                         return
                     end
 
-                    local prompt, promptDistance = findPromptInMap({"pickup", "take", "grab", "collect", "battery", "fuse"}, 14)
+                    local prompt, promptDistance = findMapPrompt({"pickup", "take", "grab", "collect", "battery", "fuse"}, 14)
                     if prompt and promptDistance <= 14 then
                         firePrompt(prompt)
                     end
@@ -1948,14 +2378,14 @@ runcode(function()
         Function = function(enabled)
             if enabled then
                 RunLoops:BindToHeartbeat("AutoRepairGenerators", function()
-                    if not IsAlive() or isLocalKiller() then return end
+                    if not PlayerUtility.lplrIsAlive or lkillr() then return end
 
                     local _, generatorMain, event = getGeneratorPanel()
-                    if not (generatorMain and isGuiChainVisible(generatorMain)) then
+                    if not (generatorMain and guiVisible(generatorMain)) then
                         return
                     end
 
-                    if not readyAction("AutoRepairGeneratorsSolve", 0.05) then return end
+                    if not throttle("AutoRepairGeneratorsSolve", 0.05) then return end
 
                     if event then
                         event:FireServer({
@@ -1965,14 +2395,7 @@ runcode(function()
                         })
                     end
 
-                    local char = RuntimeState.Character
-                    if char then
-                        local max = safeGetAttribute(char, "MaxStamina") or safeGetAttribute(char, "StaminaMax") or 100
-
-                        if safeGetAttribute(char, "Stamina") ~= max then
-                            safeSetAttribute(char, "Stamina", max)
-                        end
-                    end
+                    refillStamina(RuntimeState.Character)
                 end)
             else
                 RunLoops:UnbindFromHeartbeat("AutoRepairGenerators")
@@ -1985,12 +2408,12 @@ runcode(function()
         Function = function(callback)
             if callback then
                 RunLoops:BindToHeartbeat("AntiSpringtrapTraps", function()
-                    if not IsAlive() or isLocalKiller() then return end
-                    if not readyAction("AntiSpringtrapTraps", 0.1) then return end
-                    local closestTrap, closestDist = getClosestFromList(getSpringtrapTraps(), 20)
+                    if not PlayerUtility.lplrIsAlive or lkillr() then return end
+                    if not throttle("AntiSpringtrapTraps", 0.1) then return end
+                    local closestTrap, closestDist = closestIn(getSpringtrapTraps(), 20)
                     if closestTrap then
                         for _, d in ipairs(closestTrap:GetDescendants()) do
-                            if d:IsA("BasePart") then neutralizeTrapPart(d) end
+                            if d:IsA("BasePart") then defusePart(d) end
                         end
                         if closestDist <= 6 and RuntimeState.RootPart then
                             RuntimeState.RootPart.CFrame = RuntimeState.RootPart.CFrame + Vector3.new(0, 4, 0)
@@ -1999,7 +2422,7 @@ runcode(function()
                 end)
             else
                 RunLoops:UnbindFromHeartbeat("AntiSpringtrapTraps")
-                restoreTrapParts()
+                restoreTraps()
             end
         end
     })
@@ -2015,10 +2438,10 @@ runcode(function()
             if callback then
                 RunLoops:BindToHeartbeat("KillerDistanceHUD", function()
                     pcall(function()
-                        local label = ensureHudLabel()
+                        local label = getHud()
                         if not label then return end
                         
-                        local killer, distance = getClosestKiller(250)
+                        local killer, distance = closestKiller(250)
                         
                         if killer and distance and distance < math.huge then
                             label.Text = "Killer Distance: " .. math.floor(distance) .. " studs"
@@ -2031,7 +2454,7 @@ runcode(function()
                 end)
             else
                 RunLoops:UnbindFromHeartbeat("KillerDistanceHUD")
-                pcall(destroyHudLabel)
+                pcall(removeHud)
             end
         end
     })
@@ -2042,9 +2465,9 @@ runcode(function()
             if callback then
                 RunLoops:BindToHeartbeat("AutoEmotePlayer", function()
                     pcall(function()
-                        if not readyAction("AutoEmotePlayer", 10) then return end
-                        if IsAlive() and RuntimeState.RootPart  and RuntimeState.RootPart.AssemblyLinearVelocity  and RuntimeState.RootPart.AssemblyLinearVelocity.Magnitude <= 2  and not safeGetAttribute(RuntimeState.Character, "Stun", false)  then
-                            playRandomEmote()
+                        if not throttle("AutoEmotePlayer", 10) then return end
+                        if PlayerUtility.lplrIsAlive and RuntimeState.RootPart and RuntimeState.RootPart.AssemblyLinearVelocity and RuntimeState.RootPart.AssemblyLinearVelocity.Magnitude <= 2 and not getAttr(RuntimeState.Character, "Stun", false) then
+                            randEmote()
                         end
                     end)
                 end)
@@ -2060,7 +2483,7 @@ runcode(function()
         NoSave = true,
         Function  = function(callback)
             if callback then
-                safeNotify("Made by xzyn")
+                notify("Made by xzyn")
                 task.defer(function()
                     if CreditsButton and CreditsButton.Enabled then
                         CreditsButton.Toggle()
