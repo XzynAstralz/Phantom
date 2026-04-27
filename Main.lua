@@ -261,26 +261,26 @@ local function activeGameKey()
 	if creatorScriptExists() then
 		return creatorId
 	end
-	if placeScriptExists() then
-		return placeId
-	end
 	if gameScriptExists() then
 		return gameId
 	end
-	return placeId
+	if placeScriptExists() then
+		return placeId
+	end
+	return gameId ~= "" and gameId ~= "0" and gameId or placeId
 end
 
 local function activeModuleLabel()
 	if creatorScriptExists() then
 		return "creator " .. creatorId
 	end
-	if placeScriptExists() then
-		return "place " .. placeId
-	end
 	if gameScriptExists() then
 		return "game " .. gameId
 	end
-	return "place " .. placeId
+	if placeScriptExists() then
+		return "place " .. placeId
+	end
+	return "game " .. (gameId ~= "" and gameId ~= "0" and gameId or placeId)
 end
 
 if type(overlayState) == "table" and overlayState.__preload == true then
@@ -479,9 +479,6 @@ if UI.CreateHudConfig then
 	})
 	if hudEditor and hudEditor.CaptureDefaultPosition then
 		hudEditor.CaptureDefaultPosition()
-	end
-	if hudEditor.SetDir then
-		hudEditor.SetDir(fileApi:Resolve("configs/" .. placeId))
 	end
 	if hudEditor.AddSectionHeader then
 		hudEditor.AddSectionHeader("Gui Colors")
@@ -1087,8 +1084,23 @@ local function unpackUDim2(position)
 	)
 end
 
+local function getConfigBaseFolder()
+	if creatorScriptExists() and creatorId ~= "" and creatorId ~= "0" then
+		return creatorId
+	elseif gameId ~= "" and gameId ~= "0" then
+		return gameId
+	else
+		return placeId
+	end
+end
+
+if hudEditor.SetDir then
+	hudEditor.SetDir(fileApi:Resolve("configs/" .. getConfigBaseFolder()))
+end
+
 local function statePath(slot)
-	return string.format("configs/%s/%s.json", placeId, slot or "default")
+	local base = getConfigBaseFolder()
+	return string.format("configs/%s/%s.json", base, slot or "default")
 end
 
 local function setProfileSlot(slot)

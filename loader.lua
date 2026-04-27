@@ -1,18 +1,17 @@
 repeat task.wait() until game:IsLoaded()
 
-local getgenv = _G.getgenv or getgenv
-local isfile = _G.isfile or isfile
-local isfolder = _G.isfolder or isfolder
-local makefolder = _G.makefolder or makefolder
-local readfile = _G.readfile or readfile
-local writefile = _G.writefile or writefile
-local request = _G.request or request
-local http_request = _G.http_request or http_request
-local gethui = _G.gethui or gethui
-local get_hidden_gui = _G.get_hidden_gui or get_hidden_gui
-local syn = _G.syn or syn
-local http = _G.http or http
-local fluxus = _G.fluxus or fluxus
+local environment = getgenv() or getfenv() or {}
+
+local getgenv = environment.getgenv or getgenv or getfenv
+local isfile = environment.isfile or isfile
+local isfolder = environment.isfolder or isfolder
+local makefolder = environment.makefolder or makefolder
+local readfile = environment.readfile or readfile
+local writefile = environment.writefile or writefile
+local request = environment.request or request
+local http_request = environment.http_request or http_request
+local gethui = environment.gethui or gethui
+local get_hidden_gui = environment.get_hidden_gui or get_hidden_gui
 
 if not getgenv then
 	return warn("[phantom] unsupported executor.")
@@ -119,11 +118,7 @@ local function writeJson(path, value)
 end
 
 local function requestFunction()
-	return request
-		or http_request
-		or (syn and syn.request)
-		or (http and http.request)
-		or (fluxus and fluxus.request)
+	return environment.request or environment.http_request or (environment.syn and environment.syn.request) or (environment.http and environment.http.request) or (environment.fluxus and environment.fluxus.request)
 end
 
 local function httpGet(url, headers)

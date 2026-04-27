@@ -1,3 +1,5 @@
+local environment = getgenv() or getfenv() or {}
+
 local HttpService = game:GetService("HttpService")
 
 local Discord = {}
@@ -7,9 +9,10 @@ local RPC_PORT_START = 6454
 local RPC_PORT_END = 6467
 local RPC_TIMEOUT = 3
 
-local function getRequestFunction()
-	return request or http_request or (syn and syn.request) or (http and http.request) or (fluxus and fluxus.request) or (_G and _G.request) or (_G and _G.http_request) or (getgenv and getgenv().request) or (getgenv and getgenv().http_request)
+local function requestFunction()
+	return environment.request or environment.http_request or (environment.syn and environment.syn.request) or (environment.http and environment.http.request) or (environment.fluxus and environment.fluxus.request)
 end
+
 
 local function extractInviteCode(value)
 	value = tostring(value or "")
