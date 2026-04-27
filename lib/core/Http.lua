@@ -19,37 +19,26 @@ end
 
 function Http:Request(options)
 	local requestFunction = getRequestFunction()
-	if requestFunction then
-		local ok, response = pcall(requestFunction, {
-			Url = options.url,
-			Method = options.method or "GET",
-			Headers = options.headers or {},
-			Body = options.body,
-		})
+	if not requestFunction then
+		return false, "No request function available", { StatusCode = 0, Body = nil }
+	end
 
-		if ok and response and tonumber(response.StatusCode) and response.StatusCode >= 200 and response.StatusCode < 300 then
+	local ok, response = pcall(requestFunction, {
+		Url = options.url,
+		Method = options.method or "GET",
+		Headers = options.headers or {},
+		Body = options.body,
+	})
+
+	if ok and response and tonumber(response.StatusCode) then
+		if response.StatusCode >= 200 and response.StatusCode < 300 then
 			return true, response.Body, response
+		else
+			return false, response.Body, response
 		end
-
-		return false, response and response.Body or response, response
 	end
 
-	if (options.method or "GET") ~= "GET" then
-		return false, "custom request function unavailable"
-	end
-
-	local ok, body = pcall(function()
-		if game.HttpGet then
-			return game:HttpGet(options.url, true)
-		end
-		return HttpService:GetAsync(options.url, true)
-	end)
-
-	if ok then
-		return true, body, { StatusCode = 200, Body = body }
-	end
-
-	return false, body, { StatusCode = 0, Body = body }
+	return false, response, { StatusCode = 0, Body = response }
 end
 
 function Http:Get(url, headers)
