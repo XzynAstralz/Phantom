@@ -3563,53 +3563,6 @@ runcode(function()
     })
 end)
 
-runcode(function()
-    local Antideath = {}
-    local connection
-    local tped = false
-    local lastDamageTime
-    local lastHealth
-    
-    Antideath = GuiLibrary.Registry.utillityPanel.API.CreateOptionsButton({
-        Name = "Antideath",
-        Function = function(callback)
-            if callback then
-                lastDamageTime = 0
-                lastHealth = 0
-                connection = lplr.Character.Humanoid.HealthChanged:Connect(function(newHealth)
-                    local currentTime = tick()
-                    local dmg = lastHealth - newHealth
-                    if PlayerUtility.lplrIsAlive and (currentTime - lastDamageTime) > 0.5 and not tped then
-                        if dmg > 0 and math.ceil(newHealth / math.max(dmg, 1)) <= 1 then
-                            lplr.Character.HumanoidRootPart.CFrame = lplr.Character.HumanoidRootPart.CFrame + Vector3.new(0, 200, 0)
-                            tped = true
-                            lastDamageTime = currentTime
-
-                            task.delay(1, function()
-                                tped = false
-                            end)
-                        end
-                        lastDamageTime = currentTime
-                    end
-                    lastHealth = newHealth
-                end)
-                funcs:onExit("Antideath", function()
-                    if connection then
-                        connection:Disconnect()
-                        connection = nil
-                    end
-                end)
-            else
-                if connection then
-                    connection:Disconnect()
-                    connection = nil
-                end
-                tped = false
-            end
-        end
-    })
-end)
-
 --[[runcode(function()
     local ChatSpammer = {}
     local lastSentTime = 0
@@ -3991,79 +3944,8 @@ end)
     })
 end)--]]
 
-runcode(function()
-    local HackerDetector = {}
-    local data = {
-        trackedPlayers = {},
-        partsCreated = {},
-        lowestblock = nil
-    }
 
-    data.getLowestBlock = function()
-        repeat task.wait() until workspace:FindFirstChild("Map")
-        local lowestY = math.huge
-        local lowestPart = nil
-        for _, v in pairs(workspace.Map:GetDescendants()) do
-            if v:IsA("BasePart") and v.Position.Y < lowestY then
-                lowestY = v.Position.Y
-                lowestPart = v
-            end
-        end
-        data.lowestblock = lowestPart
-        return data.lowestblock
-    end
-
-    HackerDetector = GuiLibrary.Registry.utillityPanel.API.CreateOptionsButton({
-        Name = "HackerDetector",
-        Function = function(callback)
-            if callback then
-                repeat
-                    if not data.lowestblock and PlayerUtility.lplrIsAlive then
-                        data.getLowestBlock()
-                    end
-
-                    for _, v in pairs(Players:GetPlayers()) do
-                        if v ~= lplr and v.Character and v.Character.PrimaryPart then
-                            local hrp = v.Character.PrimaryPart
-                            local distanceFromLowest = hrp.Position.Y - (data.lowestblock and data.lowestblock.Position.Y or 0)
-
-                            data.trackedPlayers[v] = hrp.Position
-                            if distanceFromLowest > 7000 then
-                                if not data.partsCreated[v] then
-                                    local part = Instance.new("Part")
-                                    part.Anchored = true
-                                    part.CanCollide = false
-                                    part.Size = Vector3.new(1, 1000, 1)
-                                    part.Material = Enum.Material.Neon
-                                    part.Color = GuiLibrary.kit:activeColor()
-                                    part.Name = "DetectionPart_" .. v.Name
-                                    part.Parent = workspace
-                                    data.partsCreated[v] = part
-                                end
-                                data.partsCreated[v].Position = Vector3.new(hrp.Position.X, (data.lowestblock and data.lowestblock.Position.Y or 0) + 500, hrp.Position.Z)
-                            elseif data.partsCreated[v] then
-                                data.partsCreated[v]:Destroy()
-                                data.partsCreated[v] = nil
-                            end
-                        end
-                    end  
-                    task.wait(0.1)              
-                until not HackerDetector.Enabled
-            else
-                RunLoops:UnbindFromHeartbeat("FlyDetection")
-                data.trackedPlayers = {}
-                for _, part in pairs(data.partsCreated) do
-                    if part and part.Parent then
-                        part:Destroy()
-                    end
-                end
-                data.partsCreated = {}
-                data.lowestblock = nil
-            end
-        end
-    })
-end)
-
+-- credit vape
 runcode(function()
     local StaffDetector = {Enabled = false}
     local DetectClans = {Enabled = true}
@@ -4727,35 +4609,6 @@ end)
         end
     })
 end)--]]
-
-runcode(function()
-    local PartySpoofer = {}
-    local con
-    local pCon
-    local queuedTp = false
-
-    PartySpoofer = GuiLibrary.Registry.miscPanel.API.CreateOptionsButton({
-        Name = "PartySpoofer",
-        Function = function(callback)
-            if callback then
-                con = lplr.OnTeleport:Connect(function()
-                    if not queuedTp then
-                        queuedTp = true
-                        queueteleport([[
-                            loadstring(readfile("PartyController/lib/partySpoofer.lua"))()
-                        ]])
-                    end
-                end)
-                writefile("Phantom/cache/lastPartyMembers.json", HttpService:JSONEncode(bedwars.PartyController:getLocalPartyPlayers()))
-            else
-                if con then
-                    con:Disconnect()
-                    con = nil
-                end
-            end
-        end
-    })
-end)
 
 --[[runcode(function()
     local MatchStartAbuse = {}; MatchStartAbuse = GuiLibrary.Registry.miscPanel.API.CreateOptionsButton({
