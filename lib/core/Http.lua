@@ -1,14 +1,11 @@
+local environment = getgenv() or getfenv() or {}
 local HttpService = game:GetService("HttpService")
 
 local Http = {}
 Http.__index = Http
 
 local function getRequestFunction()
-	return request
-		or http_request
-		or (syn and syn.request)
-		or (http and http.request)
-		or (fluxus and fluxus.request)
+	return environment.request or environment.http_request or (environment.syn and environment.syn.request) or (environment.http and environment.http.request) or (environment.fluxus and environment.fluxus.request)
 end
 
 function Http.new(logger)
