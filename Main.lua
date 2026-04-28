@@ -125,7 +125,7 @@ local discord = Discord.new({
 	http = http,
 	logger = logger,
 	statePath = "configs/discord.json",
-	invite = "aqNUWGKpXu",
+	invite = "bvKBeKQsRY",
 })
 
 local versionData = Version.Read(fileApi)
