@@ -123,28 +123,25 @@ end
 
 local function httpGet(url, headers)
 	local request = requestFunction()
-	if request then
-		local ok, response = pcall(request, {
-			Url = url,
-			Method = "GET",
-			Headers = headers or {},
-		})
-		if ok and response and tonumber(response.StatusCode) and response.StatusCode >= 200 and response.StatusCode < 300 then
-			return true, response.Body, response
-		end
-		return false, response and response.Body or response, response
+	if not request then
+		return false, "No request function available", { StatusCode = 0 }
 	end
 
-	local ok, body = pcall(function()
-		if game.HttpGet then
-			return game:HttpGet(url, true)
+	local ok, response = pcall(request, {
+		Url = url,
+		Method = "GET",
+		Headers = headers or {},
+	})
+
+	if ok and response and tonumber(response.StatusCode) then
+		if response.StatusCode >= 200 and response.StatusCode < 300 then
+			return true, response.Body, response
+		else
+			return false, response.Body, response
 		end
-		return HttpService:GetAsync(url, true)
-	end)
-	if ok then
-		return true, body, { StatusCode = 200 }
 	end
-	return false, body, { StatusCode = 0 }
+
+	return false, response, { StatusCode = 0 }
 end
 
 local function httpGetJson(url, headers)

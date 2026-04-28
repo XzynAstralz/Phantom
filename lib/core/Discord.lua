@@ -13,7 +13,6 @@ local function requestFunction()
 	return environment.request or environment.http_request or (environment.syn and environment.syn.request) or (environment.http and environment.http.request) or (environment.fluxus and environment.fluxus.request)
 end
 
-
 local function extractInviteCode(value)
 	value = tostring(value or "")
 	return value:match("discord%%.gg/([%w_-]+)") or value:match("discord%%.com/invite/([%w_-]+)") or value:match("^([%w_-]+)$") or ""
@@ -88,10 +87,10 @@ end
 
 function Discord:_requestRpc(port, body)
 	local url = string.format("http://127.0.0.1:%d/rpc?v=1", port)
-	local requestFunction = getRequestFunction()
+	local req = requestFunction()
 
-	if requestFunction then
-		local ok, response = pcall(requestFunction, {
+	if req then
+		local ok, response = pcall(req, {
 			Method = "POST",
 			Url = url,
 			Headers = {
