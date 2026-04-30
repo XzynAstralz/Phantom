@@ -21,7 +21,7 @@ local runcode = Runtime.run
 local createNotification = GuiLibrary.toast
 
 
-for _, v in ipairs({"AntiAFK", "Antideath", "Gravity", "FovChanger", "TriggerBot", "ESP", "Cape", "AimAssist", "AntiFall"}) do
+for _, v in ipairs({"AntiAFK", "Antideath", "Gravity", "FovChanger", "ESP", "Cape", "AimAssist", "AntiFall"}) do
     UI.kit:deregister(v .. "Module")
 end
 

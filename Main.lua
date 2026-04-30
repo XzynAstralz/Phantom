@@ -15,6 +15,7 @@ local _genv = (executorGetEnv and executorGetEnv()) or {}
 local executorQueueForTeleport = environment.queue_for_teleport or _genv.queue_for_teleport
 local executorQueueOnTeleport = environment.queue_on_teleport or _genv.queue_on_teleport
 local executorQueueOnTeleportLegacy = environment.queueonteleport or _genv.queueonteleport
+local customSignal = Instance.new("BindableEvent")
 
 if not executorGetEnv or not executorIsFile or not executorReadFile then
 	return warn("[phantom] unsupported executor.")
@@ -1385,12 +1386,6 @@ env.phantomInstances = env.phantomInstances or {}
 table.insert(env.phantomInstances, phantom)
 env.configloaded = false
 
-fileApi:Write("cache/lastPlace", placeId, { force = true })
-if queueTeleport and not env.phantomTeleportQueued then
-	env.phantomTeleportQueued = true
-	pcall(queueTeleport, 'loadstring(readfile("Phantom/loader.lua"))()')
-end
-
 rootManager:AddConnection(Services.Players.PlayerRemoving:Connect(function(player)
 	if player == LocalPlayer then
 		pcall(saveProfile, profileSlot)
@@ -1402,10 +1397,36 @@ moduleLoader:RegisterPath("prediction", "lib/Prediction.lua", { cache = true })
 moduleLoader:RegisterPath("fly", "lib/fly.lua", { cache = true })
 moduleLoader:RegisterPath("patcher", "lib/patcher.lua", { cache = false, hotReload = true })
 moduleLoader:RegisterPath("game.universal", "games/universal.lua", { cache = false, hotReload = true })
+
 if creatorScriptPath() then
-	moduleLoader:RegisterPath("game.creator", creatorScriptPath(), { cache = false, hotReload = true })
+    moduleLoader:RegisterPath("game.creator", creatorScriptPath(), { cache = false, hotReload = true })
 end
+
 moduleLoader:RegisterPath("game.place", resolvedGameScriptPath(), { cache = false, hotReload = true })
+
+rootManager:AddConnection(customSignal.Event:Connect(function()
+	if queueTeleport and not env.phantomTeleportQueued then
+		env.phantomTeleportQueued = true
+		
+		local teleportPayload = [[
+			local TARGET_GAME_ID = "]] .. gameId .. [["
+			
+			repeat task.wait() until game:IsLoaded()
+
+			local currentId = tostring(game.GameId)
+
+			if currentId == TARGET_GAME_ID then
+				if isfile and isfile("Phantom/loader.lua") then
+					loadstring(readfile("Phantom/loader.lua"))()
+				end
+			end
+		]]
+
+		pcall(queueTeleport, teleportPayload)
+	end
+end))
+
+customSignal:Fire()
 
 local patcherInfo
 pcall(function()
@@ -2039,8 +2060,11 @@ do
 		end,
 		Tooltip = "Sync team-aware combat and ESP controls together.",
 	})
-
-	createInternalAction("Reload UI", function()
+	createInternalAction("Uninject client", function()
+		render:Toast({ title = "Phantom", text = "Uninjecting the current runtime.", duration = 2 })
+		shutdown("user")
+	end, "Safely rebuild the full UI without leaving the server.")
+	createInternalAction("Reinject client", function()
 		render:Toast({ title = "Phantom", text = "Reloading the interface runtime...", duration = 2 })
 		phantom.HotReload()
 	end, "Safely rebuild the full UI without leaving the server.")
@@ -2315,25 +2339,6 @@ do
 				Tooltip = "Reset theme, scaling, overlay settings, and layout state back to a clean factory baseline.",
 			})
 		end
-
-		loaderSettings.CreateButton({
-			Name = "reinject client",
-			Function = function()
-				render:Toast({ title = "Phantom", text = "Reinjecting the UI runtime...", duration = 2 })
-				phantom.HotReload()
-			end,
-			Tooltip = "Hot-reload Phantom without leaving the game.",
-		})
-
-		loaderSettings.CreateButton({
-			Name = "uninject client",
-			BackgroundColor = Color3.fromRGB(56, 18, 24),
-			Function = function()
-				render:Toast({ title = "Phantom", text = "Uninjecting the current runtime.", duration = 2 })
-				shutdown("user")
-			end,
-			Tooltip = "Unload Phantom and close every active window.",
-		})
 	end
 
 	local themeState = readGuiTheme()
@@ -2510,30 +2515,6 @@ end, { HideInUI = true })
 createAction("Load Profile", function()
 	scheduleLoadProfile(profileSlot, false)
 end, { HideInUI = false })
-
-local hotReloadAction
-hotReloadAction = tabs.other.AddNew({
-	Name = "Hot Reload",
-	NoSave = true,
-	HideInUI = true,
-	Function = function(enabled)
-		if not enabled then return end
-		if hotReloadAction and hotReloadAction.SetEnabled then
-			hotReloadAction.SetEnabled(false, true, true)
-		end
-		phantom.HotReload()
-	end,
-})
-
-tabs.other.AddNew({
-	Name = "Unload",
-	NoSave = true,
-	HideInUI = true,
-	Function = function(enabled)
-		if not enabled then return end
-		shutdown("user")
-	end,
-})
 
 local function loadGameScript(name, path)
 	if not fileApi:IsFile(path) then

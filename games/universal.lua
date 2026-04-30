@@ -334,7 +334,7 @@ runcode(function()
     })
 end)
 
-runcode(function()
+--[[runcode(function()
     local TriggerBot = {}
     local shootDelay = {}
     local triggerFOV = {}
@@ -383,7 +383,7 @@ runcode(function()
         Default = 90,
         Round = 1,
     })
-end)
+end)--]]
 
 runcode(function()
     local FastStop = {}
@@ -426,77 +426,148 @@ end)
 
 runcode(function()
     local AutoJump = {}
-    --local SlowdownAnim = {}
-    local slowdownAnims = {
-        "WalkAnim",
-        "RunAnim"
-    }
+    local SpeedMethod = {}
+
+    local vectorForce = nil
+    local vectorAttach = nil
+    local oldwalk = nil
+
+    local function createVectorForce()
+        local rootPart = PlayerUtility.GetRoot()
+        if not rootPart then return end
+        if vectorForce and vectorForce.Parent then return end
+
+        vectorAttach = Instance.new("Attachment")
+        vectorAttach.Parent = rootPart
+
+        vectorForce = Instance.new("VectorForce")
+        vectorForce.Attachment0 = vectorAttach
+        vectorForce.RelativeTo = Enum.ActuatorRelativeTo.World
+        vectorForce.ApplyAtCenterOfMass = true
+        vectorForce.Force = Vector3.zero
+        vectorForce.Parent = rootPart
+    end
+
+    local function cleanupVectorForce()
+        if vectorForce then vectorForce:Destroy() vectorForce = nil end
+        if vectorAttach then vectorAttach:Destroy() vectorAttach = nil end
+    end
+
+    local function cleanupAllMethods()
+        local humanoid = PlayerUtility.GetHumanoid()
+        cleanupBodyVelocity()
+        cleanupVectorForce()
+        if humanoid then
+            humanoid.WalkSpeed = oldwalk or 16
+            oldwalk = nil
+            humanoid.AutoRotate = true
+        end
+    end
 
     Speed = lib.Registry.blatantPanel.API.CreateOptionsButton({
         Name = "Speed",
-        ExtraText = "CFrame",
+        ExtraText = "Multi-Method",
         Function = function(callback)
             if callback then
+                local humanoid = PlayerUtility.GetHumanoid()
+                if humanoid and oldwalk == nil then
+                    oldwalk = humanoid.WalkSpeed
+                end
+
                 RunLoops:BindToHeartbeat("Speed", function(dt)
                     local humanoid = PlayerUtility.GetHumanoid()
                     local rootPart = PlayerUtility.GetRoot()
-                    if PlayerUtility.IsAlive() and humanoid and rootPart and humanoid.MoveDirection.Magnitude > 0 then
-                        local moveDirection = humanoid.MoveDirection
+                    if not (PlayerUtility.IsAlive() and humanoid and rootPart) then return end
 
-                       --[[ if SlowdownAnim.Enabled then
-                            for _, anim in lplr.Character.Humanoid:GetPlayingAnimationTracks() do
-                                if table.find(slowdownAnims, anim.Name) then
-                                    anim:AdjustSpeed(lplr.Character.Humanoid.WalkSpeed / 16)
+                    local method = SpeedMethod.Value or "CFrame"
+                    local speed = SpeedSlider.Value
+                    local moveDir = humanoid.MoveDirection
+
+                    if method == "WalkSpeed" then
+                        cleanupBodyVelocity()
+                        cleanupVectorForce()
+                        humanoid.WalkSpeed = speed
+
+                    elseif method == "CFrame" then
+                        cleanupVectorForce()
+                        if moveDir.Magnitude > 0 then
+                            local speedVelocity = moveDir * speed
+                            speedVelocity = speedVelocity / (1 / dt)
+
+                            if not Fly.Enabled then
+                                rootPart.CFrame = rootPart.CFrame + speedVelocity
+                                createBodyVel()
+                                if not infFlyVel then
+                                    bodyVel.MaxForce = Vector3.new(bodyVel.P, 0, bodyVel.P)
                                 end
                             end
-                        end--]]
+                        end
 
-                        local newCFrame = rootPart.CFrame
-
-                        if not Fly.Enabled then
-                            local speedVelocity = moveDirection * (SpeedSlider.Value)
-                            speedVelocity = speedVelocity / (1 / dt)
-                            newCFrame = newCFrame + speedVelocity
-
+                    elseif method == "BodyVelocity" then
+                        cleanupVectorForce()
+                        if moveDir.Magnitude > 0 then
                             createBodyVel()
-                            if not infFlyVel then
-                                bodyVel.MaxForce = Vector3.new(bodyVel.P, 0, bodyVel.P)
+                            bodyVel.Velocity = moveDir * speed
+                            bodyVel.MaxForce = Vector3.new(1e5, 0, 1e5)
+                        else
+                            cleanupBodyVelocity()
+                        end
+
+                    elseif method == "AssemblyLinearVelocity" then
+                        cleanupBodyVelocity()
+                        cleanupVectorForce()
+                        if moveDir.Magnitude > 0 then
+                            local currentY = rootPart.AssemblyLinearVelocity.Y
+                            rootPart.AssemblyLinearVelocity = Vector3.new(moveDir.X * speed, currentY, moveDir.Z * speed)
+                        end
+
+                    elseif method == "VectorForce" then
+                        cleanupBodyVelocity()
+                        createVectorForce()
+                        if vectorForce then
+                            if moveDir.Magnitude > 0 then
+                                vectorForce.Force = moveDir * (speed * 500)
+                            else
+                                vectorForce.Force = Vector3.zero
                             end
                         end
-                        rootPart.CFrame = newCFrame
 
-                        if AutoJump.Enabled and humanoid.FloorMaterial ~= Enum.Material.Air then
-                            humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+                    elseif method == "Teleport" then
+                        cleanupBodyVelocity()
+                        cleanupVectorForce()
+                        if moveDir.Magnitude > 0 then
+                            local stepSize = speed * dt * 3
+                            rootPart.CFrame = rootPart.CFrame + (moveDir * stepSize)
                         end
+                    end
+
+                    if AutoJump.Enabled and humanoid.FloorMaterial ~= Enum.Material.Air then
+                        humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
                     end
                 end)
             else
-                local humanoid = PlayerUtility.GetHumanoid()
-                if humanoid then
-                    humanoid.AutoRotate = true
-                end
-                cleanupBodyVelocity()
+                cleanupAllMethods()
                 RunLoops:UnbindFromHeartbeat("Speed")
             end
         end
     })
+    SpeedMethod = Speed.CreateDropdown({
+        Name = "Method",
+        Default = "CFrame",
+        List = {"WalkSpeed", "CFrame", "BodyVelocity", "AssemblyLinearVelocity", "VectorForce", "Teleport"},
+    })
     SpeedSlider = Speed.CreateSlider({
-        Name = "value",
+        Name = "Value",
         Min = 0,
-        Max = 150,
-        Default = 1,
+        Max = 500,
+        Default = 16,
         Round = 1,
     })
     AutoJump = Speed.CreateToggle({
         Name = "AutoJump",
         Default = false,
     })
-    --SlowdownAnim = Speed.CreateToggle({
-       -- Name = "SmoothAnimation",
-       -- Default = false,
-    --})
 end)
-
 runcode(function()
     local FlyValue = {}
     local FlyVerticalValue = {}
@@ -539,7 +610,7 @@ runcode(function()
                         bodyVel.MaxForce = Vector3.new(bodyVel.P, bodyVel.P, bodyVel.P)
                     end
                     bodyVel.Velocity = Vector3.new(0, verticalVelocity, 0)
-                end)              
+                end)        
             else
                 if bodyVel then
                     bodyVel.MaxForce = Vector3.new((Speed.Enabled and bodyVel.P) or 0, 0, (Speed.Enabled and bodyVel.P) or 0)
@@ -895,7 +966,7 @@ runcode(function()
         return not TeamCheck.Enabled or PlayerUtility.IsEnemy(player)
     end
 
-    ESP = lib.Registry.blatantPanel.API.CreateOptionsButton({
+    ESP = lib.Registry.renderPanel.API.CreateOptionsButton({
         Name = "ESP",
         Function = function(callback)
             if callback then
@@ -1189,18 +1260,29 @@ runcode(function()
     local rejoinConn = nil
     local guiConn = nil
 
+    local HttpService = game:GetService("HttpService")
+
     local function doRejoin()
         TeleportService:Teleport(game.PlaceId, lplr)
     end
 
     local function doServerHop()
-        local ok, result = pcall(function()
-            local code = TeleportService:ReserveServer(game.PlaceId)
-            TeleportService:TeleportToPrivateServer(game.PlaceId, code, {lplr})
+        local success, result = pcall(function()
+            return HttpService:JSONDecode(game:HttpGet(
+                "https://games.roblox.com/v1/games/" .. game.PlaceId .. "/servers/Public?sortOrder=Asc&limit=100"
+            ))
         end)
-        if not ok then
-            pcall(doRejoin)
+
+        if success and result and result.data then
+            for _, server in pairs(result.data) do
+                if server.id ~= game.JobId and server.playing < server.maxPlayers then
+                    TeleportService:TeleportToPlaceInstance(game.PlaceId, server.id, lplr)
+                    return
+                end
+            end
         end
+        warn("No new server found, rejoining...")
+        doRejoin()
     end
 
     AutoRejoin = lib.Registry.utillityPanel.API.CreateOptionsButton({
@@ -1227,6 +1309,7 @@ runcode(function()
             end
         end
     })
+
     Rejoin = lib.Registry.utillityPanel.API.CreateOptionsButton({
         Name = "Rejoin",
         Tooltip = "Instantly rejoins the current game when clicked.",
@@ -1234,14 +1317,12 @@ runcode(function()
         Function = function(callback)
             if callback then
                 doRejoin()
-
                 if Rejoin.Enabled then
                     Rejoin.Toggle()
                 end
             end
         end
     })
-
     ServerHop = lib.Registry.utillityPanel.API.CreateOptionsButton({
         Name = "ServerHop",
         Tooltip = "Switches you to a different server.",

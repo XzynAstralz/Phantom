@@ -488,6 +488,9 @@ local function applyResponsiveFloatingLayout(gui, info)
     local minY = (6 + absSize.Y * 0.5) / parentSize.Y
     local maxY = (parentSize.Y - 6 - absSize.Y * 0.5) / parentSize.Y
 
+    if maxX < minX then maxX = minX end
+    if maxY < minY then maxY = minY end
+
     xScale = math.clamp(xScale, minX, maxX)
     yScale = math.clamp(yScale, minY, maxY)
 

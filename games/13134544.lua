@@ -28,7 +28,7 @@ local createNotification = GuiLibrary.toast
 
 local PlayerUtility = phantom.module:Load("utility") or loadstring(readfile("Phantom/lib/Utility.lua"))()
 
-for _, v in ipairs({"Antideath", "Gravity", "ESP", "AntiFall", "TriggerBot", "AimAssist", "BreadCrumbs"}) do
+for _, v in ipairs({"Antideath", "Gravity", "ESP", "AntiFall", "AimAssist", "BreadCrumbs"}) do
     UI.kit:deregister(v .. "Module")
 end
 

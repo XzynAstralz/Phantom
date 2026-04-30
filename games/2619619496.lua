@@ -432,7 +432,7 @@ local runcode = function(func) -- stays like this because stuff needs to load pr
 end
 
 for _, v in ipairs({
-    "AntiAFK", "Antideath", "Gravity", "FovChanger", "TriggerBot", "ESP",
+    "AntiAFK", "Antideath", "Gravity", "FovChanger", "ESP",
     "Cape", "AimAssist", "AntiFall", "Speed", "Fly", "NoClip",
     "AutoClicker", "FastStop", "FPSBooster", "AnimationPlayer", "BreadCrumbs"
 }) do

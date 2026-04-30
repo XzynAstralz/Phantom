@@ -13,8 +13,6 @@ local function emit(kind, prefix, ...)
 	local message = prefix .. " " .. kind .. " " .. join(...)
 	if kind == "[WARN]" or kind == "[ERROR]" then
 		warn(message)
-	else
-		print(message)
 	end
 end
 
