@@ -3270,18 +3270,6 @@ function Spectrum.window(cfg)
                 end
             end
 
-            function sw.ShowWhen(_, ...)
-                local deps = {...}
-                for _, dep in next, deps do
-                    table.insert(sw.Dependents, dep)
-                    dep.Instance.Visible = sw.Enabled
-                    if not sw.Enabled then
-                        sw._depSaved[dep] = dep.Enabled
-                        if dep.Enabled and dep.Toggle then dep.Toggle() end
-                    end
-                end
-            end
-
             kit:track(SwitchRow.MouseButton1Click:Connect(sw.Toggle))
             sw.Function = cfg3.Function
 
@@ -3720,24 +3708,28 @@ function Spectrum.window(cfg)
                 end
             end
 
-            function sel.ShowWhen(value, ...)
+            function sel.ShowWhen(_, value, ...)
                 local deps = {...}
                 table.insert(sel.ValueDependents, {value = tostring(value), elements = deps})
                 local show = (sel.Value == tostring(value))
-                
+
                 for _, dep in next, deps do
                     if dep and dep.Instance and typeof(dep.Instance) == "Instance" and dep.Instance.Parent then
                         safeVisible(dep.Instance, show)
-                        
+
                         if not show then
                             sel._depSaved[dep] = dep.Enabled
-                            if dep.Enabled and dep.Toggle then 
-                                pcall(dep.Toggle) 
+                            if dep.Enabled and dep.Toggle then
+                                pcall(dep.Toggle)
                             end
                         else
                             local shouldEnable = sel._depSaved[dep]
                             if shouldEnable ~= nil and dep.Toggle then
-                                pcall(dep.Toggle)
+                                if shouldEnable and not dep.Enabled then
+                                    pcall(dep.Toggle)
+                                elseif shouldEnable == false and dep.Enabled then
+                                    pcall(dep.Toggle)
+                                end
                             end
                         end
                     end
@@ -5118,11 +5110,15 @@ function Spectrum.CreateCustomWindow(cfg)
         function sw.ShowWhen(_, ...)
             local deps = {...}
             for _, dep in next, deps do
-                table.insert(sw.Dependents, dep)
-                dep.Instance.Visible = sw.Enabled
-                if not sw.Enabled then
-                    sw._depSaved[dep] = dep.Enabled
-                    if dep.Enabled and dep.Toggle then dep.Toggle() end
+                if dep and dep.Instance and typeof(dep.Instance) == "Instance" and dep.Instance.Parent then
+                    table.insert(sw.Dependents, dep)
+                    safeVisible(dep.Instance, sw.Enabled)
+                    if not sw.Enabled then
+                        sw._depSaved[dep] = dep.Enabled
+                        if dep.Enabled and dep.Toggle then dep.Toggle() end
+                    else
+                        sw._depSaved[dep] = dep.Enabled
+                    end
                 end
             end
         end
@@ -5334,17 +5330,20 @@ function Spectrum.CreateCustomWindow(cfg)
             table.insert(sel.ValueDependents, { value = tostring(value), elements = deps })
             local show = sel.Value == tostring(value)
             for _, dep in next, deps do
-                dep.Instance.Visible = show
-                if not show then
-                    sel._depSaved[dep] = dep.Enabled
-                    if dep.Enabled and dep.Toggle then dep.Toggle() end
-                else
-                    local shouldEnable = sel._depSaved[dep]
-                    if shouldEnable ~= nil and dep.Toggle then
-                        if shouldEnable and not dep.Enabled then
-                            dep.Toggle()
-                        elseif shouldEnable == false and dep.Enabled then
-                            dep.Toggle()
+                if dep and dep.Instance and typeof(dep.Instance) == "Instance" and dep.Instance.Parent then
+                    safeVisible(dep.Instance, show)
+                    if not show then
+                        sel._depSaved[dep] = dep.Enabled
+                        if dep.Enabled and dep.Toggle then dep.Toggle() end
+                    else
+                        sel._depSaved[dep] = dep.Enabled
+                        local shouldEnable = sel._depSaved[dep]
+                        if shouldEnable ~= nil and dep.Toggle then
+                            if shouldEnable and not dep.Enabled then
+                                dep.Toggle()
+                            elseif shouldEnable == false and dep.Enabled then
+                                dep.Toggle()
+                            end
                         end
                     end
                 end
