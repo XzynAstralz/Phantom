@@ -3,7 +3,7 @@ Framework.__index = Framework
 
 local DEFAULT_ROOT = "Phantom"
 local FRAMEWORK_ROOT = "src/framework"
-
+print("test")
 local function normalizePath(path)
 	path = tostring(path or "")
 	path = path:gsub("\\", "/")
