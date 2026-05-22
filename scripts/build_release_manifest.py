@@ -19,6 +19,7 @@ RUNTIME_ROOT_FILES = [
 ]
 
 RUNTIME_DIRECTORIES = [
+    "src/framework",
     "assets",
     "games",
     "lib",
@@ -43,6 +44,7 @@ def iter_runtime_files() -> list[Path]:
         base = ROOT / directory
         if not base.exists():
             continue
+
         for path in sorted(base.rglob("*")):
             if path.is_file():
                 files.append(path)
