@@ -1,5 +1,5 @@
 repeat task.wait() until game:IsLoaded()
-
+print("fixed"
 local environment = getfenv and getfenv() or {}
 
 local executorGetEnv = environment.getgenv
