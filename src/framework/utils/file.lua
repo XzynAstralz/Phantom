@@ -54,7 +54,6 @@ function File:Resolve(path)
 	if relative == "" then
 		return self.rootName
 	end
-	-- map common runtime paths into storage/ so configs, cache and assets live under storage
 	if startsWith(relative, "assets/") or startsWith(relative, "config/") or startsWith(relative, "configs/") or startsWith(relative, "cache/") then
 		relative = "storage/" .. relative
 	end

@@ -441,12 +441,10 @@ end
 local function forceUiRedraw()
     for _, object in pairs(UI.Registry or {}) do
         if object.Instance then
-            -- Try to call the library's color update function
             if object.UpdateColor then
                 pcall(object.UpdateColor)
             end
 
-            -- Fallback: manually set background/text colors
             local color = UI.kit:activeColor()
             if object.Instance:IsA("Frame") or object.Instance:IsA("TextButton") then
                 object.Instance.BackgroundColor3 = color
@@ -454,7 +452,6 @@ local function forceUiRedraw()
                 object.Instance.TextColor3 = color
             end
 
-            -- For dropdown options
             if object.Options and type(object.Options) == "table" then
                 for _, option in pairs(object.Options) do
                     if option.Background then
@@ -469,13 +466,11 @@ local function forceUiRedraw()
     end
 end
 
--- Inject this after updating the palette
 local function updateGuiPalette(key, value)
     local theme = readGuiTheme()
     theme[key] = value
     setGuiPalette({ H = theme.H, S = theme.S, V = theme.V })
 
-    -- Force redraw
     if UI.PaletteSync then
         UI.PaletteSync:Emit()
     end
@@ -2696,5 +2691,7 @@ render:Toast({
 	duration = 3,
 })
 
+print("gsfgfgfs")
 phantom.ready = true
 return phantom
+
