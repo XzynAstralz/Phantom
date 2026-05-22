@@ -19,8 +19,7 @@ RUNTIME_ROOT_FILES = [
 ]
 
 RUNTIME_DIRECTORIES = [
-    "src/framework",
-    "assets",
+    "src",
     "games",
     "lib",
 ]
