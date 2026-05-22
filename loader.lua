@@ -1,3 +1,4 @@
+
 repeat task.wait() until game:IsLoaded()
 
 local environment = getgenv() or getfenv() or {}
@@ -25,6 +26,25 @@ local LOADER_PLACE_ID = tostring(game.PlaceId)
 local LOADER_GAME_ID = tonumber(game.GameId) and tostring(game.GameId) or ""
 local LOADER_DISPLAY_ID = LOADER_GAME_ID ~= "" and LOADER_GAME_ID or LOADER_PLACE_ID
 
+local function parseBooleanText(value)
+	local normalized = string.lower(tostring(value or ""))
+	normalized = normalized:gsub("%s+", "")
+	return normalized == "true" or normalized == "1" or normalized == "yes" or normalized == "on"
+end
+
+local function readDeveloperFlag()
+	if not isfile or not readfile or not isfile("debug.dev/checkdev.txt") then
+		return false
+	end
+
+	local ok, contents = pcall(readfile, "debug.dev/checkdev.txt")
+	if ok then
+		return parseBooleanText(contents)
+	end
+
+	return false
+end
+
 local function normalize(path)
 	path = tostring(path or "")
 	path = path:gsub("\\", "/")
@@ -35,15 +55,36 @@ local function normalize(path)
 	return path
 end
 
+local function mapToStorage(path)
+	path = normalize(path)
+	if path == "assets" or path:match("^assets/") or
+		path == "config" or path:match("^config/") or
+		path == "configs" or path:match("^configs/") or
+		path == "cache" or path:match("^cache/") then
+		return "storage/" .. path
+	end
+	return path
+end
+
 local function resolve(path)
 	path = normalize(path)
 	if path == "" then
 		return ROOT
 	end
-	if path:lower():sub(1, #ROOT + 1) == (ROOT:lower() .. "/") then
-		return path
+
+	local lowerPath = path:lower()
+	local rootPrefix = ROOT:lower() .. "/"
+	if lowerPath:sub(1, #rootPrefix) == rootPrefix then
+		local inner = path:sub(#rootPrefix + 1)
+		local mapped = mapToStorage(inner)
+		if mapped == inner then
+			return path
+		end
+		return ROOT .. "/" .. mapped
 	end
-	return ROOT .. "/" .. path
+
+	local mapped = mapToStorage(path)
+	return ROOT .. "/" .. mapped
 end
 
 local function ensureFolder(path)
@@ -70,7 +111,7 @@ local function ensureParent(path)
 	local relative = normalize(path)
 	local parent = relative:match("^(.*)/[^/]+$")
 	if parent and parent ~= "" then
-		ensureFolder(parent)
+		ensureFolder(mapToStorage(parent))
 	else
 		ensureFolder("")
 	end
@@ -398,21 +439,47 @@ local function createLoaderUi()
 end
 
 ensureFolder("")
-ensureFolder("assets")
-ensureFolder("assets/icons")
-ensureFolder("cache")
-ensureFolder("config")
-ensureFolder("configs")
+ensureFolder("storage")
+ensureFolder("storage/assets")
+ensureFolder("storage/assets/icons")
+ensureFolder("storage/cache")
+ensureFolder("storage/config")
+ensureFolder("storage/configs")
 ensureFolder("games")
 ensureFolder("lib")
-ensureFolder("lib/core")
-ensureFolder("scripts")
+ensureFolder("src/framework/core")
+ensureFolder("src/framework/net")
+ensureFolder("src/framework/render")
+ensureFolder("src/framework/systems")
+ensureFolder("src/framework/utils")
+
 
 local settings = getSettings()
+local developerFlagEnabled = readDeveloperFlag()
+local developerModeEnabled = settings.developerMode or developerFlagEnabled
 local ui = createLoaderUi()
 local localManifest = readJson("cache/release-manifest.json", nil)
-local remoteManifest, releaseOrError = fetchLatestManifest()
-local forceBootstrap = not isfile(resolve("Main.lua")) or not isfile(resolve("lib/core/Render.lua"))
+local remoteManifest, releaseOrError
+if not developerModeEnabled then
+	remoteManifest, releaseOrError = fetchLatestManifest()
+end
+local forceBootstrap = not isfile(resolve("Main.lua")) or not isfile(resolve("src/framework/init.lua")) or not isfile(resolve("src/framework/render/renderer.lua"))
+
+local function manifestHasPath(manifest, wantedPath)
+	for _, entry in ipairs(manifest.files or {}) do
+		if tostring(entry.path or "") == wantedPath then
+			return true
+		end
+	end
+	return false
+end
+
+local function isRemoteCompatible(manifest)
+	if not isfile(resolve("src/framework/init.lua")) then
+		return true
+	end
+	return manifestHasPath(manifest, "src/framework/init.lua")
+end
 
 local function downloadUrl(manifest, entry)
 	if entry.url then
@@ -441,7 +508,7 @@ local function buildPlan(manifest)
 		if sameHash then
 		elseif isPreserved(path) then
 			plan.skipped[#plan.skipped + 1] = { path = path, reason = "preserved" }
-		elseif settings.developerMode and not forceBootstrap and isDeveloperProtected(path) and exists then
+		elseif developerModeEnabled and not forceBootstrap and isDeveloperProtected(path) and exists then
 			plan.skipped[#plan.skipped + 1] = { path = path, reason = "developer-mode" }
 		else
 			entry.path = path
@@ -484,7 +551,23 @@ local function applyUpdatePlan(manifest, plan)
 end
 
 local updateStatus = "offline-local"
-if remoteManifest then
+if developerModeEnabled then
+	updateStatus = "developer-mode"
+	ui:SetStatus("Developer mode enabled. Using local files.")
+	ui:SetProgress(0, 0, LOADER_DISPLAY_ID)
+	ui:Destroy()
+	if forceBootstrap then
+		return warn("[phantom] developer mode blocks GitHub bootstrap and the local runtime is incomplete.")
+	end
+elseif remoteManifest and not isRemoteCompatible(remoteManifest) then
+	updateStatus = "incompatible-remote"
+	ui:SetStatus("Remote build is older than local framework. Using local files.")
+	ui:SetProgress(0, 0, LOADER_DISPLAY_ID)
+	ui:Destroy()
+	if forceBootstrap then
+		return warn("[phantom] unable to bootstrap runtime: remote build is missing the new framework structure.")
+	end
+elseif remoteManifest then
 	local plan = buildPlan(remoteManifest)
 	if (not settings.autoUpdate and not forceBootstrap) then
 		updateStatus = "disabled"
@@ -521,7 +604,7 @@ else
 	ui:SetStatus("GitHub unavailable. Using local files.")
 	ui:SetProgress(0, 0, LOADER_DISPLAY_ID)
 	ui:Destroy()
-	if not isfile(resolve("Main.lua")) then
+	if forceBootstrap then
 		return warn("[phantom] unable to bootstrap runtime: " .. tostring(releaseOrError))
 	end
 end

@@ -1,5 +1,3 @@
---!nocheck
-
 repeat task.wait() until game:IsLoaded()
 
 local environment = getfenv and getfenv() or {}
@@ -15,7 +13,20 @@ local _genv = (executorGetEnv and executorGetEnv()) or {}
 local executorQueueForTeleport = environment.queue_for_teleport or _genv.queue_for_teleport
 local executorQueueOnTeleport = environment.queue_on_teleport or _genv.queue_on_teleport
 local executorQueueOnTeleportLegacy = environment.queueonteleport or _genv.queueonteleport
-local customSignal = Instance.new("BindableEvent")
+local customSignal
+do
+	local ok, ev = pcall(function() return Instance.new("BindableEvent") end)
+	if ok and ev then
+		customSignal = ev
+	else
+		customSignal = {
+			Event = { Connect = function(_, fn) return { Disconnect = function() end } end },
+			Fire = function() end,
+			Destroy = function() end,
+			Parent = nil,
+		}
+	end
+end
 
 if not executorGetEnv or not executorIsFile or not executorReadFile then
 	cloneref(game:GetService("Players")).LocalPlayer:Kick("unsupported executor")
@@ -86,39 +97,53 @@ do
 	end
 end
 
-local Logger = loadRuntimeModule("lib/core/Logger.lua")
-local File = loadRuntimeModule("lib/core/File.lua")
-local Http = loadRuntimeModule("lib/core/Http.lua")
-local Manager = loadRuntimeModule("lib/core/Manager.lua")
-local Runtime = loadRuntimeModule("lib/core/Runtime.lua")
-local Config = loadRuntimeModule("lib/core/Config.lua")
-local Discord = loadRuntimeModule("lib/core/Discord.lua")
-local Module = loadRuntimeModule("lib/core/Module.lua")
-local Version = loadRuntimeModule("lib/core/Version.lua")
-local Updater = loadRuntimeModule("lib/core/Updater.lua")
+local Framework = loadRuntimeModule("src/framework/init.lua")
+local framework = Framework.new(ROOT)
+
+local Logger = framework:Load("core/logger.lua")
+local File = framework:Load("utils/file.lua")
+local Http = framework:Load("net/http.lua")
+local Manager = framework:Load("systems/manager.lua")
+local Runtime = framework:Load("core/runtime.lua")
+local Config = framework:Load("core/config.lua")
+local Developer = framework:Load("core/developer.lua")
+local Discord = framework:Load("net/discord.lua")
+local Module = framework:Load("systems/module.lua")
+local Version = framework:Load("core/version.lua")
+local Updater = framework:Load("systems/updater.lua")
+local GameLoader = framework:Load("systems/game_loader.lua")
 
 local bootstrapLogger = Logger.new("[phantom]", false)
+framework:SetLogger(bootstrapLogger)
 local fileApi = File.new(ROOT, bootstrapLogger)
 fileApi:EnsureRuntimeFolders()
 
 local http = Http.new(bootstrapLogger)
 local config = Config.new(fileApi, bootstrapLogger)
+local developer = Developer.new({
+	logger = bootstrapLogger,
+})
 local updater = Updater.new({
 	file = fileApi,
 	http = http,
 	config = config,
 	logger = bootstrapLogger,
+	developer = developer,
 	repo = {
 		owner = "XzynAstralz",
 		name = "Phantom",
 	},
 })
 local settings = updater:GetSettings()
+local developerState = developer:Sync(settings.developerMode)
+local effectiveDeveloperMode = developerState.enabled == true
 
-local logger = Logger.new("[phantom]", settings.debugLogs or settings.developerMode)
+local logger = Logger.new("[phantom]", settings.debugLogs or effectiveDeveloperMode)
+framework:SetLogger(logger)
 fileApi.logger = logger
 http.logger = logger
 config.logger = logger
+developer:SetLogger(logger)
 updater.logger = logger
 
 local discord = Discord.new({
@@ -133,7 +158,19 @@ local versionData = Version.Read(fileApi)
 local rootManager = Manager.new("phantom")
 local runtime = Runtime.new(logger)
 local moduleLoader = Module.new(fileApi, logger)
-moduleLoader:SetDeveloperMode(settings.developerMode)
+moduleLoader:SetDeveloperMode(effectiveDeveloperMode)
+local gameLoader = GameLoader.new({
+	file = fileApi,
+	module = moduleLoader,
+	http = http,
+	logger = logger,
+	updater = updater,
+	developer = developer,
+	repo = {
+		owner = "XzynAstralz",
+		name = "Phantom",
+	},
+})
 
 local Services = {
 	Players = service("Players"),
@@ -211,78 +248,31 @@ if shouldAutoEnableHideBadExecutorModules() then
 end
 syncExecutorContextFromEnv()
 
-local function placeScriptPath()
-	return "games/" .. placeId .. ".lua"
-end
-
-local function gameScriptPath()
-	if gameId == "" or gameId == "0" then
-		return nil
-	end
-	return "games/" .. gameId .. ".lua"
-end
-
-local function creatorScriptPath()
-	if creatorId == "" or creatorId == "0" then
-		return nil
-	end
-	return "games/" .. creatorId .. ".lua"
-end
-
-local function scriptExists(path)
-	return path ~= nil and fileApi:IsFile(path)
-end
+local gameContext = {
+	placeId = placeId,
+	gameId = gameId,
+	creatorId = creatorId,
+}
+local gameScripts = gameLoader:Resolve(gameContext)
 
 local function placeScriptExists()
-	return scriptExists(placeScriptPath())
+	return type(gameScripts) == "table" and type(gameScripts.place) == "table" and gameScripts.place.exists == true
 end
 
 local function creatorScriptExists()
-	return scriptExists(creatorScriptPath())
+	return type(gameScripts) == "table" and type(gameScripts.creator) == "table" and gameScripts.creator.exists == true
 end
 
 local function gameScriptExists()
-	return scriptExists(gameScriptPath())
-end
-
-local function resolvedGameScriptPath()
-	local placePath = placeScriptPath()
-	if scriptExists(placePath) then
-		return placePath
-	end
-
-	local gamePath = gameScriptPath()
-	if scriptExists(gamePath) then
-		return gamePath
-	end
-
-	return placePath
+	return type(gameScripts) == "table" and type(gameScripts.game) == "table" and gameScripts.game.exists == true
 end
 
 local function activeGameKey()
-	if creatorScriptExists() then
-		return creatorId
-	end
-	if gameScriptExists() then
-		return gameId
-	end
-	if placeScriptExists() then
-		return placeId
-	end
-	return gameId ~= "" and gameId ~= "0" and gameId or placeId
+	return gameLoader:GetActiveKey(gameScripts, gameContext)
 end
 
 local function activeModuleLabel()
-	if creatorScriptExists() then
-		return "creator " .. creatorId
-	end
-	if gameScriptExists() then
-		return "game " .. gameId
-	end
-	if placeScriptExists() then
-		return "place " .. placeId
-	end
-	return "game " .. (gameId ~= "" and gameId ~= "0" and gameId or placeId)
+	return gameLoader:GetActiveLabel(gameScripts, gameContext)
 end
 
 if type(overlayState) == "table" and overlayState.__preload == true then
@@ -592,7 +582,7 @@ local categoryIconMap = {
 }
 
 local tabs = UI.CreateDefaultTabs({
-	ShowIcons = true,
+	ShowIcons = false,
 	IconResolver = function(name)
 		return getIcon(categoryIconMap[name] or name)
 	end,
@@ -1077,7 +1067,7 @@ local phantom = {
 	render = render,
 	runtime = runtime.runtime,
 	UI = UI,
-	developerMode = settings.developerMode == true,
+	developerMode = effectiveDeveloperMode,
 	entity = entity,
 	loader = {
 		ReadScript = function(_, path)
@@ -1101,23 +1091,18 @@ function ops:exec(code)
 end
 
 function ops:placeScript()
-	local creatorPath = creatorScriptPath()
-	if scriptExists(creatorPath) then
-		return fileApi:Read(creatorPath, "") or ""
+	if creatorScriptExists() then
+		return gameLoader:ReadBundle(gameScripts and gameScripts.creator)
 	end
-	return fileApi:Read(resolvedGameScriptPath(), "") or ""
+	return gameLoader:ReadBundle(gameScripts and gameScripts.primary)
 end
 
 function ops:creatorScript()
-	local creatorPath = creatorScriptPath()
-	if not creatorPath then
-		return ""
-	end
-	return fileApi:Read(creatorPath, "") or ""
+	return gameLoader:ReadBundle(gameScripts and gameScripts.creator)
 end
 
 function ops:universalScript()
-	return fileApi:Read("games/universal.lua", "") or ""
+	return gameLoader:ReadBundle(gameScripts and gameScripts.universal)
 end
 
 function ops:onExit(id, callback)
@@ -1216,13 +1201,7 @@ local function unpackUDim2(position)
 end
 
 local function getConfigBaseFolder()
-	if creatorScriptExists() and creatorId ~= "" and creatorId ~= "0" then
-		return creatorId
-	elseif gameId ~= "" and gameId ~= "0" then
-		return gameId
-	else
-		return placeId
-	end
+	return activeGameKey()
 end
 
 if hudEditor.SetDir then
@@ -1374,8 +1353,7 @@ local function loadProfile(slot, silent)
 			continue
 		end
 
-		local prop = state.Type == "OptionsButton" and "Window"
-			or (state.CustomWindow and "CustomWindow" or "OptionsButton")
+		local prop = state.Type == "OptionsButton" and "Window" or (state.CustomWindow and "CustomWindow" or "OptionsButton")
 
 		local object = ops:lookup(name, prop, state[prop])
 
@@ -1526,17 +1504,10 @@ rootManager:AddConnection(Services.Players.PlayerRemoving:Connect(function(playe
 	end
 end))
 
-moduleLoader:RegisterPath("utility", "lib/Utility.lua", { cache = true })
 moduleLoader:RegisterPath("prediction", "lib/Prediction.lua", { cache = true })
 moduleLoader:RegisterPath("fly", "lib/fly.lua", { cache = true })
 moduleLoader:RegisterPath("patcher", "lib/patcher.lua", { cache = false, hotReload = true })
-moduleLoader:RegisterPath("game.universal", "games/universal.lua", { cache = false, hotReload = true })
-
-if creatorScriptPath() then
-    moduleLoader:RegisterPath("game.creator", creatorScriptPath(), { cache = false, hotReload = true })
-end
-
-moduleLoader:RegisterPath("game.place", resolvedGameScriptPath(), { cache = false, hotReload = true })
+moduleLoader:RegisterPath("utility", "src/framework/utils/utility.lua", { cache = true })
 
 rootManager:AddConnection(customSignal.Event:Connect(function()
 	if queueTeleport and not env.phantomTeleportQueued then
@@ -1710,8 +1681,17 @@ local function formatUpdateResult(result)
 	if result.status == "disabled" then
 		return "Auto updater is disabled."
 	end
+	if result.status == "developer-mode" then
+		return "Developer mode is enabled. GitHub updates are blocked."
+	end
+	if result.status == "blocked-developer" then
+		return "Developer mode is enabled and the local runtime is incomplete."
+	end
 	if result.status == "offline-local" then
 		return "GitHub unavailable. Using local runtime."
+	end
+	if result.status == "incompatible-remote" then
+		return "Remote GitHub build is older than the local framework. Using local runtime."
 	end
 	return tostring(result.error or result.status)
 end
@@ -2378,6 +2358,8 @@ do
 		})
 	end
 
+	local developerModeToggle
+
 	loaderSettings.CreateToggle({
 		Name = "Auto Update",
 		Default = settings.autoUpdate,
@@ -2387,16 +2369,29 @@ do
 		end,
 	})
 
-	loaderSettings.CreateToggle({
+	developerModeToggle = loaderSettings.CreateToggle({
 		Name = "Developer Mode",
-		Default = settings.developerMode,
+		Default = effectiveDeveloperMode,
 		Function = function(on)
-			settings.developerMode = on
-			phantom.developerMode = on
-			moduleLoader:SetDeveloperMode(on)
-			updater:SetSetting("developerMode", on)
-			logger:SetDebug(settings.debugLogs or on)
+			settings.developerMode = on == true
+			local state = developer:Sync(settings.developerMode)
+			local enabled = state.enabled == true
+			phantom.developerMode = enabled
+			moduleLoader:SetDeveloperMode(enabled)
+			updater:SetSetting("developerMode", settings.developerMode)
+			logger:SetDebug(settings.debugLogs or enabled)
+			if developerModeToggle and developerModeToggle.SetEnabled and enabled ~= on then
+				developerModeToggle:SetEnabled(enabled, true)
+			end
+			if state.externalEnabled and not settings.developerMode then
+				render:Toast({
+					title = "Developer Mode",
+					text = "checkdev.txt is still forcing local-only mode, so GitHub downloads remain blocked.",
+					duration = 4,
+				})
+			end
 		end,
+		Tooltip = "Use local files only and block GitHub updates. Also forced on when C:/Users/xzyn/AppData/Local/debug.dev/checkdev.txt contains true.",
 	})
 
 	loaderSettings.CreateToggle({
@@ -2405,7 +2400,7 @@ do
 		Function = function(on)
 			settings.debugLogs = on
 			updater:SetSetting("debugLogs", on)
-			logger:SetDebug(on or settings.developerMode)
+			logger:SetDebug(on or developer:Sync(settings.developerMode).enabled)
 		end,
 	})
 
@@ -2658,24 +2653,17 @@ createAction("Load Profile", function()
 	scheduleLoadProfile(profileSlot, false)
 end, { HideInUI = false })
 
-local function loadGameScript(name, path)
-	if not fileApi:IsFile(path) then
-		return true
-	end
-	local _, err = moduleLoader:Reload(name)
-	if err then
-		logger:Warn("failed to load", path, err)
-		return false
-	end
-	return true
+local function loadGameScript(name, bundle)
+	local ok = gameLoader:LoadBundle(name, bundle)
+	return ok
 end
 
-local universalLoaded = loadGameScript("game.universal", "games/universal.lua")
+local universalLoaded = loadGameScript("game.universal", gameScripts and gameScripts.universal)
 local creatorLoaded = true
-if creatorScriptPath() and creatorScriptPath() ~= resolvedGameScriptPath() then
-	creatorLoaded = loadGameScript("game.creator", creatorScriptPath())
+if creatorScriptExists() and gameScripts.creator ~= gameScripts.primary then
+	creatorLoaded = loadGameScript("game.creator", gameScripts.creator)
 end
-local placeLoaded = loadGameScript("game.place", resolvedGameScriptPath())
+local placeLoaded = loadGameScript("game.place", gameScripts and gameScripts.primary)
 
 setProfileSlot(profileSlot)
 
@@ -2704,10 +2692,7 @@ end
 
 render:Toast({
 	title = "Phantom",
-	text = string.format(
-		"Loaded %s for %s. Press RightShift or LeftAlt to toggle the UI.",
-		versionData.full, placeId
-	),
+	text = string.format( "Loaded %s for %s. Press RightShift or LeftAlt to toggle the UI.",versionData.full, placeId),
 	duration = 3,
 })
 

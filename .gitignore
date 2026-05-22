@@ -1,7 +1,7 @@
-/configs
-/config
-/cache
-/configs
+/github
+/storage
+/scripts
 *.rar
 *.zip
 .vscode
+*.md

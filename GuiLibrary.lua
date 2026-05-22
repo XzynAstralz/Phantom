@@ -6,8 +6,8 @@ if not executorReadFile then
 	error("[phantom] readfile is not available in this executor")
 end
 
-local source = executorReadFile("Phantom/lib/core/LegacyGuiLibrary.lua")
-local chunk, err = loadstring(source, "@Phantom/lib/core/LegacyGuiLibrary.lua")
+local source = executorReadFile("Phantom/src/framework/core/LegacyGuiLibrary.lua")
+local chunk, err = loadstring(source, "@Phantom/src/framework/core/LegacyGuiLibrary.lua")
 if not chunk then
 	error("[phantom] failed to compile legacy gui: " .. tostring(err))
 end

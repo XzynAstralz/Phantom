@@ -1,3 +1,5 @@
+--!nonstrict
+
 local ReplicatedFirst = game:GetService("ReplicatedFirst")
 repeat
     task.wait()
