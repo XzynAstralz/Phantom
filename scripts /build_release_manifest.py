@@ -17,11 +17,9 @@ RUNTIME_ROOT_FILES = [
     "version.json",
 ]
 RUNTIME_DIRECTORIES = [
-    "assets",
     "games",
     "lib",
 ]
-
 
 def sha256_for(path: Path) -> str:
     digest = hashlib.sha256()
@@ -99,7 +97,7 @@ def main() -> None:
         "releaseTag": tag,
         "generatedAt": datetime.now(timezone.utc).isoformat(),
         "rawBaseUrl": f"https://raw.githubusercontent.com/{repo_owner}/{repo_name}/{tag}/",
-        "preserve": ["config/", "configs/", "cache/"],
+        "preserve": ["storage/config/", "storage/configs/", "storage/cache/"],
         "files": files,
     }
 
