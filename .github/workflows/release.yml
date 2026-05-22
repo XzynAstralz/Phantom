@@ -40,7 +40,6 @@ jobs:
             version.json \
             games \
             lib \
-            assets \
             src \
             release-manifest.json
 
