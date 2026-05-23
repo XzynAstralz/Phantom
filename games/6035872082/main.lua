@@ -215,11 +215,11 @@ end
 
 --// Credit: Original concept by the community
 
---[[for _, con in getconnections(game:GetService("LogService").MessageOut) do
+[for _, con in getconnections(game:GetService("LogService").MessageOut) do
     if con.Function and islclosure(con.Function) then
         con:Disconnect()
     end
-end--]]
+end
 
 local names = {"LocalScript3", "MiscellaneousController", "AnalyticsPipeline"}
 local function is_ac_calling()
@@ -518,7 +518,6 @@ do
 end
 
 runcode(function()
-    -- Create the BindableEvent at runtime (safe thread) if not already created
     if not newData.changed then
         local ok, ev = pcall(function() return Instance.new("BindableEvent") end)
         if ok and ev then
