@@ -33,7 +33,15 @@ jobs:
 
       - name: Build Runtime Zip
         run: |
-          zip -r Phantom.zip Main.lua loader.lua GuiLibrary.lua version.json games lib assets release-manifest.json
+          zip -r Phantom.zip \
+            Main.lua \
+            loader.lua \
+            GuiLibrary.lua \
+            version.json \
+            games \
+            lib \
+            src \
+            release-manifest.json
 
       - name: Publish Release
         uses: softprops/action-gh-release@v2
