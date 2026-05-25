@@ -215,7 +215,7 @@ end
 
 --// Credit: Original concept by the community
 
-[for _, con in getconnections(game:GetService("LogService").MessageOut) do
+for _, con in getconnections(game:GetService("LogService").MessageOut) do
     if con.Function and islclosure(con.Function) then
         con:Disconnect()
     end
