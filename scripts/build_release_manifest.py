@@ -9,7 +9,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 VERSION_FILE = ROOT / "version.json"
-MANIFEST_FILE = ROOT / "storage/cache/release-manifest.json"
+MANIFEST_FILE = ROOT / "release-manifest.json"
 RUNTIME_ROOT_FILES = [
     "Main.lua",
     "loader.lua",
