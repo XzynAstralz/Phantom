@@ -101,7 +101,7 @@ def main() -> None:
         "releaseTag": tag,
         "generatedAt": datetime.now(timezone.utc).isoformat(),
         "rawBaseUrl": f"https://raw.githubusercontent.com/{repo_owner}/{repo_name}/{tag}/",
-        "preserve": ["storage", "configs", "cache"],
+        "preserve": ["storage"],
         "files": files,
     }
 
