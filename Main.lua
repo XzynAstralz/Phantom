@@ -2385,7 +2385,7 @@ do
 				})
 			end
 		end,
-		Tooltip = "Use local files only and block GitHub updates. Also forced on when C:/Users/xzyn/AppData/Local/debug.dev/checkdev.txt contains true.",
+		Tooltip = "Use local files only and block GitHub updates.",
 	})
 
 	loaderSettings.CreateToggle({
