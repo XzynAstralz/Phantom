@@ -20,6 +20,27 @@ local saShared = {}
 local clientPhasedParts = {}
 local detectedMods = {}
 
+local PLAYER_STATE = { ALIVE = 0, DEAD = 1 }
+local TEAM = { NONE = "None", FOUNDATION = "Foundation", DCLASS = "Class - D", CI = "Chaos Insurgency", SCP = "SCP" }
+local ZONE = { UNKNOWN = "Unknown", SURFACE = "Surface", FACILITY = "Facility", VENT = "Vent", RK_ZONE = "RK Zone" }
+
+local GameData = {
+    changed = nil,
+    connections = {},
+    data = {
+        playerState = PLAYER_STATE.ALIVE,
+        team = TEAM.NONE,
+        zone = ZONE.UNKNOWN,
+        isRogue = false,
+        isInfected = false,
+        inVent = false,
+        activeSCPs = {},
+        detectedStaff = {},
+        equippedGun = nil,
+        currentAmmo = nil,
+    }
+}
+
 local Prediction = (function()
     local ok, m = pcall(function()
         return loadstring(readfile("Phantom/lib/Prediction.lua"))()
@@ -29,10 +50,10 @@ end)()
 
 task.spawn(function()
     local cs = lplr.PlayerScripts:WaitForChild("Controller", 30)
-    if not cs then warn("[SA] Controller script not found after 30s") return end
-    if not getsenv then warn("[SA] getsenv not supported") return end
+    if not cs then warn("Controller script not found after 30s") return end
+    if not getsenv then warn("getsenv not supported") return end
     controllerEnv = getsenv(cs) or {}
-    warn("[SA] getsenv OK | SimulateShot present:", controllerEnv.SimulateShot ~= nil)
+    warn("getsenv OK | SimulateShot present:", controllerEnv.SimulateShot ~= nil)
 end)
 
 local scprp = {}
@@ -57,6 +78,81 @@ task.spawn(function()
     scprp.Remotes = {
         Interact = rem:WaitForChild("Interact"),
     }
+end)
+
+task.spawn(function()
+    local t = tick()
+    repeat task.wait(0.5) until regionUtil ~= nil or tick() - t > 30
+
+    local INFECTED_CHECK = {"Infected", "008Infected", "SCP008", "Zombie", "008"}
+
+    local function onCharacterAdded(char)
+        GameData.data.playerState = PLAYER_STATE.ALIVE
+        if GameData.changed then GameData.changed("playerState", PLAYER_STATE.ALIVE) end
+        local hum = char:WaitForChild("Humanoid", 5)
+        if hum then
+            hum.Died:Connect(function()
+                GameData.data.playerState = PLAYER_STATE.DEAD
+                if GameData.changed then GameData.changed("playerState", PLAYER_STATE.DEAD) end
+            end)
+        end
+    end
+
+    if lplr.Character then task.spawn(onCharacterAdded, lplr.Character) end
+    table.insert(GameData.connections, lplr.CharacterAdded:Connect(onCharacterAdded))
+    table.insert(GameData.connections, lplr:GetPropertyChangedSignal("Team"):Connect(function()
+        GameData.data.team = lplr.Team and lplr.Team.Name or TEAM.NONE
+        if GameData.changed then GameData.changed("team", GameData.data.team) end
+    end))
+
+    while true do
+        task.wait(1)
+        local char = lplr.Character
+        local hrp = char and char:FindFirstChild("HumanoidRootPart")
+
+        GameData.data.team = lplr.Team and lplr.Team.Name or TEAM.NONE
+
+        if char then
+            GameData.data.isRogue = char:HasTag("Rogue")
+            local infected = false
+            for _, tag in ipairs(INFECTED_CHECK) do
+                if char:HasTag(tag) then infected = true break end
+            end
+            GameData.data.isInfected = infected
+        end
+
+        if hrp and regionUtil then
+            local okV, inVent = pcall(regionUtil.IsInCIVent, regionUtil, hrp.Position)
+            GameData.data.inVent = okV and inVent or false
+
+            local zone = ZONE.UNKNOWN
+            for _, name in ipairs({ZONE.SURFACE, ZONE.RK_ZONE, ZONE.FACILITY}) do
+                local okZ, inZ = pcall(regionUtil.IsInCustomZone, regionUtil, name, char)
+                if okZ and inZ then zone = name break end
+            end
+            if GameData.data.inVent then zone = ZONE.VENT end
+            GameData.data.zone = zone
+        end
+
+        local equip = char and char:FindFirstChildOfClass("Tool")
+        local ammoObj = equip and equip:FindFirstChild("CurrentAmmo")
+        GameData.data.equippedGun = equip and equip.Name or nil
+        GameData.data.currentAmmo = ammoObj and ammoObj.Value or nil
+
+        local scps = {}
+        local scpFolder = workspace:FindFirstChild("SCPs")
+        if scpFolder then
+            for _, model in ipairs(scpFolder:GetChildren()) do
+                local hum = model:FindFirstChildOfClass("Humanoid")
+                if hum and hum.Health > 0 then
+                    scps[#scps + 1] = model.Name
+                end
+            end
+        end
+        GameData.data.activeSCPs = scps
+
+        GameData.data.detectedStaff = detectedMods
+    end
 end)
 
 for _, v in ipairs({"Antideath","Gravity","ESP","AntiFall","TriggerBot","AimAssist","BreadCrumbs","AutoClicker","ServerHop","NoClip","FPSBooster","FovChanger","AnimationPlayer","Speed","FastStop","Rejoin","Fly"}) do
@@ -500,7 +596,9 @@ runcode(function()
     local flyLinVel = nil
     local flyAttach = nil
 
-    local function createLinVel(hrp)
+    local FlyUtil = {}
+
+    FlyUtil.createLinVel = function(hrp)
         if flyLinVel and flyLinVel.Parent then return end
         flyAttach = Instance.new("Attachment")
         flyAttach.Parent = hrp
@@ -513,7 +611,7 @@ runcode(function()
         flyLinVel.Parent = hrp
     end
 
-    local function cleanupLinVel()
+    FlyUtil.cleanupLinVel = function()
         if flyLinVel then flyLinVel:Destroy() flyLinVel = nil end
         if flyAttach then flyAttach:Destroy() flyAttach = nil end
     end
@@ -530,7 +628,7 @@ runcode(function()
                     local hum = char and char:FindFirstChildOfClass("Humanoid")
                     if not hrp or not hum or hum.Health <= 0 then return end
 
-                    createLinVel(hrp)
+                    FlyUtil.createLinVel(hrp)
 
                     i = i + (dt * 4)
                     local moveDir = hum.MoveDirection
@@ -553,7 +651,7 @@ runcode(function()
                 end)
             else
                 RunLoops:UnbindFromHeartbeat("Fly")
-                cleanupLinVel()
+                FlyUtil.cleanupLinVel()
                 local char = lplr.Character
                 local hum = char and char:FindFirstChildOfClass("Humanoid")
                 if hum then hum:ChangeState(Enum.HumanoidStateType.GettingUp) end
@@ -779,7 +877,7 @@ runcode(function()
     local lastSwitchFlip = 0
     local predTrackers = {}
 
-    local function canTarget(plr)
+    local canTarget = function(plr)
         local char = plr.Character
         if not char then return false end
         if char:HasTag("TutorialImmunity") and not char:HasTag("Infected") then return false end
@@ -808,10 +906,12 @@ runcode(function()
         return true
     end
 
+    local SAUtil = {}
+
     local visParams = RaycastParams.new()
     visParams.FilterType = Enum.RaycastFilterType.Exclude
 
-    local function isVisible(targetPart)
+    SAUtil.isVisible = function(targetPart)
         local char = lplr.Character
         if not char then return true end
         local origin = Camera.CFrame.Position
@@ -832,7 +932,7 @@ runcode(function()
         return false
     end
 
-    local function isTargetAlly(t)
+    SAUtil.isTargetAlly = function(t)
         if not t or not t.Parent then return false end
         for _, p in ipairs(Players:GetPlayers()) do
             if p ~= lplr and p.Character and t:IsDescendantOf(p.Character) then
@@ -903,7 +1003,7 @@ runcode(function()
             end
             if not pickedPart then return end
 
-            if SAWallCheck.Enabled and not isVisible(pickedPart) then
+            if SAWallCheck.Enabled and not SAUtil.isVisible(pickedPart) then
                 if SAWallbang.Enabled then
                     if SAWallbangRegion.Enabled then
                         local wbMax = (SAWallbangDist and SAWallbangDist.Value) or 120
@@ -913,7 +1013,7 @@ runcode(function()
                     local fallback, bestDist = nil, math.huge
                     for _, p in ipairs(pChar:GetChildren()) do
                         if not p:IsA("BasePart") then continue end
-                        if not isVisible(p) then continue end
+                        if not SAUtil.isVisible(p) then continue end
                         local sp, onSc = Camera:WorldToViewportPoint(p.Position)
                         if not onSc then continue end
                         local d = (Vector2.new(sp.X, sp.Y) - center).Magnitude
@@ -1128,7 +1228,7 @@ runcode(function()
                         local tool = char and char:FindFirstChildOfClass("Tool")
                         local hasTool = tool and tool:FindFirstChild("CurrentAmmo")
                         if SilentAim.Enabled and hasTool and target and direction.Magnitude >= 2000 then
-                            if not isTargetAlly(target) then
+                            if not SAUtil.isTargetAlly(target) then
                                 local hitChance = (SAHitChance and SAHitChance.Value) or 100
                                 if math.random(100) <= hitChance then
                                     local hitPos = target.Position
@@ -1210,7 +1310,7 @@ runcode(function()
                                 if hitInst and dist <= wbMax then
                                     local parentHum = hitInst.Parent and hitInst.Parent:FindFirstChildOfClass("Humanoid")
                                     if not parentHum then
-                                        if not isTargetAlly(target) and not isSpawnKill(target.Parent) and not ownBase() and not shooterInVent then
+                                        if not SAUtil.isTargetAlly(target) and not isSpawnKill(target.Parent) and not ownBase() and not shooterInVent then
                                             local fakeHit = {
                                                 Instance = target,
                                                 Position = target.Position,
@@ -1583,7 +1683,9 @@ runcode(function()
     local CS = game:GetService("CollectionService")
     local STAFF_KW = {"staff", "mod", "admin", "moderator", "srmod"}
 
-    local function hasKW(str)
+    local StaffUtil = {}
+
+    StaffUtil.hasKW = function(str)
         local s = string.lower(tostring(str))
         for _, kw in ipairs(STAFF_KW) do
             if s:find(kw, 1, true) then return true end
@@ -1591,7 +1693,7 @@ runcode(function()
         return false
     end
 
-    local function getStaffLabel(attrRank)
+    StaffUtil.getStaffLabel = function(attrRank)
         if attrRank >= 253 then return "Dev"
         elseif attrRank >= 249 then return "Mod"
         elseif attrRank >= 248 then return "Staff"
@@ -1599,18 +1701,18 @@ runcode(function()
         return nil
     end
 
-    local function detectStaff(plr)
+    StaffUtil.detectStaff = function(plr)
         local attrRank = plr:GetAttribute("GroupRank") or 0
-        local lbl = getStaffLabel(attrRank)
+        local lbl = StaffUtil.getStaffLabel(attrRank)
         if lbl then return lbl, "GroupRank:" .. attrRank end
 
         for _, tag in ipairs(CS:GetTags(plr)) do
-            if hasKW(tag) then return "Staff", "PlayerTag:" .. tag end
+            if StaffUtil.hasKW(tag) then return "Staff", "PlayerTag:" .. tag end
         end
 
         if plr.Character then
             for _, tag in ipairs(CS:GetTags(plr.Character)) do
-                if hasKW(tag) then return "Staff", "CharTag:" .. tag end
+                if StaffUtil.hasKW(tag) then return "Staff", "CharTag:" .. tag end
             end
         end
 
@@ -1618,7 +1720,7 @@ runcode(function()
             local hrp = plr.Character:FindFirstChild("HumanoidRootPart")
             if hrp then
                 for _, d in ipairs(hrp:GetDescendants()) do
-                    if (d:IsA("TextLabel") or d:IsA("TextButton")) and hasKW(d.Text) then
+                    if (d:IsA("TextLabel") or d:IsA("TextButton")) and StaffUtil.hasKW(d.Text) then
                         return "Staff", "OverheadGUI:" .. d.Text
                     end
                 end
@@ -1628,14 +1730,16 @@ runcode(function()
         return nil
     end
 
-    local function checkPlayer(plr)
+    StaffUtil.checkPlayer = function(plr)
         if plr == lplr then return end
-        local lbl, method = detectStaff(plr)
+        local lbl, method = StaffUtil.detectStaff(plr)
         if lbl and not knownStaff[plr] then
             knownStaff[plr] = lbl
             detectedMods[plr] = lbl
+            GameData.data.detectedStaff = detectedMods
+            if GameData.changed then GameData.changed("detectedStaff", detectedMods) end
             local team = plr.Team and plr.Team.Name or "No Team"
-            UI.toast("Staff Detected", "[" .. lbl .. "] " .. plr.Name .. " â€” " .. team .. " (" .. method .. ")", 20)
+            UI.toast("Staff Detected", "[" .. lbl .. "] " .. plr.Name .. " - " .. team .. " (" .. method .. ")", 20)
         end
     end
 
@@ -1646,12 +1750,12 @@ runcode(function()
                 knownStaff = {}
 
                 local function watchPlayer(plr)
-                    task.spawn(checkPlayer, plr)
+                    task.spawn(StaffUtil.checkPlayer, plr)
                     table.insert(sdConns, plr.CharacterAdded:Connect(function()
-                        task.spawn(checkPlayer, plr)
+                        task.spawn(StaffUtil.checkPlayer, plr)
                     end))
                     table.insert(sdConns, plr:GetAttributeChangedSignal("GroupRank"):Connect(function()
-                        task.spawn(checkPlayer, plr)
+                        task.spawn(StaffUtil.checkPlayer, plr)
                     end))
                 end
 
@@ -1672,7 +1776,7 @@ runcode(function()
                     if now - lastSDScan < 1 then return end
                     lastSDScan = now
                     for _, plr in ipairs(Players:GetPlayers()) do
-                        task.spawn(checkPlayer, plr)
+                        task.spawn(StaffUtil.checkPlayer, plr)
                     end
                 end)
             else
@@ -2893,7 +2997,9 @@ runcode(function()
     local drawLines = {}
     local drawLabels = {}
 
-    local function allocPool()
+    local TracersPool = {}
+
+    TracersPool.alloc = function()
         for j = 1, POOL do
             if not drawLines[j] then
                 local ln = Drawing.new("Line")
@@ -2916,7 +3022,7 @@ runcode(function()
         end
     end
 
-    local function freePool()
+    TracersPool.free = function()
         for j = 1, #drawLines do drawLines[j]:Remove() end
         for j = 1, #drawLabels do drawLabels[j]:Remove() end
         drawLines = {}
@@ -2927,7 +3033,7 @@ runcode(function()
         Name = "Tracers",
         Function = function(enabled)
             if enabled then
-                allocPool()
+                TracersPool.alloc()
                 RunLoops:BindToHeartbeat("Tracers", function()
                     local vp = Camera.ViewportSize
                     local origin = Vector2.new(vp.X / 2, vp.Y)
@@ -2981,7 +3087,7 @@ runcode(function()
                 end)
             else
                 RunLoops:UnbindFromHeartbeat("Tracers")
-                freePool()
+                TracersPool.free()
             end
         end
     })
@@ -3052,15 +3158,17 @@ runcode(function()
     local xrayConns = {}
     local xrayActive = false
 
-    local function isCharPart(part)
+    local XRayUtil = {}
+
+    XRayUtil.isCharPart = function(part)
         local model = part:FindFirstAncestorOfClass("Model")
         return model ~= nil and Players:GetPlayerFromCharacter(model) ~= nil
     end
 
-    local function applyPart(part)
+    XRayUtil.applyPart = function(part)
         if not xrayActive then return end
         if not part:IsA("BasePart") then return end
-        if isCharPart(part) then return end
+        if XRayUtil.isCharPart(part) then return end
         if xrayParts[part] then return end
         if part.Transparency >= 0.95 then return end
         local alpha = (XRayAlpha and XRayAlpha.Value) or 0.75
@@ -3068,7 +3176,7 @@ runcode(function()
         pcall(function() part.LocalTransparencyModifier = alpha end)
     end
 
-    local function restoreAll()
+    XRayUtil.restoreAll = function()
         xrayActive = false
         for part in pairs(xrayParts) do
             pcall(function() part.LocalTransparencyModifier = 0 end)
@@ -3082,7 +3190,7 @@ runcode(function()
             if enabled then
                 xrayActive = true
                 for _, part in ipairs(workspace:GetDescendants()) do
-                    applyPart(part)
+                    XRayUtil.applyPart(part)
                 end
                 table.insert(xrayConns, workspace.DescendantAdded:Connect(function(inst)
                     task.defer(applyPart, inst)
@@ -3093,7 +3201,7 @@ runcode(function()
             else
                 for _, c in ipairs(xrayConns) do c:Disconnect() end
                 table.clear(xrayConns)
-                restoreAll()
+                XRayUtil.restoreAll()
             end
         end
     })
