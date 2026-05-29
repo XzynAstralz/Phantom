@@ -20,9 +20,24 @@ local saShared = {}
 local clientPhasedParts = {}
 local detectedMods = {}
 
-local PLAYER_STATE = { ALIVE = 0, DEAD = 1 }
-local TEAM = { NONE = "None", FOUNDATION = "Foundation", DCLASS = "Class - D", CI = "Chaos Insurgency", SCP = "SCP" }
-local ZONE = { UNKNOWN = "Unknown", SURFACE = "Surface", FACILITY = "Facility", VENT = "Vent", RK_ZONE = "RK Zone" }
+local PLAYER_STATE = {
+    ALIVE = 0,
+    DEAD = 1,
+}
+local TEAM = {
+    NONE = "None",
+    FOUNDATION = "Foundation",
+    DCLASS = "Class - D",
+    CI = "Chaos Insurgency",
+    SCP = "SCP",
+}
+local ZONE = {
+    UNKNOWN = "Unknown",
+    SURFACE = "Surface",
+    FACILITY = "Facility",
+    VENT = "Vent",
+    RK_ZONE = "RK Zone",
+}
 
 local GameData = {
     changed = nil,
@@ -38,6 +53,13 @@ local GameData = {
         detectedStaff = {},
         equippedGun = nil,
         currentAmmo = nil,
+        ammoCount = nil,
+        magazineSize = nil,
+        isReloading = false,
+        fps = 0,
+        ping = nil,
+        nearbyEnemies = {},
+        nearbyAllies = {},
     }
 }
 
@@ -78,6 +100,81 @@ task.spawn(function()
     scprp.Remotes = {
         Interact = rem:WaitForChild("Interact"),
     }
+end)
+
+local Net = {}
+
+Net.isReady = function()
+    return scprp.Event ~= nil
+end
+
+Net.waitForEvent = function(timeout)
+    local t = tick()
+    repeat task.wait(0.5) until scprp.Event ~= nil or tick() - t > (timeout or 30)
+    return scprp.Event
+end
+
+Net.waitFor = function(getter, timeout)
+    local t = tick()
+    local v
+    repeat task.wait(0.1) v = getter() until v ~= nil or tick() - t > (timeout or 30)
+    return v
+end
+
+Net.FireServer = function(...)
+    if not scprp.Event then return end
+    pcall(scprp.Event.FireServer, scprp.Event, ...)
+end
+
+Net.CallServerAsync = function(eventType, model, delay)
+    task.delay(delay or 0.3, function()
+        Net.FireServer(eventType, model)
+    end)
+end
+
+Net.FireInteract = function(...)
+    if not scprp.Remotes or not scprp.Remotes.Interact then return end
+    pcall(scprp.Remotes.Interact.FireServer, scprp.Remotes.Interact, ...)
+end
+
+Net.onEvent = function(callback)
+    local event = Net.waitForEvent()
+    if not event then return function() end end
+    local conn = event.OnClientEvent:Connect(callback)
+    return function() conn:Disconnect() end
+end
+
+task.spawn(function()
+    local gunSettingsFolder = ReplicatedStorage:WaitForChild("GunSettings", 15)
+    if not gunSettingsFolder then return end
+
+    local lastGun = nil
+    while true do
+        task.wait(0.5)
+        local char = lplr.Character
+        local equip = char and char:FindFirstChildOfClass("Tool")
+        local gunName = equip and equip.Name
+
+        if gunName ~= lastGun then
+            lastGun = gunName
+            if gunName then
+                local settingsModule = gunSettingsFolder:FindFirstChild(gunName)
+                if settingsModule then
+                    local ok, settings = pcall(require, settingsModule)
+                    if ok and type(settings) == "table" then
+                        gunData = settings
+                        GameData.data.magazineSize = settings.Clip
+                        if GameData.changed then
+                            GameData.changed("gunData", settings)
+                        end
+                    end
+                end
+            else
+                gunData = nil
+                GameData.data.magazineSize = nil
+            end
+        end
+    end
 end)
 
 task.spawn(function()
@@ -155,6 +252,121 @@ task.spawn(function()
     end
 end)
 
+task.spawn(function()
+    local t = tick()
+    repeat task.wait(0.5) until controllerEnv.Reload ~= nil or tick() - t > 30
+
+    if controllerEnv.Reload then
+        local origReload = controllerEnv.Reload
+        controllerEnv.Reload = newcclosure(function(...)
+            GameData.data.isReloading = true
+            if GameData.changed then GameData.changed("isReloading", true) end
+            local r = origReload(...)
+            GameData.data.isReloading = false
+            if GameData.changed then GameData.changed("isReloading", false) end
+            return r
+        end)
+    end
+
+    while true do
+        task.wait(0.1)
+        local char = lplr.Character
+        local equip = char and char:FindFirstChildOfClass("Tool")
+        if equip then
+            local ammoObj = equip:FindFirstChild("CurrentAmmo")
+            local maxObj = equip:FindFirstChild("MaxAmmo") or equip:FindFirstChild("MagazineSize")
+            local prev = GameData.data.ammoCount
+            GameData.data.ammoCount = ammoObj and ammoObj.Value or nil
+            GameData.data.magazineSize = maxObj and maxObj.Value or nil
+            if GameData.data.ammoCount ~= prev and GameData.changed then
+                GameData.changed("ammoCount", GameData.data.ammoCount)
+            end
+        else
+            GameData.data.ammoCount = nil
+            GameData.data.magazineSize = nil
+            GameData.data.isReloading = false
+        end
+    end
+end)
+
+task.spawn(function()
+    local RunService = game:GetService("RunService")
+    local Stats = game:GetService("Stats")
+    local SAMPLE_SIZE = 30
+    local dtSamples = {}
+
+    table.insert(GameData.connections, RunService.Heartbeat:Connect(function(dt)
+        dtSamples[#dtSamples + 1] = dt
+        if #dtSamples > SAMPLE_SIZE then table.remove(dtSamples, 1) end
+    end))
+
+    local t = tick()
+    repeat task.wait(0.5) until regionUtil ~= nil or tick() - t > 30
+
+    while true do
+        task.wait(2)
+
+        if #dtSamples > 0 then
+            local sum = 0
+            for _, v in ipairs(dtSamples) do sum = sum + v end
+            GameData.data.fps = math.round(1 / (sum / #dtSamples))
+        end
+
+        local okP, ping = pcall(function()
+            return Stats.Network.ServerStatsItem["Data Ping"].Value
+        end)
+        GameData.data.ping = okP and math.round(ping) or nil
+
+        if GameData.changed then
+            GameData.changed("performance", {
+                fps = GameData.data.fps,
+                ping = GameData.data.ping,
+            })
+        end
+
+        local char = lplr.Character
+        local hrp = char and char:FindFirstChild("HumanoidRootPart")
+        if hrp then
+            local nearbyEnemies = {}
+            local nearbyAllies = {}
+            local myTeam = lplr.Team and lplr.Team.Name
+
+            for _, plr in ipairs(Players:GetPlayers()) do
+                if plr == lplr then continue end
+                local pChar = plr.Character
+                local pHRP = pChar and pChar:FindFirstChild("HumanoidRootPart")
+                if not pHRP then continue end
+                local dist = (hrp.Position - pHRP.Position).Magnitude
+                if dist > 60 then continue end
+                local hum = pChar:FindFirstChildOfClass("Humanoid")
+                if not hum or hum.Health <= 0 then continue end
+                local entry = {
+                    name = plr.Name,
+                    dist = math.round(dist),
+                    team = plr.Team and plr.Team.Name or TEAM.NONE,
+                }
+                if plr.Team and plr.Team.Name == myTeam then
+                    nearbyAllies[#nearbyAllies + 1] = entry
+                else
+                    nearbyEnemies[#nearbyEnemies + 1] = entry
+                end
+            end
+
+            table.sort(nearbyEnemies, function(a, b) return a.dist < b.dist end)
+            table.sort(nearbyAllies, function(a, b) return a.dist < b.dist end)
+
+            GameData.data.nearbyEnemies = nearbyEnemies
+            GameData.data.nearbyAllies = nearbyAllies
+            if GameData.changed then
+                GameData.changed("proximity", {
+                    enemies = nearbyEnemies,
+                    allies = nearbyAllies,
+                })
+            end
+        end
+    end
+end)
+
 for _, v in ipairs({"Antideath","Gravity","ESP","AntiFall","TriggerBot","AimAssist","BreadCrumbs","AutoClicker","ServerHop","NoClip","FPSBooster","FovChanger","AnimationPlayer","Speed","FastStop","Rejoin","Fly"}) do
     UI.kit:deregister(v .. "Module")
 end
@@ -179,7 +391,7 @@ local function getSpawnZone(pos)
 end
 
 local isAlly, findGun, isSpawnKill, ownBase
-do 
+do
     isAlly = function(plr)
         local mt, tt = lplr.Team, plr.Team
         if not mt or not tt then return false end
@@ -393,10 +605,11 @@ runcode(function()
                 local CS = game:GetService("CollectionService")
 
                 local function fireEvent(name, model)
-                    local ev = scprp.Event
-                    if not ev then return end
-                    pcall(function() ev:FireServer(name, model) end)
-                    pcall(function() ev:FireServer(name, { model = model, object = model }) end)
+                    Net.FireServer(name, model)
+                    Net.FireServer(name, {
+                        model = model,
+                        object = model,
+                    })
                 end
 
                 local acControls = nil
@@ -554,31 +767,23 @@ runcode(function()
         Name = "AutoReload",
         Function = function(enabled)
             if enabled then
-                local getUpvals = debug.getupvalues or getupvalues
                 local lastAttempt = 0
                 local lastTool = nil
-                local toolWasGone = false
                 RunLoops:BindToHeartbeat("AutoReload", function()
                     local char = lplr.Character
                     if not char then return end
                     local tool = char:FindFirstChildOfClass("Tool")
-                    if not tool then
-                        if lastTool then toolWasGone = true end
-                        lastTool = nil
-                        return
-                    end
-                    if not tool:FindFirstChild("CurrentAmmo") then return end
-                    if tool ~= lastTool or toolWasGone then
+                    if not tool then lastTool = nil return end
+                    local ammoObj = tool:FindFirstChild("CurrentAmmo")
+                    if not ammoObj then return end
+                    if tool ~= lastTool then
                         lastTool = tool
-                        lastAttempt = 0
-                        toolWasGone = false
+                        lastAttempt = tick() + 0.3
                     end
-                    local ok, uvs = pcall(getUpvals, controllerEnv.Reload)
-                    local gunData = ok and uvs and uvs[1]
-                    if not gunData or gunData.CurrentAmmo > 0 then return end
-                    if tick() - lastAttempt >= 1.5 then
-                        lastAttempt = tick()
-                        local rok, rerr = pcall(controllerEnv.Reload)
+                    if ammoObj.Value > 0 then return end
+                    if tick() >= lastAttempt then
+                        lastAttempt = tick() + 1.5
+                        pcall(controllerEnv.Reload)
                     end
                 end)
             else
@@ -750,6 +955,10 @@ runcode(function()
     local Sprint = {}
     local isCrouching = false
     local isAiming = false
+    local sprinting = false
+    local selfCalling = false
+    local equipCooldown = false
+    local origSetRun = nil
 
     task.spawn(function()
         local t = tick()
@@ -773,25 +982,72 @@ runcode(function()
         end)
     end)
 
+    local reAssertTime = 0
+
+    lplr.CharacterAdded:Connect(function()
+        sprinting = false
+    end)
+
     Sprint = GuiLibrary.Registry.combatPanel.API.CreateOptionsButton({
         Name = "Sprint",
         Function = function(enabled)
             if enabled then
+                sprinting = false
+                reAssertTime = 0
+
+                if controllerEnv.SetRun and not origSetRun then
+                    origSetRun = controllerEnv.SetRun
+                    controllerEnv.SetRun = newcclosure(function(val, ...)
+                        if not selfCalling then
+                            sprinting = false
+                            if not val then
+                                reAssertTime = tick() + 0.25
+                            end
+                        end
+                        return origSetRun(val, ...)
+                    end)
+                end
+
                 task.spawn(function()
-                    local prev = false
                     while Sprint.Enabled do
                         local char = lplr.Character
                         local hum = char and char:FindFirstChildOfClass("Humanoid")
-                        local shouldRun = hum and hum.Health > 0 and not isCrouching and not isAiming
+                        local shouldRun = hum and hum.Health > 0
+                            and not isCrouching
+                            and not isAiming
+                            and tick() >= reAssertTime
                             and hum.MoveDirection.Magnitude > 0
-                        if shouldRun ~= prev then
-                            prev = shouldRun
-                            pcall(controllerEnv.SetRun, shouldRun)
+
+                        if shouldRun and not sprinting then
+                            sprinting = true
+                            selfCalling = true
+                            pcall(origSetRun, true)
+                            selfCalling = false
+                        elseif not shouldRun and sprinting then
+                            sprinting = false
+                            selfCalling = true
+                            pcall(origSetRun, false)
+                            selfCalling = false
                         end
                         task.wait()
                     end
-                    pcall(controllerEnv.SetRun, false)
+
+                    sprinting = false
+                    selfCalling = true
+                    pcall(origSetRun or controllerEnv.SetRun, false)
+                    selfCalling = false
+                    if origSetRun then
+                        controllerEnv.SetRun = origSetRun
+                        origSetRun = nil
+                    end
                 end)
+            else
+                sprinting = false
+                if origSetRun then
+                    controllerEnv.SetRun = origSetRun
+                    origSetRun = nil
+                end
+                pcall(controllerEnv.SetRun, false)
             end
         end
     })
@@ -1277,7 +1533,11 @@ runcode(function()
                                             hitPos = hitPos + right * (math.cos(angle) * dist) + up * (math.sin(angle) * dist)
                                         end
                                     end
-                                    return { Position = hitPos, Instance = target, Normal = Vector3.new(0, 1, 0) }
+                                    return {
+                                        Position = hitPos,
+                                        Instance = target,
+                                        Normal = Vector3.new(0, 1, 0),
+                                    }
                                 end
                             end
                         end
@@ -1620,8 +1880,7 @@ runcode(function()
         Function = function(enabled)
             if enabled then
                 RunLoops:BindToHeartbeat("AutoDoors", function()
-                    local Interact = scprp.Remotes.Interact
-                    if not Interact then return end
+                    if not Net.isReady() then return end
                     local char = lplr.Character
                     local hrp = char and char:FindFirstChild("HumanoidRootPart")
                     if not hrp then return end
@@ -1649,7 +1908,7 @@ runcode(function()
                         if now - last < cdTime then continue end
                         doorCooldowns[door] = now
                         local target = door:GetAttribute("Allowed") and door or (door.Parent and door.Parent:GetAttribute("Allowed") and door.Parent) or door
-                        pcall(Interact.FireServer, Interact, target)
+                        Net.FireInteract(target)
                     end
                 end)
             else
@@ -3193,7 +3452,7 @@ runcode(function()
                     XRayUtil.applyPart(part)
                 end
                 table.insert(xrayConns, workspace.DescendantAdded:Connect(function(inst)
-                    task.defer(applyPart, inst)
+                    task.defer(XRayUtil.applyPart, inst)
                 end))
                 table.insert(xrayConns, workspace.DescendantRemoving:Connect(function(inst)
                     xrayParts[inst] = nil
@@ -3378,5 +3637,577 @@ runcode(function()
         Max = 500,
         Default = 60,
         Increment = 10,
+    })
+end)
+
+runcode(function()
+    local Lighting = game:GetService("Lighting")
+    local thermalCC = nil
+    local thermalBloom = nil
+    local thermalBillboards = {}
+    local thermalConns = {}
+
+    local ThermalBrightness = nil
+    local ThermalContrast = nil
+    local ThermalAmbient = nil
+    local ThermalIconSize = nil
+
+    local ThermalUtil = {}
+
+    ThermalUtil.getColor = function(plr)
+        if not plr then return Color3.fromRGB(0, 255, 100) end
+        local team = plr.Team and plr.Team.Name or ""
+        if team == "Class - D" then return Color3.fromRGB(255, 220, 50) end
+        if team == "Chaos Insurgency" then return Color3.fromRGB(50, 180, 255) end
+        if team == "SCP" then return Color3.fromRGB(0, 255, 100) end
+        return Color3.fromRGB(255, 80, 20)
+    end
+
+    ThermalUtil.addBillboard = function(char, color)
+        local hrp = char:FindFirstChild("HumanoidRootPart")
+        if not hrp then return end
+        local existing = hrp:FindFirstChild("PhantomThermal")
+        if existing then existing:Destroy() end
+        local bb = Instance.new("BillboardGui")
+        bb.Name = "PhantomThermal"
+        bb.AlwaysOnTop = true
+        bb.Size = UDim2.new(4, 0, 4, 0)
+        bb.AutoLocalize = false
+        local img = Instance.new("ImageLabel")
+        img.BackgroundTransparency = 1
+        img.Image = "rbxassetid://108052646597930"
+        img.ImageColor3 = color
+        img.Size = UDim2.new(1, 0, 1, 0)
+        img.Parent = bb
+        bb.Parent = hrp
+        thermalBillboards[hrp] = bb
+    end
+
+    ThermalUtil.rebuild = function()
+        for hrp, bb in pairs(thermalBillboards) do
+            pcall(function() bb:Destroy() end)
+        end
+        thermalBillboards = {}
+        for _, plr in ipairs(Players:GetPlayers()) do
+            if plr ~= lplr and plr.Character then
+                ThermalUtil.addBillboard(plr.Character, ThermalUtil.getColor(plr))
+            end
+        end
+        local scpFolder = workspace:FindFirstChild("SCPs")
+        if scpFolder then
+            for _, model in ipairs(scpFolder:GetChildren()) do
+                if model:FindFirstChild("HumanoidRootPart") then
+                    ThermalUtil.addBillboard(model, Color3.fromRGB(0, 255, 100))
+                end
+            end
+        end
+    end
+
+    ThermalUtil.applySettings = function()
+        if not thermalCC then return end
+        local brightness = (ThermalBrightness and ThermalBrightness.Value or 40) / 100
+        local contrast = (ThermalContrast and ThermalContrast.Value or 60) / 100
+        local ambient = math.floor(ThermalAmbient and ThermalAmbient.Value or 15)
+        local iconSize = ThermalIconSize and ThermalIconSize.Value or 4
+
+        thermalCC.Contrast = contrast
+        thermalCC.Brightness = 0
+        thermalCC.Saturation = -1
+        thermalCC.TintColor = Color3.fromRGB(20, 25, 45)
+
+        Lighting.Brightness = brightness
+        Lighting.Ambient = Color3.fromRGB(ambient, ambient, math.floor(ambient * 1.6))
+        Lighting.OutdoorAmbient = Color3.fromRGB(ambient, ambient, math.floor(ambient * 1.6))
+
+        if thermalBloom then
+            thermalBloom.Intensity = 0.8
+            thermalBloom.Size = 24
+            thermalBloom.Threshold = 0.85
+        end
+
+        for hrp, bb in pairs(thermalBillboards) do
+            if bb and bb.Parent then
+                bb.Size = UDim2.new(iconSize, 0, iconSize, 0)
+            end
+        end
+    end
+
+    ThermalUtil.enable = function()
+        thermalCC = Instance.new("ColorCorrectionEffect")
+        thermalCC.Name = "PhantomThermal"
+        thermalCC.Parent = Lighting
+
+        thermalBloom = Instance.new("BloomEffect")
+        thermalBloom.Name = "PhantomThermalBloom"
+        thermalBloom.Intensity = 0.8
+        thermalBloom.Size = 24
+        thermalBloom.Threshold = 0.85
+        thermalBloom.Parent = Lighting
+
+        ThermalUtil.rebuild()
+
+        local lastIconSize = -1
+        RunLoops:BindToHeartbeat("ThermalVision", function()
+            if thermalCC then
+                thermalCC.Contrast = (ThermalContrast and ThermalContrast.Value or 60) / 100
+                thermalCC.Brightness = 0
+                thermalCC.Saturation = -1
+                local brightness = (ThermalBrightness and ThermalBrightness.Value or 40) / 100
+                local ambient = math.floor(ThermalAmbient and ThermalAmbient.Value or 15)
+                Lighting.Brightness = brightness
+                Lighting.Ambient = Color3.fromRGB(ambient, ambient, math.floor(ambient * 1.6))
+                Lighting.OutdoorAmbient = Color3.fromRGB(ambient, ambient, math.floor(ambient * 1.6))
+            end
+            local iconSize = ThermalIconSize and ThermalIconSize.Value or 4
+            if iconSize ~= lastIconSize then
+                lastIconSize = iconSize
+                for hrp, bb in pairs(thermalBillboards) do
+                    if bb and bb.Parent then
+                        bb.Size = UDim2.new(iconSize, 0, iconSize, 0)
+                    end
+                end
+            end
+            for hrp, bb in pairs(thermalBillboards) do
+                if not hrp.Parent or not bb.Parent then
+                    thermalBillboards[hrp] = nil
+                end
+            end
+        end)
+
+        for _, plr in ipairs(Players:GetPlayers()) do
+            table.insert(thermalConns, plr.CharacterAdded:Connect(function(char)
+                task.wait(0.1)
+                ThermalUtil.addBillboard(char, ThermalUtil.getColor(plr))
+            end))
+        end
+        table.insert(thermalConns, Players.PlayerAdded:Connect(function(plr)
+            table.insert(thermalConns, plr.CharacterAdded:Connect(function(char)
+                task.wait(0.1)
+                ThermalUtil.addBillboard(char, ThermalUtil.getColor(plr))
+            end))
+        end))
+    end
+
+    ThermalUtil.disable = function()
+        RunLoops:UnbindFromHeartbeat("ThermalVision")
+        if thermalCC then thermalCC:Destroy() thermalCC = nil end
+        if thermalBloom then thermalBloom:Destroy() thermalBloom = nil end
+        for _, c in ipairs(thermalConns) do pcall(function() c:Disconnect() end) end
+        thermalConns = {}
+        for hrp, bb in pairs(thermalBillboards) do
+            pcall(function() bb:Destroy() end)
+        end
+        thermalBillboards = {}
+        Lighting.Brightness = 1
+        Lighting.Ambient = Color3.fromRGB(100, 100, 100)
+        Lighting.OutdoorAmbient = Color3.fromRGB(127, 127, 127)
+    end
+
+    local ThermalVision = GuiLibrary.Registry.renderPanel.API.CreateOptionsButton({
+        Name = "ThermalVision",
+        Function = function(enabled)
+            if enabled then
+                ThermalUtil.enable()
+            else
+                ThermalUtil.disable()
+            end
+        end
+    })
+
+    ThermalBrightness = ThermalVision.CreateSlider({
+        Name = "Brightness",
+        Min = 0,
+        Max = 100,
+        Default = 40,
+        Increment = 5,
+    })
+    ThermalContrast = ThermalVision.CreateSlider({
+        Name = "Contrast",
+        Min = 0,
+        Max = 100,
+        Default = 60,
+        Increment = 5,
+    })
+    ThermalAmbient = ThermalVision.CreateSlider({
+        Name = "Ambient",
+        Min = 0,
+        Max = 80,
+        Default = 15,
+        Increment = 5,
+    })
+    ThermalIconSize = ThermalVision.CreateSlider({
+        Name = "IconSize",
+        Min = 1,
+        Max = 10,
+        Default = 4,
+        Increment = 1,
+    })
+end)
+
+runcode(function()
+    local autoConns = {}
+
+    local AutoMinigame = GuiLibrary.Registry.utillityPanel.API.CreateOptionsButton({
+        Name = "AutoMinigame",
+        Function = function(enabled)
+            if enabled then
+                table.insert(autoConns, Net.onEvent(function(eventName, model)
+                    if not AutoMinigame or not AutoMinigame.Enabled then return end
+                    if not model or not model.Parent then return end
+
+                    if eventName == "Timing" then
+                        Net.CallServerAsync("Breakable Door", model, 0.3)
+
+                    elseif eventName == "Electrical Box" then
+                        Net.CallServerAsync(model.Name, model, 0.5)
+
+                    elseif eventName == "Keypad" then
+                        local doorModel = model.Parent and model.Parent.Parent
+                        if not doorModel then return end
+                        local code = doorModel:GetAttribute("Code")
+                            or doorModel:GetAttribute("Password")
+                            or doorModel:GetAttribute("KeypadCode")
+                        if code then
+                            Net.CallServerAsync("Bunker Door 2", tostring(code), 0.3)
+                        end
+                    end
+                end))
+            else
+                for _, c in ipairs(autoConns) do pcall(c) end
+                autoConns = {}
+            end
+        end
+    })
+end)
+
+runcode(function()
+    local chamHighlights = {}
+    local chamConns = {}
+    local ChamFill = nil
+    local ChamOutline = nil
+    local ChamDepth = nil
+    local ChamTeamCheck = nil
+    local ChamSCPs = nil
+    local ChamPulse = nil
+    local pulseT = 0
+
+    local TEAM_COLORS = {
+        ["Class - D"] = Color3.fromRGB(255, 140, 0),
+        ["Chaos Insurgency"] = Color3.fromRGB(0, 140, 255),
+        ["SCP"] = Color3.fromRGB(255, 50, 200),
+    }
+    local DEFAULT_COLOR = Color3.fromRGB(220, 50, 50)
+    local SCP_COLOR = Color3.fromRGB(255, 50, 200)
+
+    local ChamUtil = {}
+
+    ChamUtil.getColor = function(plr)
+        if not plr then return SCP_COLOR end
+        local team = plr.Team and plr.Team.Name or ""
+        return TEAM_COLORS[team] or DEFAULT_COLOR
+    end
+
+    ChamUtil.add = function(char, color, ally)
+        if not char then return end
+        if ally and not (ChamTeamCheck and ChamTeamCheck.Enabled) then return end
+        local existing = char:FindFirstChild("PhantomCham")
+        if existing then existing:Destroy() end
+        local depth = (ChamDepth and ChamDepth.Value == "Occluded")
+            and Enum.HighlightDepthMode.Occluded
+            or Enum.HighlightDepthMode.AlwaysOnTop
+        local hl = Instance.new("Highlight")
+        hl.Name = "PhantomCham"
+        hl.FillColor = color
+        hl.OutlineColor = Color3.new(1, 1, 1)
+        hl.FillTransparency = 0.4
+        hl.OutlineTransparency = 0
+        hl.DepthMode = depth
+        hl.Parent = char
+        chamHighlights[char] = hl
+    end
+
+    ChamUtil.rebuild = function()
+        for _, hl in pairs(chamHighlights) do pcall(function() hl:Destroy() end) end
+        chamHighlights = {}
+        for _, plr in ipairs(Players:GetPlayers()) do
+            if plr ~= lplr and plr.Character then
+                local ally = isAlly and isAlly(plr)
+                ChamUtil.add(plr.Character, ChamUtil.getColor(plr), ally)
+            end
+        end
+        if ChamSCPs and ChamSCPs.Enabled then
+            local scpFolder = workspace:FindFirstChild("SCPs")
+            if scpFolder then
+                for _, model in ipairs(scpFolder:GetChildren()) do
+                    if model:FindFirstChild("HumanoidRootPart") then
+                        ChamUtil.add(model, SCP_COLOR, false)
+                    end
+                end
+            end
+        end
+    end
+
+    local Chams = GuiLibrary.Registry.renderPanel.API.CreateOptionsButton({
+        Name = "Chams",
+        Function = function(enabled)
+            if enabled then
+                ChamUtil.rebuild()
+                for _, plr in ipairs(Players:GetPlayers()) do
+                    table.insert(chamConns, plr.CharacterAdded:Connect(function(char)
+                        task.wait(0.1)
+                        ChamUtil.add(char, ChamUtil.getColor(plr), isAlly and isAlly(plr))
+                    end))
+                end
+                table.insert(chamConns, Players.PlayerAdded:Connect(function(plr)
+                    table.insert(chamConns, plr.CharacterAdded:Connect(function(char)
+                        task.wait(0.1)
+                        ChamUtil.add(char, ChamUtil.getColor(plr), isAlly and isAlly(plr))
+                    end))
+                end))
+                local lastTeamCheck = nil
+                local lastSCPs = nil
+                RunLoops:BindToHeartbeat("Chams", function(dt)
+                    local teamCheck = ChamTeamCheck and ChamTeamCheck.Enabled
+                    local showSCPs = ChamSCPs and ChamSCPs.Enabled
+                    if teamCheck ~= lastTeamCheck or showSCPs ~= lastSCPs then
+                        lastTeamCheck = teamCheck
+                        lastSCPs = showSCPs
+                        ChamUtil.rebuild()
+                    end
+                    local fill = (ChamFill and ChamFill.Value or 4) / 10
+                    local outline = (ChamOutline and ChamOutline.Value or 0) / 10
+                    local depth = (ChamDepth and ChamDepth.Value == "Occluded")
+                        and Enum.HighlightDepthMode.Occluded
+                        or Enum.HighlightDepthMode.AlwaysOnTop
+                    if ChamPulse and ChamPulse.Enabled then
+                        pulseT = pulseT + (dt or 0.016)
+                        fill = math.abs(math.sin(pulseT * 2)) * fill
+                    end
+                    for char, hl in pairs(chamHighlights) do
+                        if not char.Parent or not hl.Parent then
+                            chamHighlights[char] = nil
+                        else
+                            hl.FillTransparency = fill
+                            hl.OutlineTransparency = outline
+                            hl.DepthMode = depth
+                        end
+                    end
+                end)
+            else
+                RunLoops:UnbindFromHeartbeat("Chams")
+                for _, c in ipairs(chamConns) do pcall(function() c:Disconnect() end) end
+                chamConns = {}
+                for _, hl in pairs(chamHighlights) do pcall(function() hl:Destroy() end) end
+                chamHighlights = {}
+            end
+        end
+    })
+
+    ChamDepth = Chams.CreateDropdown({
+        Name = "Depth",
+        List = {"AlwaysOnTop", "Occluded"},
+        Default = "AlwaysOnTop",
+    })
+    ChamFill = Chams.CreateSlider({
+        Name = "Fill",
+        Min = 0,
+        Max = 10,
+        Default = 4,
+        Increment = 1,
+    })
+    ChamOutline = Chams.CreateSlider({
+        Name = "Outline",
+        Min = 0,
+        Max = 10,
+        Default = 0,
+        Increment = 1,
+    })
+    ChamTeamCheck = Chams.CreateToggle({
+        Name = "TeamCheck",
+        Default = true,
+    })
+    ChamSCPs = Chams.CreateToggle({
+        Name = "SCPs",
+        Default = true,
+    })
+    ChamPulse = Chams.CreateToggle({
+        Name = "Pulse",
+        Default = false,
+    })
+end)
+
+runcode(function()
+    local CrosshairStyle = nil
+    local CrosshairGap = nil
+    local CrosshairLength = nil
+    local CrosshairThickness = nil
+    local CrosshairSize = nil
+
+    local function newLine(z)
+        local l = Drawing.new("Line")
+        l.Color = Color3.new(1,1,1); l.Thickness = 2
+        l.Transparency = 1; l.Visible = false; l.ZIndex = z or 5
+        return l
+    end
+    local function newCircle(z)
+        local c = Drawing.new("Circle")
+        c.Color = Color3.new(1,1,1); c.Thickness = 1.5
+        c.Filled = false; c.Visible = false; c.NumSides = 64; c.ZIndex = z or 5
+        return c
+    end
+    local function newDot(z)
+        local c = Drawing.new("Circle")
+        c.Color = Color3.new(1,1,1); c.Thickness = 0
+        c.Filled = true; c.Visible = false; c.NumSides = 32; c.ZIndex = z or 5
+        return c
+    end
+
+    local W = {} for i=1,8 do W[i]=newLine(5) end
+    local B = {} for i=1,8 do B[i]=newLine(4) end
+    local WC = {newCircle(5), newCircle(5)}
+    local BC = {newCircle(4), newCircle(4)}
+    local WD = {newDot(5)}
+    local BD = {newDot(4)}
+
+    local allDrawings = {}
+    for _,v in ipairs(W) do table.insert(allDrawings,v) end
+    for _,v in ipairs(B) do table.insert(allDrawings,v) end
+    for _,v in ipairs(WC) do table.insert(allDrawings,v) end
+    for _,v in ipairs(BC) do table.insert(allDrawings,v) end
+    for _,v in ipairs(WD) do table.insert(allDrawings,v) end
+    for _,v in ipairs(BD) do table.insert(allDrawings,v) end
+
+    local function hideAll()
+        for _,d in ipairs(allDrawings) do d.Visible = false end
+    end
+
+    local function setLine(w, b, from, to, thick, col)
+        col = col or Color3.new(1,1,1)
+        w.From=from; w.To=to; w.Thickness=thick; w.Color=col; w.Visible=true
+        b.From=from; b.To=to; b.Thickness=thick+2; b.Color=Color3.new(0,0,0); b.Visible=true
+    end
+
+    local STYLES = {
+        ["Cross"] = function(cx, cy, gap, len, thick)
+            setLine(W[1],B[1], Vector2.new(cx-gap-len,cy), Vector2.new(cx-gap,cy), thick)
+            setLine(W[2],B[2], Vector2.new(cx+gap,cy), Vector2.new(cx+gap+len,cy), thick)
+            setLine(W[3],B[3], Vector2.new(cx,cy-gap-len), Vector2.new(cx,cy-gap), thick)
+            setLine(W[4],B[4], Vector2.new(cx,cy+gap), Vector2.new(cx,cy+gap+len), thick)
+        end,
+        ["T-Cross"] = function(cx, cy, gap, len, thick)
+            setLine(W[1],B[1], Vector2.new(cx-gap-len,cy), Vector2.new(cx-gap,cy), thick)
+            setLine(W[2],B[2], Vector2.new(cx+gap,cy), Vector2.new(cx+gap+len,cy), thick)
+            setLine(W[3],B[3], Vector2.new(cx,cy+gap), Vector2.new(cx,cy+gap+len), thick)
+        end,
+        ["X"] = function(cx, cy, gap, len, thick)
+            local d = (gap+len) * 0.707
+            local g = gap * 0.707
+            setLine(W[1],B[1], Vector2.new(cx-d,cy-d), Vector2.new(cx-g,cy-g), thick)
+            setLine(W[2],B[2], Vector2.new(cx+g,cy+g), Vector2.new(cx+d,cy+d), thick)
+            setLine(W[3],B[3], Vector2.new(cx+d,cy-d), Vector2.new(cx+g,cy-g), thick)
+            setLine(W[4],B[4], Vector2.new(cx-g,cy+g), Vector2.new(cx-d,cy+d), thick)
+        end,
+        ["Dot"] = function(cx, cy, gap, len, thick, size)
+            WD[1].Position = Vector2.new(cx,cy); WD[1].Radius = size; WD[1].Color = Color3.new(1,1,1); WD[1].Visible=true
+            BD[1].Position = Vector2.new(cx,cy); BD[1].Radius = size+2; BD[1].Color = Color3.new(0,0,0); BD[1].Visible=true
+        end,
+        ["Circle"] = function(cx, cy, gap, len, thick, size)
+            WC[1].Position=Vector2.new(cx,cy); WC[1].Radius=size; WC[1].Thickness=thick; WC[1].Visible=true
+            BC[1].Position=Vector2.new(cx,cy); BC[1].Radius=size+2; BC[1].Thickness=thick+2; BC[1].Color=Color3.new(0,0,0); BC[1].Visible=true
+        end,
+        ["CircleDot"] = function(cx, cy, gap, len, thick, size)
+            WC[1].Position=Vector2.new(cx,cy); WC[1].Radius=size; WC[1].Thickness=thick; WC[1].Visible=true
+            BC[1].Position=Vector2.new(cx,cy); BC[1].Radius=size+2; BC[1].Thickness=thick+2; BC[1].Color=Color3.new(0,0,0); BC[1].Visible=true
+            WD[1].Position=Vector2.new(cx,cy); WD[1].Radius=2; WD[1].Color=Color3.new(1,1,1); WD[1].Visible=true
+            BD[1].Position=Vector2.new(cx,cy); BD[1].Radius=4; BD[1].Color=Color3.new(0,0,0); BD[1].Visible=true
+        end,
+        ["Bracket"] = function(cx, cy, gap, len, thick)
+            local blen = len * 0.5
+            setLine(W[1],B[1], Vector2.new(cx-gap-len,cy-gap), Vector2.new(cx-gap-len+blen,cy-gap), thick)
+            setLine(W[2],B[2], Vector2.new(cx-gap-len,cy-gap), Vector2.new(cx-gap-len,cy-gap+blen), thick)
+            setLine(W[3],B[3], Vector2.new(cx+gap+len,cy-gap), Vector2.new(cx+gap+len-blen,cy-gap), thick)
+            setLine(W[4],B[4], Vector2.new(cx+gap+len,cy-gap), Vector2.new(cx+gap+len,cy-gap+blen), thick)
+            setLine(W[5],B[5], Vector2.new(cx-gap-len,cy+gap), Vector2.new(cx-gap-len+blen,cy+gap), thick)
+            setLine(W[6],B[6], Vector2.new(cx-gap-len,cy+gap), Vector2.new(cx-gap-len,cy+gap-blen), thick)
+            setLine(W[7],B[7], Vector2.new(cx+gap+len,cy+gap), Vector2.new(cx+gap+len-blen,cy+gap), thick)
+            setLine(W[8],B[8], Vector2.new(cx+gap+len,cy+gap), Vector2.new(cx+gap+len,cy+gap-blen), thick)
+        end,
+        ["Sniper"] = function(cx, cy, gap, len, thick, size)
+            setLine(W[1],B[1], Vector2.new(cx-gap-len*2,cy), Vector2.new(cx-gap,cy), 1)
+            setLine(W[2],B[2], Vector2.new(cx+gap,cy), Vector2.new(cx+gap+len*2,cy), 1)
+            setLine(W[3],B[3], Vector2.new(cx,cy-gap-len*2), Vector2.new(cx,cy-gap), 1)
+            setLine(W[4],B[4], Vector2.new(cx,cy+gap), Vector2.new(cx,cy+gap+len*2), 1)
+            WD[1].Position=Vector2.new(cx,cy); WD[1].Radius=2; WD[1].Color=Color3.new(1,1,1); WD[1].Visible=true
+            BD[1].Position=Vector2.new(cx,cy); BD[1].Radius=4; BD[1].Color=Color3.new(0,0,0); BD[1].Visible=true
+        end,
+        ["CrossDot"] = function(cx, cy, gap, len, thick, size)
+            setLine(W[1],B[1], Vector2.new(cx-gap-len,cy), Vector2.new(cx-gap,cy), thick)
+            setLine(W[2],B[2], Vector2.new(cx+gap,cy), Vector2.new(cx+gap+len,cy), thick)
+            setLine(W[3],B[3], Vector2.new(cx,cy-gap-len), Vector2.new(cx,cy-gap), thick)
+            setLine(W[4],B[4], Vector2.new(cx,cy+gap), Vector2.new(cx,cy+gap+len), thick)
+            WD[1].Position=Vector2.new(cx,cy); WD[1].Radius=size; WD[1].Color=Color3.new(1,1,1); WD[1].Visible=true
+            BD[1].Position=Vector2.new(cx,cy); BD[1].Radius=size+2; BD[1].Color=Color3.new(0,0,0); BD[1].Visible=true
+        end,
+    }
+
+    local Crosshair = GuiLibrary.Registry.renderPanel.API.CreateOptionsButton({
+        Name = "Crosshair",
+        Function = function(enabled)
+            hideAll()
+            if enabled then
+                RunLoops:BindToHeartbeat("Crosshair", function()
+                    local char = lplr.Character
+                    local equip = char and char:FindFirstChildOfClass("Tool")
+                    local hasGun = equip and equip:FindFirstChild("CurrentAmmo") ~= nil
+                    hideAll()
+                    if not hasGun then return end
+                    local vp = Camera.ViewportSize
+                    local cx, cy = vp.X / 2, vp.Y / 2
+                    local gap = CrosshairGap and CrosshairGap.Value or 6
+                    local len = CrosshairLength and CrosshairLength.Value or 10
+                    local thick = CrosshairThickness and CrosshairThickness.Value or 2
+                    local size = CrosshairSize and CrosshairSize.Value or 3
+                    local style = CrosshairStyle and CrosshairStyle.Value or "Cross"
+                    local fn = STYLES[style] or STYLES["Cross"]
+                    fn(cx, cy, gap, len, thick, size)
+                end)
+            else
+                RunLoops:UnbindFromHeartbeat("Crosshair")
+            end
+        end
+    })
+
+    CrosshairStyle = Crosshair.CreateDropdown({
+        Name = "Style",
+        List = {"Cross","CrossDot","T-Cross","X","Dot","Circle","CircleDot","Bracket","Sniper"},
+        Default = "Cross",
+    })
+    CrosshairGap = Crosshair.CreateSlider({
+        Name = "Gap",
+        Min = 0,
+        Max = 20,
+        Default = 6,
+        Increment = 1,
+    })
+    CrosshairLength = Crosshair.CreateSlider({
+        Name = "Length",
+        Min = 2,
+        Max = 40,
+        Default = 10,
+        Increment = 1,
+    })
+    CrosshairThickness = Crosshair.CreateSlider({
+        Name = "Thickness",
+        Min = 1,
+        Max = 6,
+        Default = 2,
+        Increment = 1,
+    })
+    CrosshairSize = Crosshair.CreateSlider({
+        Name = "DotSize",
+        Min = 1,
+        Max = 8,
+        Default = 3,
+        Increment = 1,
     })
 end)
