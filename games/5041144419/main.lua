@@ -3627,7 +3627,7 @@ runcode(function()
         Name = "LiftSpeed",
         Min = 10,
         Max = 500,
-        Default = 60,
+        Default = 40,
         Increment = 10,
     })
 
@@ -3635,7 +3635,7 @@ runcode(function()
         Name = "GlideSpeed",
         Min = 10,
         Max = 500,
-        Default = 60,
+        Default = 42,
         Increment = 10,
     })
 end)
