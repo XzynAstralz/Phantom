@@ -879,6 +879,7 @@ do
 end
 
 local Distance = {Value = 21}
+
 runcode(function()
     local Killaura = {}
     local FacePlayer = {}
@@ -904,37 +905,59 @@ runcode(function()
 
     local function stopController()
         if currentController then
-            currentController:Stop(true)
+            pcall(function()
+                currentController:Stop(true)
+            end)
             currentController = nil
         end
     end
 
-    -- changing this WILL BREAK aura okay? 
     local hookcont = function(swordName)
         local char = lplr.Character
         if not char then return nil end
-        local toolInstance = findToolInstance(swordName)
-        if not toolInstance then return nil end
 
-        if currentController and currentController.Name == swordName and currentController.Tool == toolInstance then
+        local toolInstance = findToolInstance(swordName)
+        if not toolInstance then
+            stopController()
+            return nil
+        end
+
+        if currentController
+            and currentController.Name == swordName
+            and currentController.Tool == toolInstance then
             return currentController
         end
 
         stopController()
 
         local captured = capturedControllers[toolInstance]
+
         if not captured then
             local toolName = getItemName(toolInstance) or swordName
             local byName = capturedControllers[toolName]
-            if byName and namesMatch(getItemName(byName.Tool), toolName) then
+
+            if byName
+                and byName.Tool == toolInstance
+                and namesMatch(getItemName(byName.Tool), toolName) then
                 captured = byName
             end
         end
-        if captured then
+
+        if captured and captured.Tool == toolInstance then
             currentController = captured
         else
             currentController = SwordController.new(toolInstance, char)
-            currentController:Run()
+
+            if currentController then
+                currentController:Run()
+
+                capturedControllers[toolInstance] = currentController
+
+                local toolName = getItemName(toolInstance)
+                if toolName then
+                    capturedControllers[toolName] = currentController
+                end
+            end
         end
 
         if not origGetHitWithBox then
@@ -947,70 +970,117 @@ runcode(function()
     Killaura = GuiLibrary.Registry.combatPanel.API.CreateOptionsButton({
         Name = "Killaura",
         Beta = true,
+
         Function = function(callback)
             if callback then
+
                 shieldConn = bedfight.modules.Signals.Shield:Connect(function()
                     shieldActive = true
-                    task.delay(0.35, function() shieldActive = false end)
+
+                    task.delay(0.35, function()
+                        shieldActive = false
+                    end)
                 end)
 
                 origSwordNew = SwordController.new
+
                 SwordController.new = function(tool, char, ...)
                     local ctrl = origSwordNew(tool, char, ...)
-                    if tool then
+
+                    if tool and ctrl then
                         capturedControllers[tool] = ctrl
+
                         local toolName = getItemName(tool)
+
                         if toolName then
                             capturedControllers[toolName] = ctrl
                         end
                     end
+
                     return ctrl
                 end
 
                 RunLoops:BindToHeartbeat("Killaura", function()
-                    if shieldActive then return end
+                    if shieldActive then
+                        return
+                    end
 
                     local isSpectator = not lplr.Team or lplr.Team.Name == "Spectators"
+
                     local nearest = PlayerUtility.GetNearestEntities(Distance.Value, TeamCheck.Enabled and not isSpectator, false)
+
                     if not nearest or #nearest == 0 then
                         data.Attacking, data.attackingEntity, currentTarget = false, nil, nil
-                        if currentController then currentController:Stop(true); currentController = nil end
+
+                        stopController()
                         revertitem()
+
                         return
                     end
 
                     local targetEntry = nearest[1]
                     local target = getEntityCharacter(targetEntry)
-                    if not target then revertitem() return end
-                    if target:GetAttribute("Forcefield") then return end
+
+                    if not target then
+                        revertitem()
+                        return
+                    end
+
+                    if target:GetAttribute("Forcefield") then
+                        return
+                    end
 
                     local humanoid = target:FindFirstChildOfClass("Humanoid")
                     local root = target:FindFirstChild("HumanoidRootPart")
-                    if not humanoid or not root or humanoid.Health <= 0 then revertitem() return end
+
+                    if not humanoid or not root or humanoid.Health <= 0 then
+                        revertitem()
+                        return
+                    end
 
                     swordtype = getsword()
-                    if not swordtype then revertitem() return end
-                    if ItemOnly.Enabled and getClientEquipped() ~= swordtype then return end
+
+                    if not swordtype then
+                        revertitem()
+                        return
+                    end
+
+                    if ItemOnly.Enabled
+                        and getClientEquipped() ~= swordtype then
+                        return
+                    end
+
                     local swordData = bedfight.modules.SwordsData[swordtype]
-                    if not swordData then return end
+
+                    if not swordData then
+                        return
+                    end
+
                     local ping = getPing()
 
                     local myRoot = lplr.Character and lplr.Character:FindFirstChild("HumanoidRootPart")
+
                     local myHum = lplr.Character and lplr.Character:FindFirstChildOfClass("Humanoid")
-                    if not myRoot or not myHum then revertitem() return end
+
+                    if not myRoot or not myHum then
+                        revertitem()
+                        return
+                    end
 
                     if FacePlayer.Enabled and not LongFly.Enabled then
                         local aimPos = root.Position + Vector3.new(root.AssemblyLinearVelocity.X, 0, root.AssemblyLinearVelocity.Z) * ping
                         myRoot.CFrame = CFrame.lookAt(myRoot.Position, Vector3.new(aimPos.X, myRoot.Position.Y, aimPos.Z))
                     end
 
-                    if data.projLastFire and (tick() - data.projLastFire) < 0.05 then return end
+                    if data.projLastFire
+                        and (tick() - data.projLastFire) < 0.05 then
+                        return
+                    end
 
                     data.Attacking = true
                     data.attackingEntity = target
 
-
-                    if SwingOnly.Enabled and not (UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1) or touching) then
+                    if SwingOnly.Enabled and not (UserInputService:IsMouseButtonPressed( Enum.UserInputType.MouseButton1) or touching) then
                         return
                     end
 
@@ -1018,35 +1088,71 @@ runcode(function()
 
                     switchitem(swordtype)
                     task.wait(0.03)
+
+                    local currentTool = currentController and currentController.Tool
+
+                    local actualTool = findToolInstance(swordtype)
+
+                    if currentTool ~= actualTool then
+                        stopController()
+                        currentController = nil
+                    end
+
                     local ctrl = hookcont(swordtype)
-                    if not ctrl then return end
+
+                    if not ctrl then
+                        return
+                    end
+
                     ctrl.CanAttack = true
+
                     SwordController.GetHitWithBox = function()
                         return buildSwordHitData(currentTarget)
                     end
+
                     ctrl:Activate()
+
                     SwordController.GetHitWithBox = origGetHitWithBox
-                    --if projFireAt then task.spawn(projFireAt, root, target) end
+
+                    -- if projFireAt then
+                    --     task.spawn(projFireAt, root, target)
+                    -- end
                 end)
+
             else
-                if shieldConn then shieldConn:Disconnect(); shieldConn = nil end
+
+                if shieldConn then
+                    shieldConn:Disconnect()
+                    shieldConn = nil
+                end
+
                 funcs:offExit("KA_CharConn")
+
                 shieldActive = false
                 currentTarget = nil
+
                 data.Attacking = false
                 data.attackingEntity = nil
+
                 stopController()
+
                 if origGetHitWithBox then
                     SwordController.GetHitWithBox = origGetHitWithBox
+
                     origGetHitWithBox = nil
                 end
+
                 if origSwordNew then
                     SwordController.new = origSwordNew
                     origSwordNew = nil
                 end
+
                 capturedControllers = {}
+
                 currentTarget = nil
+
                 revertitem()
+
                 RunLoops:UnbindFromHeartbeat("Killaura")
             end
         end
